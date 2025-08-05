@@ -39,6 +39,7 @@ import newsletterRoutes from "./routes/newsletterRoutes.js"
 
 
 import appRoutes from "./routes/appRoutes.js"
+import mobileApiRoutes from "./routes/mobileApiRoutes.js"
 
 
 
@@ -105,6 +106,7 @@ app.use("/api/newsletter", newsletterRoutes)
 
 // @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 app.use('/api/app', appRoutes)
+app.use('/api/mobile', mobileApiRoutes)
 
 // Health check route
 app.get("/", (req, res) => {
