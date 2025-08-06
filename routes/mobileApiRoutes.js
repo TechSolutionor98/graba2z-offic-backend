@@ -81,11 +81,23 @@ router.get("/products", async (req, res) => {
       })
     }
 
-    // Price range filter
+    // Price range filter - MODIFIED LOGIC
     if (minPrice || maxPrice) {
       const priceFilter = {}
-      if (minPrice) priceFilter.$gte = Number(minPrice)
-      if (maxPrice) priceFilter.$lte = Number(maxPrice)
+      const numMinPrice = Number(minPrice);
+      const numMaxPrice = Number(maxPrice);
+
+      // If min and max prices are provided, are valid numbers, and are identical,
+      // create a small range around them to account for floating point inaccuracies.
+      if (minPrice !== undefined && maxPrice !== undefined && !isNaN(numMinPrice) && !isNaN(numMaxPrice) && numMinPrice === numMaxPrice) {
+        const epsilon = 0.0001; // A small value to create a tiny range
+        priceFilter.$gte = numMinPrice - epsilon;
+        priceFilter.$lte = numMaxPrice + epsilon;
+      } else {
+        // Otherwise, apply the filters as usual
+        if (minPrice !== undefined && !isNaN(numMinPrice)) priceFilter.$gte = numMinPrice;
+        if (maxPrice !== undefined && !isNaN(numMaxPrice)) priceFilter.$lte = numMaxPrice;
+      }
       andConditions.push({ price: priceFilter })
     }
 
