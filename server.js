@@ -36,7 +36,7 @@ import newsletterRoutes from "./routes/newsletterRoutes.js"
 
 
 //@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-
+import productFeedRoutes from "./routes/productFeedRoutes.js"
 
 import appRoutes from "./routes/appRoutes.js"
 import mobileApiRoutes from "./routes/mobileApiRoutes.js"
@@ -103,7 +103,7 @@ app.use("/api/email-templates", emailTemplateRoutes)
 app.use("/api/newsletter", newsletterRoutes)
 
 
-
+app.use('/feed', productFeedRoutes);
 // @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 app.use('/api/app', appRoutes)
 app.use('/api/mobile', mobileApiRoutes)
