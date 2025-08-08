@@ -1274,43 +1274,28 @@ router.get("/admin", protect, admin, async (req, res) => {
 router.get(
   "/",
   asyncHandler(async (req, res) => {
-    const { category, subcategory, parentCategory, featured, search, limit, brand } = req.query
+    const { category, subcategory, parentCategory, featured, search, page = 1, limit = 20, brand } = req.query;
 
     const andConditions = [{ isActive: true }];
 
-    // Filter by category (ID only)
     if (category && category !== "all" && category.match(/^[0-9a-fA-F]{24}$/)) {
       andConditions.push({ category });
     }
-    // Filter by parentCategory (ID only, but only if subcategory is NOT present)
     if (!subcategory && parentCategory && parentCategory.match(/^[0-9a-fA-F]{24}$/)) {
       andConditions.push({ parentCategory });
     }
 
-    // Build $or conditions for subcategory and search
-    let orConditions = [];
+    // Subcategory filter
     if (subcategory && subcategory.match(/^[0-9a-fA-F]{24}$/)) {
-      orConditions.push({ category: subcategory }, { subCategory: subcategory });
-    }
-    if (typeof search === "string" && search.trim() !== "") {
-      const regex = new RegExp(search, "i");
-      // Find matching brands by name
-      const matchingBrands = await Brand.find({ name: regex }).select("_id");
-      const brandIds = matchingBrands.map(b => b._id);
-      orConditions.push(
-        { name: regex },
-        { description: regex },
-        { brand: { $in: brandIds } },
-        { sku: regex },         // Allow partial SKU match
-        { barcode: regex },     // Allow partial barcode match
-        { tags: regex }         // Allow partial tag match
-      );
-    }
-    if (orConditions.length > 0) {
-      andConditions.push({ $or: orConditions });
+      andConditions.push({ $or: [{ category: subcategory }, { subCategory: subcategory }] });
     }
 
-    // Filter by brand
+    // Search using text index
+    if (typeof search === "string" && search.trim()) {
+      andConditions.push({ $text: { $search: search.trim() } });
+    }
+
+    // Brand filter
     if (brand) {
       if (Array.isArray(brand)) {
         andConditions.push({ brand: { $in: brand } });
@@ -1319,32 +1304,25 @@ router.get(
       }
     }
 
-    // Filter by featured
+    // Featured filter
     if (featured === "true") {
       andConditions.push({ featured: true });
     }
 
-    // Build the final query
     const query = andConditions.length > 1 ? { $and: andConditions } : andConditions[0];
 
-    // Debug log for the query
-    console.log('Product filter query:', JSON.stringify(query));
-
-    let productsQuery = Product.find(query)
-      .populate("category", "name slug")
-      .populate("subCategory", "name slug")
+    const products = await Product.find(query, search ? { score: { $meta: "textScore" } } : {})
       .populate("brand", "name slug")
+      .populate("category", "name slug")
       .populate("parentCategory", "name slug")
+      .skip((page - 1) * parseInt(limit))
+      .limit(parseInt(limit))
+      .sort(search ? { score: { $meta: "textScore" } } : { createdAt: -1 })
+      .lean();
 
-    // Apply limit if specified
-    if (limit) {
-      productsQuery = productsQuery.limit(Number.parseInt(limit));
-    }
-
-    const products = await productsQuery.sort({ createdAt: -1 });
     res.json(products);
-  }),
-)
+  })
+);
 
 // @desc    Fetch products by SKU array
 // @route   POST /api/products/by-skus
