@@ -1,4 +1,5 @@
-import mongoose from "mongoose";
+
+import mongoose from "mongoose"
 
 const productSchema = mongoose.Schema(
   {
@@ -175,21 +176,8 @@ const productSchema = mongoose.Schema(
   {
     timestamps: true,
   },
-);
+)
 
-// Add indexes for performance
-productSchema.index({ name: "text", description: "text", tags: "text" }); // For full-text search
-productSchema.index({ slug: 1 }, { unique: true, sparse: true });
-productSchema.index({ sku: 1 }, { unique: true, sparse: true });
-productSchema.index({ barcode: 1 }, { unique: true, sparse: true });
-productSchema.index({ parentCategory: 1 });
-productSchema.index({ category: 1 });
-productSchema.index({ brand: 1 });
-productSchema.index({ isActive: 1 });
-productSchema.index({ createdAt: -1 }); // For sorting by newest
-productSchema.index({ price: 1 }); // For price range filtering
-productSchema.index({ stockStatus: 1 });
+const Product = mongoose.model("Product", productSchema)
 
-const Product = mongoose.model("Product", productSchema);
-
-export default Product;
+export default Product
