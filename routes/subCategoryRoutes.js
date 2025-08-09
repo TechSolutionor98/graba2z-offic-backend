@@ -667,4 +667,32 @@ router.get(
   }),
 )
 
+// @desc    Get a subcategory by ID
+// @route   GET /api/subcategories/:id
+// @access  Private/Admin
+router.get(
+  "/:id",
+  protect,
+  admin,
+  asyncHandler(async (req, res) => {
+    console.log(`Fetching subcategory with ID: ${req.params.id}`)
+    try {
+      const subcategory = await SubCategory.findById(req.params.id).populate("category", "name slug")
+      
+      console.log(`Subcategory found:`, subcategory ? 'Yes' : 'No')
+      
+      if (subcategory && !subcategory.isDeleted) {
+        res.json(subcategory)
+      } else {
+        res.status(404)
+        throw new Error("Subcategory not found")
+      }
+    } catch (error) {
+      console.error(`Error fetching subcategory: ${error.message}`)
+      res.status(404)
+      throw new Error(`Subcategory not found: ${error.message}`)
+    }
+  }),
+)
+
 export default router
