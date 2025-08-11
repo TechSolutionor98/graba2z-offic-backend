@@ -110,7 +110,9 @@ router.post(
         const product = await Product.findById(item.product).populate("parentCategory")
         if (product && product.parentCategory && coupon.categories.some(c => c._id.toString() === product.parentCategory._id.toString())) {
           eligibleItems.push(item)
-          totalEligibleAmount += product.price * item.qty
+          // Use basePrice or originalPrice instead of price (offer price)
+          const basePrice = product.buyingPrice || product.oldPrice || product.price
+          totalEligibleAmount += basePrice * item.qty
         }
       }
     } else {
@@ -119,7 +121,9 @@ router.post(
       for (const item of cartItems) {
         const product = await Product.findById(item.product)
         if (product) {
-          totalEligibleAmount += product.price * item.qty
+          // Use basePrice or originalPrice instead of price (offer price)
+          const basePrice = product.buyingPrice || product.oldPrice || product.price
+          totalEligibleAmount += basePrice * item.qty
         }
       }
     }
