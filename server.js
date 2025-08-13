@@ -5,6 +5,16 @@ import connectDB from "./config/db.js"
 import config from "./config/config.js"
 import { notFound, errorHandler } from "./middleware/errorMiddleware.js"
 
+
+
+
+
+
+import googleMerchantRoutes from "./routes/googleMerchantRoutes.js"
+
+
+
+
 // Routes
 import userRoutes from "./routes/userRoutes.js"
 import productRoutes from "./routes/productRoutes.js"
@@ -105,6 +115,9 @@ app.use("/api/newsletter", newsletterRoutes)
 
 
 // @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+
+app.use("/api/google-merchant", googleMerchantRoutes)
 app.use('/api/app', appRoutes)
 app.use('/api/mobile', mobileApiRoutes)
 
