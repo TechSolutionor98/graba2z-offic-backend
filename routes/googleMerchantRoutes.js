@@ -948,7 +948,7 @@ router.get(
 
       const feed = {
         title: "GrabA2Z Products",
-        link: "https://www.graba2z.ae",
+        link: "https://www.grabatoz.ae",
         description: "GrabA2Z Product Feed for Google Merchant Center",
         language: "en",
         lastBuildDate: new Date().toISOString(),
@@ -981,12 +981,12 @@ router.get(
             continue
           }
 
-          const productUrl = `https://www.graba2z.ae/product/${product.slug || product._id}`
+          const productUrl = `https://www.grabatoz.ae/product/${product.slug || product._id}`
           const imageUrl = product.image
             ? product.image.startsWith("http")
               ? product.image
-              : `https://www.graba2z.ae${product.image}`
-            : "https://www.graba2z.ae/placeholder.jpg"
+              : `https://www.grabatoz.ae${product.image}`
+            : "https://www.grabatoz.ae/placeholder.jpg"
 
           // Use the improved availability logic
           const availability = determineAvailability(product)
@@ -1021,7 +1021,7 @@ router.get(
           if (product.galleryImages && product.galleryImages.length > 0) {
             product.galleryImages.slice(0, 10).forEach((img) => {
               if (img) {
-                const additionalImageUrl = img.startsWith("http") ? img : `https://www.graba2z.ae${img}`
+                const additionalImageUrl = img.startsWith("http") ? img : `https://www.grabatoz.ae${img}`
                 additionalImages.push(additionalImageUrl)
               }
             })
@@ -1179,7 +1179,7 @@ router.get(
 <rss version="2.0" xmlns:g="http://base.google.com/ns/1.0">
   <channel>
     <title><![CDATA[GrabA2Z Products]]></title>
-    <link>https://www.graba2z.ae</link>
+    <link>https://www.grabatoz.ae</link>
     <description><![CDATA[GrabA2Z Product Feed for Google Merchant Center - Total: ${totalCount} products]]></description>
     <language>en</language>
     <lastBuildDate>${new Date().toUTCString()}</lastBuildDate>
@@ -1200,12 +1200,12 @@ router.get(
             continue
           }
 
-          const productUrl = `https://www.graba2z.ae/product/${product.slug || product._id}`
+          const productUrl = `https://www.grabatoz.ae/product/${product.slug || product._id}`
           const imageUrl = product.image
             ? product.image.startsWith("http")
               ? product.image
-              : `https://www.graba2z.ae${product.image}`
-            : "https://www.graba2z.ae/placeholder.jpg"
+              : `https://www.grabatoz.ae${product.image}`
+            : "https://www.grabatoz.ae/placeholder.jpg"
 
           // Use the improved availability logic
           const availability = determineAvailability(product)
@@ -1292,7 +1292,7 @@ router.get(
           if (product.galleryImages && product.galleryImages.length > 0) {
             product.galleryImages.slice(0, 10).forEach((img) => {
               if (img) {
-                const additionalImageUrl = img.startsWith("http") ? img : `https://www.graba2z.ae${img}`
+                const additionalImageUrl = img.startsWith("http") ? img : `https://www.grabatoz.ae${img}`
                 xml += `
       <g:additional_image_link>${additionalImageUrl}</g:additional_image_link>`
               }
