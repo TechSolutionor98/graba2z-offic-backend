@@ -388,11 +388,18 @@ router.get(
     }
 
     const orders = await Order.find(query)
-      .populate("user", "name email")
-      .populate("orderItems.product", "name image")
+      .populate({ path: "user", select: "name email" })
+      .populate({ path: "orderItems.product", select: "name image sku" })
       .sort({ createdAt: -1 })
       .limit(limit * 1)
       .skip((page - 1) * limit)
+
+    // TEMP DEBUG: log first order item product keys to ensure sku is present
+    if (process.env.NODE_ENV !== 'production' && orders[0]?.orderItems?.[0]?.product) {
+      const prod = orders[0].orderItems[0].product
+      console.log('DEBUG orderItems.product keys:', Object.keys(prod._doc || prod))
+      console.log('DEBUG sample product.sku:', prod.sku)
+    }
 
     res.json(orders)
   }),
@@ -406,7 +413,11 @@ router.get(
   protect,
   admin,
   asyncHandler(async (req, res) => {
-    const orders = await Order.find({}).populate("user", "name email").sort({ createdAt: -1 }).limit(5)
+    const orders = await Order.find({})
+      .populate({ path: "user", select: "name email" })
+      .populate({ path: "orderItems.product", select: "name image sku" })
+      .sort({ createdAt: -1 })
+      .limit(5)
     res.json(orders)
   }),
 )
