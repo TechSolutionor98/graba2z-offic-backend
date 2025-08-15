@@ -14,6 +14,9 @@ import googleMerchantRoutes from "./routes/googleMerchantRoutes.js"
 
 
 
+import sitemapRoutes from './routes/sitemapRoutes.js'
+
+
 
 // Routes
 import userRoutes from "./routes/userRoutes.js"
@@ -50,6 +53,11 @@ import newsletterRoutes from "./routes/newsletterRoutes.js"
 
 import appRoutes from "./routes/appRoutes.js"
 import mobileApiRoutes from "./routes/mobileApiRoutes.js"
+
+
+
+
+
 
 
 
@@ -120,6 +128,10 @@ app.use("/api/newsletter", newsletterRoutes)
 app.use("/api/google-merchant", googleMerchantRoutes)
 app.use('/api/app', appRoutes)
 app.use('/api/mobile', mobileApiRoutes)
+
+
+
+app.use('/', sitemapRoutes)   
 
 // Health check route
 app.get("/", (req, res) => {
