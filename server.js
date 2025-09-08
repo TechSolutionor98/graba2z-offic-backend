@@ -140,13 +140,6 @@ app.use('/api/app', appRoutes)
 app.use('/api/mobile', mobileApiRoutes)
 
 
-// Add debugging middleware before review routes
-app.use('/api/reviews', (req, res, next) => {
-  console.log(`📍 Reviews route hit: ${req.method} ${req.originalUrl}`);
-  console.log('📍 Headers:', req.headers);
-  next();
-});
-
 // Add review routes
 app.use("/api/reviews", reviewRoutes)
 app.use("/api/admin/reviews", adminReviewRoutes)
