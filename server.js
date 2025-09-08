@@ -55,7 +55,9 @@ import appRoutes from "./routes/appRoutes.js"
 import mobileApiRoutes from "./routes/mobileApiRoutes.js"
 
 
-
+// Review routes
+import reviewRoutes from "./routes/reviewRoutes.js"
+import adminReviewRoutes from "./routes/adminReviewRoutes.js"
 
 
 
@@ -83,9 +85,14 @@ app.use(cors({
   keepHeadersOnError: true
 }));
 
+// Serve static files from uploads directory
+app.use('/uploads', express.static('uploads'));
 
-
-
+// Add logging for static file requests
+app.use('/uploads', (req, res, next) => {
+  console.log('📁 Static file request:', req.path);
+  next();
+});
 
 // Body parser middleware
 app.use(express.json({ limit: "50mb" }))
@@ -130,6 +137,11 @@ app.use('/api/app', appRoutes)
 app.use('/api/mobile', mobileApiRoutes)
 
 
+// Add review routes
+app.use("/api/reviews", reviewRoutes)
+app.use("/api/admin/reviews", adminReviewRoutes)
+
+
 
 app.use('/', sitemapRoutes)   
 
@@ -142,6 +154,15 @@ app.get("/", (req, res) => {
   })
 })
 
+// Add a simple test route
+app.get('/api/test', (req, res) => {
+  res.json({ 
+    message: 'Server working!', 
+    time: new Date(),
+    uploadsPath: './uploads'
+  });
+});
+
 // Error handling middleware
 app.use(notFound)
 app.use(errorHandler)
@@ -151,3 +172,4 @@ const PORT = config.PORT
 app.listen(PORT, () => {
   console.log(`Server running in ${config.NODE_ENV} mode on port ${PORT}`)
 })
+
