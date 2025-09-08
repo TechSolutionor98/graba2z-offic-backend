@@ -85,9 +85,10 @@ app.use(cors({
   optionsSuccessStatus: 200 // Added this
 }));
 
-// Add explicit OPTIONS handler
-app.options('*', cors());
-
+app.options("*", (req, res) => {
+  res.header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
+  res.send();
+});
 // Serve static files from uploads directory
 app.use('/uploads', express.static('uploads'));
 
