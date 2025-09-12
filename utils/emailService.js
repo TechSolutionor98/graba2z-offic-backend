@@ -1,4 +1,4 @@
-import nodemailer from "nodemailer";
+import nodemailer from "nodemailer"
 
 // Create transporters for order and support emails
 const orderTransporter = nodemailer.createTransport({
@@ -9,7 +9,7 @@ const orderTransporter = nodemailer.createTransport({
     user: process.env.ORDER_EMAIL_USER,
     pass: process.env.ORDER_EMAIL_PASS,
   },
-});
+})
 
 const supportTransporter = nodemailer.createTransport({
   host: process.env.SUPPORT_EMAIL_HOST,
@@ -19,7 +19,7 @@ const supportTransporter = nodemailer.createTransport({
     user: process.env.SUPPORT_EMAIL_USER,
     pass: process.env.SUPPORT_EMAIL_PASS,
   },
-});
+})
 
 // Helper to select transporter and from address
 const getMailConfig = (type) => {
@@ -27,14 +27,14 @@ const getMailConfig = (type) => {
     return {
       transporter: orderTransporter,
       from: `Graba2z Orders <${process.env.ORDER_EMAIL_USER}>`,
-    };
+    }
   } else {
     return {
       transporter: supportTransporter,
       from: `Graba2z Support <${process.env.SUPPORT_EMAIL_USER}>`,
-    };
+    }
   }
-};
+}
 
 // Email templates
 const getEmailTemplate = (type, data) => {
@@ -411,7 +411,7 @@ const getEmailTemplate = (type, data) => {
           </div>
         </body>
         </html>
-      `;
+      `
 
     case "orderConfirmation":
       const orderItems = Array.isArray(data.orderItems) ? data.orderItems : []
@@ -773,38 +773,40 @@ const getEmailTemplate = (type, data) => {
         { key: "Out for Delivery", label: "Out for Delivery", icon: "🚚" },
         { key: "Delivered", label: "Delivered", icon: "🎉" },
         { key: "Cancelled", label: "Cancelled", icon: "❌" },
-      ];
+      ]
       const getCurrentStep = (status) => {
-        if (!status) return statusSteps[0];
-        const normalized = status.trim().toLowerCase();
-        if (normalized === "processing") return statusSteps[0];
-        if (normalized === "confirmed") return statusSteps[1];
-        if (normalized === "shipped") return statusSteps[2];
-        if (normalized === "out for delivery") return statusSteps[3];
-        if (normalized === "delivered") return statusSteps[4];
-        if (normalized === "cancelled") return statusSteps[5];
-        return statusSteps[0];
-      };
-      const currentStep = getCurrentStep(data.status);
+        if (!status) return statusSteps[0]
+        const normalized = status.trim().toLowerCase()
+        if (normalized === "processing") return statusSteps[0]
+        if (normalized === "confirmed") return statusSteps[1]
+        if (normalized === "shipped") return statusSteps[2]
+        if (normalized === "out for delivery") return statusSteps[3]
+        if (normalized === "delivered") return statusSteps[4]
+        if (normalized === "cancelled") return statusSteps[5]
+        return statusSteps[0]
+      }
+      const currentStep = getCurrentStep(data.status)
       // Order summary table (scoped variables)
-      const statusOrderItems = Array.isArray(data.orderItems) ? data.orderItems : [];
-      const statusOrderItemsHtml = statusOrderItems.map(item => {
-        // Truncate product name to two lines (max 80 chars)
-        let name = item.product?.name || item.name || 'Product';
-        if (name.length > 80) name = name.slice(0, 77) + '...';
-        return `
+      const statusOrderItems = Array.isArray(data.orderItems) ? data.orderItems : []
+      const statusOrderItemsHtml = statusOrderItems
+        .map((item) => {
+          // Truncate product name to two lines (max 80 chars)
+          let name = item.product?.name || item.name || "Product"
+          if (name.length > 80) name = name.slice(0, 77) + "..."
+          return `
           <tr style="border-bottom:1px solid #eee;">
-            <td style="padding:10px 0;"><img src="${item.product?.image || item.image || '/placeholder.svg?height=80&width=80'}" alt="${name}" style="width:48px;height:48px;border-radius:8px;object-fit:cover;background:#f0f0f0;" /></td>
+            <td style="padding:10px 0;"><img src="${item.product?.image || item.image || "/placeholder.svg?height=80&width=80"}" alt="${name}" style="width:48px;height:48px;border-radius:8px;object-fit:cover;background:#f0f0f0;" /></td>
             <td style="padding:10px 0 10px 12px;font-size:15px;color:#222;max-width:220px;line-height:1.3;">${name}</td>
             <td style="padding:10px 0;font-size:15px;color:#333;">AED ${(item.price || 0).toFixed(2)}</td>
             <td style="padding:10px 0;font-size:15px;color:#333;">${item.quantity || 1}</td>
           </tr>
-        `;
-      }).join('');
-      const statusSubtotal = data.itemsPrice || 0;
-      const statusShipping = data.shippingPrice || 0;
-      const statusTotal = data.totalPrice || 0;
-      const statusVatAmount = (statusTotal * 0.05).toFixed(2);
+        `
+        })
+        .join("")
+      const statusSubtotal = data.itemsPrice || 0
+      const statusShipping = data.shippingPrice || 0
+      const statusTotal = data.totalPrice || 0
+      const statusVatAmount = (statusTotal * 0.05).toFixed(2)
       return `
         <!DOCTYPE html>
         <html lang="en">
@@ -815,9 +817,7 @@ const getEmailTemplate = (type, data) => {
           <style>
             body { background-color: #e8f7ee; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; }
             .container { max-width: 600px; margin: 32px auto; background-color: #fff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.08); border: 1px solid #e0e0e0; }
-           
-            
-             .action-buttons {
+            .action-buttons {
               text-align: center;
               margin: 30px 0;
             }
@@ -834,12 +834,6 @@ const getEmailTemplate = (type, data) => {
               text-transform: uppercase;
               letter-spacing: 0.5px;
             }
-            
-            
-            
-            
-            
-            
             .header { background-color: #fff; padding: 32px 0 16px 0; text-align: center; border-bottom: 1px solid #e0e0e0; }
             .header a { display: inline-block; }
             .header img { max-height: 60px; }
@@ -872,7 +866,6 @@ const getEmailTemplate = (type, data) => {
               <a href="https://www.graba2z.ae/" target="_blank">
                 <img src="https://res.cloudinary.com/dyfhsu5v6/image/upload/v1753105567/admin-logo_ruxcjj.png" alt="Graba2z Logo" />
               </a>
-              
             </div>
             <div class="content">
               <div class="order-number">Order #${data.orderNumber || data._id?.toString().slice(-6) || "N/A"}</div>
@@ -915,6 +908,151 @@ const getEmailTemplate = (type, data) => {
               <div style="margin-top: 10px; color: #888;">
                 &copy; 2025 Graba2z. All rights reserved.<br />
                 <span style="font-size:12px;">If you did not enter this email address when signing up for Graba2z, disregard this message.</span>
+              </div>
+            </div>
+          </div>
+        </body>
+        </html>
+      `
+
+    case "reviewVerification":
+      return `
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+          <meta charset="UTF-8" />
+          <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+          <title>Review Verification</title>
+          <style>
+            body {
+              background-color: #e8f7ee;
+              font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+              margin: 0;
+              padding: 0;
+            }
+            .container {
+              max-width: 600px;
+              margin: 32px auto;
+              background-color: #ffffff;
+              border-radius: 16px;
+              overflow: hidden;
+              box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+              border: 1px solid #e0e0e0;
+            }
+            .header {
+              background-color: #fff;
+              padding: 32px 0 16px 0;
+              text-align: center;
+              border-bottom: 1px solid #e0e0e0;
+            }
+            .header a {
+              display: inline-block;
+            }
+            .header img {
+              max-height: 60px;
+            }
+            .content {
+              padding: 40px 30px 32px 30px;
+              text-align: center;
+            }
+            .content h2 {
+              color: #222;
+              font-size: 1.5rem;
+              margin-bottom: 0.5em;
+            }
+            .content p {
+              color: #444;
+              font-size: 1.1rem;
+              margin: 0.5em 0 1.5em 0;
+            }
+            .code-box {
+              background: #f4f4f4;
+              border-radius: 10px;
+              margin: 32px auto 24px auto;
+              padding: 24px 0;
+              font-size: 2.2rem;
+              font-weight: bold;
+              color: #1abc7b;
+              letter-spacing: 10px;
+              max-width: 320px;
+            }
+            .product-info {
+              background: #f9f9f9;
+              border-radius: 8px;
+              padding: 20px;
+              margin: 20px 0;
+              text-align: left;
+            }
+            .footer {
+              background-color: #e8f7ee;
+              padding: 32px 20px 20px 20px;
+              text-align: center;
+              font-size: 13px;
+              color: #888;
+            }
+            .footer .socials {
+              margin: 18px 0 10px 0;
+            }
+            .footer .socials a {
+              display: inline-block;
+              margin: 0 10px;
+              text-decoration: none;
+            }
+            .footer .socials img {
+              width: 32px;
+              height: 32px;
+              vertical-align: middle;
+              border-radius: 50%;
+              background: #fff;
+              box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+              transition: box-shadow 0.2s;
+            }
+            .footer .socials img:hover {
+              box-shadow: 0 4px 16px rgba(26,188,123,0.15);
+            }
+            @media (max-width: 600px) {
+              .container { border-radius: 0; margin: 0; }
+              .content { padding: 24px 8px 24px 8px; }
+              .footer { padding: 24px 4px 12px 4px; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <a href="https://www.graba2z.ae/" target="_blank">
+                <img src="https://res.cloudinary.com/dyfhsu5v6/image/upload/v1753105567/admin-logo_ruxcjj.png" alt="Graba2z Logo" />
+              </a>
+            </div>
+            <div class="content">
+              <h2>Verify Your Review</h2>
+              <p>Hi <b>${data.name || "Customer"}</b>,<br />
+              Thank you for taking the time to review our product. Please verify your email address by entering the verification code below:</p>
+              <div class="code-box">${data.code || "000000"}</div>
+              <div class="product-info">
+                <strong>Product:</strong> ${data.productName || "Product"}<br />
+                <strong>Your Rating:</strong> ${data.rating || 5}/5 stars<br />
+                <strong>Your Review:</strong> "${data.comment || "No comment"}"
+              </div>
+              <p style="margin: 16px 0 0 0; color: #1abc7b; font-weight: bold;">
+                Copy the code above and paste it on the website to verify and publish your review.
+              </p>
+              <p style="margin-top: 2em; color: #888; font-size: 1em;">This code will expire in 10 minutes.<br />If you didn't submit this review, please ignore this email.</p>
+            </div>
+            <div class="footer">
+              <div class="socials">
+                <a href="https://www.facebook.com/grabatozae/" target="_blank"><img src="https://res.cloudinary.com/dyfhsu5v6/image/upload/v1753107123/WhatsApp_Image_2025-07-21_at_7.10.18_AM_1_axvzvv.jpg" alt="Facebook" style="width:32px;height:32px;margin:0 10px;vertical-align:middle;background:transparent;border-radius:8px;box-shadow:none;" /></a>
+                <a href="https://www.instagram.com/grabatoz/" target="_blank"><img src="https://res.cloudinary.com/dyfhsu5v6/image/upload/v1753107124/WhatsApp_Image_2025-07-21_at_7.10.18_AM_xgjv5f.jpg" alt="Instagram" style="width:32px;height:32px;margin:0 10px;vertical-align:middle;background:transparent;border-radius:8px;box-shadow:none;" /></a>
+                <a href="https://x.com/GrabAtoz" target="_blank"><img src="https://res.cloudinary.com/dyfhsu5v6/image/upload/v1753107545/WhatsApp_Image_2025-07-21_at_7.10.18_AM_2_cwzjg6.png" alt="X" style="width:32px;height:32px;margin:0 10px;vertical-align:middle;background:transparent;border-radius:8px;box-shadow:none;" /></a>
+                <a href="https://www.linkedin.com/company/grabatozae" target="_blank"><img src="https://res.cloudinary.com/dyfhsu5v6/image/upload/v1753107123/WhatsApp_Image_2025-07-21_at_7.10.18_AM_3_ll6y2i.jpg" alt="LinkedIn" style="width:32px;height:32px;margin:0 10px;vertical-align:middle;background:transparent;border-radius:8px;box-shadow:none;" /></a>
+              </div>
+              <p>This email was sent by: support@grabatoz.ae</p>
+              <br/>
+              <p>Kindly Do Not Reply to this Email</p>
+              <br/>
+              <div style="margin-top: 10px; color: #888;">
+                &copy; 2025 Graba2z. All rights reserved.<br />
+                <span style="font-size:12px;">If you did not submit this review, disregard this message.</span>
               </div>
             </div>
           </div>
@@ -965,24 +1103,24 @@ const getEmailTemplate = (type, data) => {
 // Generic send email function with sender type
 const sendEmail = async (to, subject, html, senderType = "support") => {
   try {
-    const { transporter, from } = getMailConfig(senderType);
+    const { transporter, from } = getMailConfig(senderType)
     if (senderType === "support") {
-      console.log("[DEBUG] SUPPORT_EMAIL_USER:", process.env.SUPPORT_EMAIL_USER);
+      console.log("[DEBUG] SUPPORT_EMAIL_USER:", process.env.SUPPORT_EMAIL_USER)
     }
     const mailOptions = {
       from,
       to,
       subject,
       html,
-    };
-    const result = await transporter.sendMail(mailOptions);
-    console.log(`Email sent successfully from ${from}:`, result.messageId);
-    return { success: true, messageId: result.messageId };
+    }
+    const result = await transporter.sendMail(mailOptions)
+    console.log(`Email sent successfully from ${from}:`, result.messageId)
+    return { success: true, messageId: result.messageId }
   } catch (error) {
-    console.error("Failed to send email:", error);
-    throw new Error(`Email sending failed: ${error.message}`);
+    console.error("Failed to send email:", error)
+    throw new Error(`Email sending failed: ${error.message}`)
   }
-};
+}
 
 // Send verification email
 export const sendVerificationEmail = async (email, name, code) => {
@@ -1058,6 +1196,18 @@ export const sendOrderStatusUpdateEmail = async (order) => {
   }
 }
 
+// Send review verification email
+export const sendReviewVerificationEmail = async (email, name, code, productName, rating, comment) => {
+  try {
+    const html = getEmailTemplate("reviewVerification", { name, code, productName, rating, comment })
+    await sendEmail(email, "Verify Your Product Review - Graba2z", html, "support")
+    return { success: true }
+  } catch (error) {
+    console.error("Failed to send review verification email:", error)
+    throw error
+  }
+}
+
 // Backward compatibility exports
 export const sendOrderNotification = sendOrderStatusUpdateEmail
 export const sendTrackingUpdateEmail = sendOrderStatusUpdateEmail
@@ -1070,9 +1220,9 @@ export const sendNewsletterConfirmation = async (email, preferences) => {
       <p>You will now receive updates according to your selected preferences.</p>
       <p style="color: #888; font-size: 13px; margin-top: 24px;">This is an automated message. Please do not reply.</p>
     </div>
-  `;
-  await sendEmail(email, "Newsletter Subscription Confirmed - Graba2z", html, "support");
-};
+  `
+  await sendEmail(email, "Newsletter Subscription Confirmed - Graba2z", html, "support")
+}
 
 export const sendResetPasswordEmail = async (email, name, resetLink) => {
   try {
@@ -1085,16 +1235,16 @@ export const sendResetPasswordEmail = async (email, name, resetLink) => {
         <p>If you did not request this, you can safely ignore this email.</p>
         <p style="color: #888; font-size: 12px; margin-top: 32px;">&copy; ${new Date().getFullYear()} Graba2z</p>
       </div>
-    `;
-    await sendEmail(email, "Reset Your Password - Graba2z", html, "support");
-    return { success: true };
+    `
+    await sendEmail(email, "Reset Your Password - Graba2z", html, "support")
+    return { success: true }
   } catch (error) {
-    console.error("Failed to send reset password email:", error);
-    throw error;
+    console.error("Failed to send reset password email:", error)
+    throw error
   }
-};
+}
 
-export { sendEmail };
+export { sendEmail }
 
 export default {
   sendVerificationEmail,
@@ -1103,4 +1253,5 @@ export default {
   sendOrderNotification,
   sendTrackingUpdateEmail,
   sendNewsletterConfirmation,
+  sendReviewVerificationEmail,
 }

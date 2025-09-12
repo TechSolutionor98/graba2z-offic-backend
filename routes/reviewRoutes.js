@@ -4,12 +4,14 @@ import path from "path"
 import fs from "fs/promises"
 import { fileURLToPath } from "url"
 import mongoose from "mongoose"
-import jwt from "jsonwebtoken" // Add this import
+import jwt from "jsonwebtoken"
 import Review from "../models/reviewModel.js"
+import ReviewVerification from "../models/reviewVerificationModel.js"
 import Product from "../models/productModel.js"
 import User from "../models/userModel.js"
 import Order from "../models/orderModel.js"
 import { protect } from "../middleware/authMiddleware.js"
+import { sendReviewVerificationEmail } from "../utils/emailService.js"
 
 const router = express.Router()
 
@@ -139,32 +141,99 @@ router.post("/", optionalAuth, upload.single("image"), async (req, res) => {
           message: "You have already reviewed this product",
         })
       }
+
+      // Add image if uploaded
+      if (req.file) {
+        reviewData.image = req.file.filename
+      }
+
+      reviewData.status = "approved"
+      reviewData.approvedAt = new Date()
+
+      const review = new Review(reviewData)
+      await review.save()
+
+      res.status(201).json({
+        message: "Review submitted and published successfully!",
+        review: {
+          id: review._id,
+          status: review.status,
+        },
+      })
     } else {
-      // Guest user
+      // Guest user - requires email verification
       if (!name || !email) {
         return res.status(400).json({
           message: "Name and email are required for guest reviews",
         })
       }
-      reviewData.name = name.trim()
-      reviewData.email = email.trim().toLowerCase()
+
+      const verificationData = {
+        email: email.trim().toLowerCase(),
+        productId: productId,
+        reviewData: {
+          rating: Number.parseInt(rating),
+          comment: comment.trim(),
+          name: name.trim(),
+          image: req.file ? req.file.filename : null,
+        },
+      }
+
+      // Check if there's already a pending verification for this email and product
+      const existingVerification = await ReviewVerification.findOne({
+        email: verificationData.email,
+        productId: productId,
+        isVerified: false,
+      })
+
+      let verification
+      if (existingVerification) {
+        // Update existing verification
+        existingVerification.reviewData = verificationData.reviewData
+        const code = existingVerification.generateVerificationCode()
+        verification = await existingVerification.save()
+      } else {
+        // Create new verification
+        verification = new ReviewVerification(verificationData)
+        const code = verification.generateVerificationCode()
+        verification = await verification.save()
+      }
+
+      // Send verification email
+      try {
+        await sendReviewVerificationEmail(
+          verificationData.email,
+          verificationData.reviewData.name,
+          verification.verificationCode,
+          product.name,
+          verificationData.reviewData.rating,
+          verificationData.reviewData.comment,
+        )
+
+        res.status(201).json({
+          message: "Please check your email and enter the verification code to publish your review.",
+          verificationId: verification._id,
+          requiresVerification: true,
+        })
+      } catch (emailError) {
+        console.error("Failed to send verification email:", emailError)
+        // Clean up verification record if email fails
+        await ReviewVerification.findByIdAndDelete(verification._id)
+
+        // Delete uploaded file if there was an error
+        if (req.file) {
+          try {
+            await fs.unlink(req.file.path)
+          } catch (unlinkError) {
+            console.error("Error deleting uploaded file:", unlinkError)
+          }
+        }
+
+        res.status(500).json({
+          message: "Failed to send verification email. Please try again.",
+        })
+      }
     }
-
-    // Add image if uploaded
-    if (req.file) {
-      reviewData.image = req.file.filename
-    }
-
-    const review = new Review(reviewData)
-    await review.save()
-
-    res.status(201).json({
-      message: "Review submitted successfully. It will be visible after admin approval.",
-      review: {
-        id: review._id,
-        status: review.status,
-      },
-    })
   } catch (error) {
     console.error("Error submitting review:", error)
 
@@ -178,6 +247,145 @@ router.post("/", optionalAuth, upload.single("image"), async (req, res) => {
     }
 
     res.status(500).json({ message: "Error submitting review" })
+  }
+})
+
+// POST /api/reviews/verify-email - Verify guest review email
+router.post("/verify-email", async (req, res) => {
+  try {
+    const { verificationId, code } = req.body
+
+    if (!verificationId || !code) {
+      return res.status(400).json({
+        message: "Verification ID and code are required",
+      })
+    }
+
+    // Find verification record
+    const verification = await ReviewVerification.findById(verificationId)
+    if (!verification) {
+      return res.status(404).json({
+        message: "Verification record not found",
+      })
+    }
+
+    // Check if already verified
+    if (verification.isVerified) {
+      return res.status(400).json({
+        message: "This review has already been verified",
+      })
+    }
+
+    // Verify the code
+    if (!verification.verifyCode(code)) {
+      return res.status(400).json({
+        message: "Invalid or expired verification code",
+      })
+    }
+
+    // Get product info
+    const product = await Product.findById(verification.productId)
+    if (!product) {
+      return res.status(404).json({
+        message: "Product not found",
+      })
+    }
+
+    // Create the review with approved status
+    const reviewData = {
+      product: verification.productId,
+      name: verification.reviewData.name,
+      email: verification.email,
+      rating: verification.reviewData.rating,
+      comment: verification.reviewData.comment,
+      image: verification.reviewData.image,
+      status: "approved", // Guest reviews are auto-approved after email verification
+      approvedAt: new Date(),
+      isVerifiedPurchase: false,
+    }
+
+    const review = new Review(reviewData)
+    await review.save()
+
+    // Mark verification as completed
+    verification.isVerified = true
+    verification.verifiedAt = new Date()
+    await verification.save()
+
+    res.status(201).json({
+      message: "Email verified successfully! Your review has been published.",
+      review: {
+        id: review._id,
+        status: review.status,
+      },
+    })
+  } catch (error) {
+    console.error("Error verifying review email:", error)
+    res.status(500).json({ message: "Error verifying email" })
+  }
+})
+
+// POST /api/reviews/resend-verification - Resend verification code
+router.post("/resend-verification", async (req, res) => {
+  try {
+    const { verificationId } = req.body
+
+    if (!verificationId) {
+      return res.status(400).json({
+        message: "Verification ID is required",
+      })
+    }
+
+    // Find verification record
+    const verification = await ReviewVerification.findById(verificationId)
+    if (!verification) {
+      return res.status(404).json({
+        message: "Verification record not found",
+      })
+    }
+
+    // Check if already verified
+    if (verification.isVerified) {
+      return res.status(400).json({
+        message: "This review has already been verified",
+      })
+    }
+
+    // Get product info
+    const product = await Product.findById(verification.productId)
+    if (!product) {
+      return res.status(404).json({
+        message: "Product not found",
+      })
+    }
+
+    // Generate new code
+    const code = verification.generateVerificationCode()
+    await verification.save()
+
+    // Resend verification email
+    try {
+      await sendReviewVerificationEmail(
+        verification.email,
+        verification.reviewData.name,
+        code,
+        product.name,
+        verification.reviewData.rating,
+        verification.reviewData.comment,
+      )
+
+      res.json({
+        message: "Verification code sent successfully!",
+      })
+    } catch (emailError) {
+      console.error("Failed to resend verification email:", emailError)
+      res.status(500).json({
+        message: "Failed to send verification email. Please try again.",
+      })
+    }
+  } catch (error) {
+    console.error("Error resending verification:", error)
+    res.status(500).json({ message: "Error resending verification" })
   }
 })
 
