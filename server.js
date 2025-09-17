@@ -61,7 +61,7 @@ import adminReviewRoutes from "./routes/adminReviewRoutes.js"
 
 
 
-
+import priceAdjustmentRoutes from "./routes/priceAdjustmentRoutes.js"
 
 dotenv.config()
 
@@ -70,7 +70,7 @@ connectDB()
 
 const app = express()
 
-// // CORS configuration
+// CORS configuration
 app.use(cors({
   origin: [
     'https://www.graba2z.ae',
@@ -132,7 +132,7 @@ app.use("/api/email-templates", emailTemplateRoutes)
 app.use("/api/newsletter", newsletterRoutes)
 
 
-
+app.use("/api/price-adjustment", priceAdjustmentRoutes)
 // @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
 
