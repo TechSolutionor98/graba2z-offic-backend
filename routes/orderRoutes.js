@@ -90,6 +90,7 @@ router.post(
       shippingPrice,
       totalPrice,
       customerNotes,
+        status: "New",
     })
 
     const createdOrder = await order.save()

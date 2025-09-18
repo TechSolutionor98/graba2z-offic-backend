@@ -1,5 +1,4 @@
-// 
-
+//
 
 // ===================
 
@@ -94,16 +93,20 @@ const orderSchema = mongoose.Schema(
     status: {
       type: String,
       required: true,
-      default: "Processing",
+      default: "New",
       enum: [
+        "New",
         "Processing",
         "Confirmed",
+        "Ready for Shipment",
         "Shipped",
+        "On the Way",
         "Out for Delivery",
         "Delivered",
+        "On Hold",
         "Cancelled",
         "Returned",
-        "Ready for Shipment"
+        "Deleted",
       ],
     },
     trackingId: {
