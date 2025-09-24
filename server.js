@@ -5,18 +5,8 @@ import connectDB from "./config/db.js"
 import config from "./config/config.js"
 import { notFound, errorHandler } from "./middleware/errorMiddleware.js"
 
-
-
-
-
-
 import googleMerchantRoutes from "./routes/googleMerchantRoutes.js"
-
-
-
 import sitemapRoutes from './routes/sitemapRoutes.js'
-
-
 
 // Routes
 import userRoutes from "./routes/userRoutes.js"
@@ -46,21 +36,12 @@ import paymentRoutes from "./routes/paymentRoutes.js"
 import adminRoutes from "./routes/adminRoutes.js"
 import emailTemplateRoutes from "./routes/emailTemplateRoutes.js"
 import newsletterRoutes from "./routes/newsletterRoutes.js"
-
-
-//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-
-
+import tamaraAdminRoutes from "./routes/tamaraAdminRoutes.js"
+import { captureRawBody, webhookRateLimit, authenticateWebhook } from "./middleware/webhookMiddleware.js"
 import appRoutes from "./routes/appRoutes.js"
 import mobileApiRoutes from "./routes/mobileApiRoutes.js"
-
-
-// Review routes
 import reviewRoutes from "./routes/reviewRoutes.js"
 import adminReviewRoutes from "./routes/adminReviewRoutes.js"
-
-
-
 import priceAdjustmentRoutes from "./routes/priceAdjustmentRoutes.js"
 
 dotenv.config()
@@ -77,18 +58,19 @@ app.use(cors({
     'https://www.grabatoz.ae',
     'http://localhost:3000'
   ],
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'], // Changed from allowMethods
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin'], // Changed from allowHeaders
-  exposedHeaders: ['WWW-Authenticate', 'Server-Authorization'], // Changed from exposeHeaders
-  maxAge: 86400, // Changed from 5
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin'],
+  exposedHeaders: ['WWW-Authenticate', 'Server-Authorization'],
+  maxAge: 86400,
   credentials: true,
-  optionsSuccessStatus: 200 // Added this
+  optionsSuccessStatus: 200
 }));
 
 app.options("*", (req, res) => {
   res.header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
   res.send();
 });
+
 // Serve static files from uploads directory
 app.use('/uploads', express.static('uploads'));
 
@@ -97,6 +79,9 @@ app.use('/uploads', (req, res, next) => {
   console.log('📁 Static file request:', req.path);
   next();
 });
+
+// Apply webhook middleware before body parser for webhook routes
+app.use("/api/payment/tamara/webhook", captureRawBody, webhookRateLimit, authenticateWebhook)
 
 // Body parser middleware
 app.use(express.json({ limit: "50mb" }))
