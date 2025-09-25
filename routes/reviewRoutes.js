@@ -12,6 +12,7 @@ import User from "../models/userModel.js"
 import Order from "../models/orderModel.js"
 import { protect } from "../middleware/authMiddleware.js"
 import { sendReviewVerificationEmail } from "../utils/emailService.js"
+import { updateProductReviewStats } from "../utils/reviewUtils.js"
 
 const router = express.Router()
 
@@ -152,6 +153,14 @@ router.post("/", optionalAuth, upload.single("image"), async (req, res) => {
 
       const review = new Review(reviewData)
       await review.save()
+
+      try {
+        await updateProductReviewStats(productId)
+        console.log(`[ReviewRoutes] Updated product stats after review approval for product: ${productId}`)
+      } catch (error) {
+        console.error(`[ReviewRoutes] Failed to update product stats:`, error)
+        // Don't fail the request if stats update fails
+      }
 
       res.status(201).json({
         message: "Review submitted and published successfully!",
@@ -311,6 +320,16 @@ router.post("/verify-email", async (req, res) => {
     verification.isVerified = true
     verification.verifiedAt = new Date()
     await verification.save()
+
+    try {
+      await updateProductReviewStats(verification.productId)
+      console.log(
+        `[ReviewRoutes] Updated product stats after guest review approval for product: ${verification.productId}`,
+      )
+    } catch (error) {
+      console.error(`[ReviewRoutes] Failed to update product stats:`, error)
+      // Don't fail the request if stats update fails
+    }
 
     res.status(201).json({
       message: "Email verified successfully! Your review has been published.",
