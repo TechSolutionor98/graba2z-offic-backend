@@ -166,6 +166,50 @@ router.delete(
   }),
 )
 
+// @desc    Restore a category from trash
+// @route   PUT /api/categories/:id/restore
+// @access  Private/Admin
+router.put(
+  "/:id/restore",
+  protect,
+  admin,
+  asyncHandler(async (req, res) => {
+    const category = await Category.findById(req.params.id)
+
+    if (category) {
+      category.isDeleted = false
+      category.deletedAt = null
+      await category.save()
+
+      res.json({ message: "Category restored successfully", category })
+    } else {
+      res.status(404)
+      throw new Error("Category not found")
+    }
+  }),
+)
+
+// @desc    Permanently delete a category
+// @route   DELETE /api/categories/:id/permanent
+// @access  Private/Admin
+router.delete(
+  "/:id/permanent",
+  protect,
+  admin,
+  asyncHandler(async (req, res) => {
+    const category = await Category.findById(req.params.id)
+
+    if (category) {
+      // Permanently delete from database
+      await Category.findByIdAndDelete(req.params.id)
+      res.json({ message: "Category permanently deleted" })
+    } else {
+      res.status(404)
+      throw new Error("Category not found")
+    }
+  }),
+)
+
 // @desc    Get categories with product count
 // @route   GET /api/categories/with-count
 // @access  Public
