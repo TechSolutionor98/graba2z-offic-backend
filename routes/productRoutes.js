@@ -1223,6 +1223,280 @@ router.post(
   }),
 )
 
+// @desc    Bulk create products
+// @route   POST /api/products/bulk
+// @access  Private/Admin
+router.post(
+  "/bulk",
+  protect,
+  admin,
+  asyncHandler(async (req, res) => {
+    const { products } = req.body
+
+    if (!products || !Array.isArray(products) || products.length === 0) {
+      res.status(400)
+      throw new Error("No products provided")
+    }
+
+    const results = []
+    let successCount = 0
+    let failedCount = 0
+
+    for (let i = 0; i < products.length; i++) {
+      const productData = products[i]
+
+      try {
+        // Find or create parent category
+        let parentCategory = null
+        if (productData.parentCategory) {
+          const parentCategoryStr = String(productData.parentCategory).trim()
+          
+          if (mongoose.Types.ObjectId.isValid(parentCategoryStr)) {
+            parentCategory = await Category.findById(parentCategoryStr)
+          } else {
+            parentCategory = await Category.findOne({ 
+              name: parentCategoryStr,
+              isDeleted: { $ne: true }
+            })
+            
+            if (!parentCategory) {
+              const slug = parentCategoryStr.toLowerCase()
+                .replace(/[^a-z0-9\s-]/g, '')
+                .replace(/\s+/g, '-')
+                .replace(/-+/g, '-')
+                .trim()
+              
+              parentCategory = new Category({
+                name: parentCategoryStr,
+                slug: slug,
+                isActive: true,
+                createdBy: req.user._id
+              })
+              await parentCategory.save()
+            }
+          }
+        }
+
+        // Find or create subcategory
+        let subCategory = null
+        if (productData.category) {
+          const categoryStr = String(productData.category).trim()
+          
+          if (mongoose.Types.ObjectId.isValid(categoryStr)) {
+            subCategory = await SubCategory.findById(categoryStr)
+          } else if (parentCategory) {
+            subCategory = await SubCategory.findOne({ 
+              name: categoryStr,
+              category: parentCategory._id,
+              isDeleted: { $ne: true }
+            })
+            
+            if (!subCategory) {
+              const slug = categoryStr.toLowerCase()
+                .replace(/[^a-z0-9\s-]/g, '')
+                .replace(/\s+/g, '-')
+                .replace(/-+/g, '-')
+                .trim()
+              
+              subCategory = new SubCategory({
+                name: categoryStr,
+                slug: slug,
+                category: parentCategory._id,
+                isActive: true,
+                createdBy: req.user._id
+              })
+              await subCategory.save()
+            }
+          }
+        }
+
+        // Find or create brand
+        let brand = null
+        if (productData.brand) {
+          const brandStr = String(productData.brand).trim()
+          
+          if (mongoose.Types.ObjectId.isValid(brandStr)) {
+            brand = await Brand.findById(brandStr)
+          } else {
+            brand = await Brand.findOne({ 
+              name: brandStr,
+              isDeleted: { $ne: true }
+            })
+            
+            if (!brand) {
+              const slug = brandStr.toLowerCase()
+                .replace(/[^a-z0-9\s-]/g, '')
+                .replace(/\s+/g, '-')
+                .replace(/-+/g, '-')
+                .trim()
+              
+              brand = new Brand({
+                name: brandStr,
+                slug: slug,
+                isActive: true,
+                createdBy: req.user._id
+              })
+              await brand.save()
+            }
+          }
+        }
+
+        // Handle tax - Find or create tax record
+        let tax = null
+        if (productData.tax) {
+          const taxStr = String(productData.tax).trim()
+          
+          if (mongoose.Types.ObjectId.isValid(taxStr)) {
+            tax = await Tax.findById(taxStr)
+          } else {
+            // Try to find existing tax by name
+            tax = await Tax.findOne({ 
+              name: taxStr,
+              isDeleted: { $ne: true }
+            })
+            
+            if (!tax) {
+              // Create new tax record
+              tax = new Tax({
+                name: taxStr,
+                percentage: taxStr.includes('5') ? 5 : 0, // Extract percentage if possible
+                isActive: true,
+                createdBy: req.user._id
+              })
+              await tax.save()
+            }
+          }
+        }
+
+        // Handle unit - Find or create unit record
+        let unit = null
+        if (productData.unit) {
+          const unitStr = String(productData.unit).trim()
+          
+          if (mongoose.Types.ObjectId.isValid(unitStr)) {
+            unit = await Unit.findById(unitStr)
+          } else {
+            unit = await Unit.findOne({ 
+              name: unitStr,
+              isDeleted: { $ne: true }
+            })
+            
+            if (!unit) {
+              unit = new Unit({
+                name: unitStr,
+                isActive: true,
+                createdBy: req.user._id
+              })
+              await unit.save()
+            }
+          }
+        }
+
+        // Generate unique slug
+        const productName = String(productData.name || '').trim()
+        let baseSlug = productData.slug || productName.toLowerCase()
+          .replace(/[^a-z0-9\s-]/g, '')
+          .replace(/\s+/g, '-')
+          .replace(/-+/g, '-')
+          .trim()
+
+        // Ensure slug is unique
+        let productSlug = baseSlug
+        let counter = 1
+        while (await Product.findOne({ slug: productSlug })) {
+          productSlug = `${baseSlug}-${counter}`
+          counter++
+        }
+
+        // Check if product with same SKU already exists
+        const existingProduct = await Product.findOne({ sku: productData.sku })
+        if (existingProduct) {
+          results.push({
+            status: "error",
+            product: productData,
+            message: `Product with SKU '${productData.sku}' already exists`,
+            originalIndex: i
+          })
+          failedCount++
+          continue
+        }
+
+        // Create the product with proper ObjectId references
+        const product = new Product({
+          name: productName,
+          slug: productSlug,
+          sku: String(productData.sku || '').trim(),
+          parentCategory: parentCategory?._id,
+          category: subCategory?._id,
+          brand: brand?._id,
+          tax: tax?._id, // Use ObjectId reference
+          unit: unit?._id, // Use ObjectId reference
+          buyingPrice: Number(productData.buyingPrice) || 0,
+          price: Number(productData.price) || 0,
+          offerPrice: Number(productData.offerPrice) || 0,
+          stockStatus: String(productData.stockStatus || "Available Product").trim(),
+          showStockOut: productData.showStockOut !== undefined ? Boolean(productData.showStockOut) : true,
+          canPurchase: productData.canPurchase !== undefined ? Boolean(productData.canPurchase) : true,
+          refundable: productData.refundable !== undefined ? Boolean(productData.refundable) : true,
+          maxPurchaseQty: Number(productData.maxPurchaseQty) || 10,
+          lowStockWarning: Number(productData.lowStockWarning) || 5,
+          weight: Number(productData.weight) || 0,
+          tags: productData.tags ? String(productData.tags).split(',').map(tag => tag.trim()).filter(tag => tag) : [],
+          description: String(productData.description || '').trim(),
+          discount: Number(productData.discount) || 0,
+          specifications: productData.specifications ? [{
+            key: "Specifications",
+            value: String(productData.specifications).trim()
+          }] : [],
+          details: String(productData.details || '').trim(),
+          shortDescription: String(productData.shortDescription || '').trim(),
+          barcode: String(productData.barcode || '').trim(),
+          isActive: true,
+          countInStock: Number(productData.countInStock) || 0,
+          createdBy: req.user._id
+        })
+
+        await product.save()
+
+        results.push({
+          status: "success",
+          product: {
+            _id: product._id,
+            name: product.name,
+            sku: product.sku
+          },
+          originalIndex: i
+        })
+        successCount++
+
+      } catch (error) {
+        console.error(`Error creating product ${i + 1}:`, error)
+        results.push({
+          status: "error",
+          product: productData,
+          message: error.message || "Failed to create product",
+          details: error.stack,
+          originalIndex: i
+        })
+        failedCount++
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Bulk import completed. ${successCount} products created, ${failedCount} failed.`,
+      successCount,
+      failedCount,
+      results,
+      summary: {
+        total: products.length,
+        success: successCount,
+        failed: failedCount
+      }
+    })
+  })
+)
+
 // Update your GET products route to support excludeId parameter
 router.get('/', async (req, res) => {
   try {
