@@ -67,7 +67,7 @@ router.post(
   protect,
   admin,
   asyncHandler(async (req, res) => {
-    const { name, description, image, slug } = req.body
+    const { name, description, seoContent, image, slug } = req.body
 
     if (!name || name.trim() === "") {
       res.status(400)
@@ -90,6 +90,7 @@ router.post(
     const category = new Category({
       name: name.trim(),
       description: description || "",
+      seoContent: seoContent || "",
       image: image || "",
       slug: categorySlug,
       isActive: true,
@@ -109,7 +110,7 @@ router.put(
   protect,
   admin,
   asyncHandler(async (req, res) => {
-    const { name, description, image, slug, isActive } = req.body
+    const { name, description, seoContent, image, slug, isActive } = req.body
 
     const category = await Category.findById(req.params.id)
 
@@ -129,6 +130,7 @@ router.put(
 
       category.name = name?.trim() || category.name
       category.description = description !== undefined ? description : category.description
+      category.seoContent = seoContent !== undefined ? seoContent : category.seoContent
       category.image = image !== undefined ? image : category.image
       category.slug = slug || category.slug
       category.isActive = isActive !== undefined ? isActive : category.isActive

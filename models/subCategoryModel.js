@@ -17,6 +17,10 @@ const subCategorySchema = mongoose.Schema(
       type: String,
       trim: true,
     },
+    seoContent: {
+      type: String,
+      default: "",
+    },
     image: {
       type: String,
     },

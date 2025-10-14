@@ -523,7 +523,7 @@ router.post(
   protect,
   admin,
   asyncHandler(async (req, res) => {
-    const { name, description, category, image, slug } = req.body
+    const { name, description, seoContent, category, image, slug } = req.body
 
     if (!name || name.trim() === "") {
       res.status(400)
@@ -559,6 +559,7 @@ router.post(
     const subcategory = new SubCategory({
       name: name.trim(),
       description: description || "",
+      seoContent: seoContent || "",
       category: category,
       image: image || "",
       slug: subCategorySlug,
@@ -580,7 +581,7 @@ router.put(
   protect,
   admin,
   asyncHandler(async (req, res) => {
-    const { name, description, category, image, slug, isActive } = req.body
+    const { name, description, seoContent, category, image, slug, isActive } = req.body
 
     const subcategory = await SubCategory.findById(req.params.id)
 
@@ -610,6 +611,7 @@ router.put(
 
       subcategory.name = name?.trim() || subcategory.name
       subcategory.description = description !== undefined ? description : subcategory.description
+      subcategory.seoContent = seoContent !== undefined ? seoContent : subcategory.seoContent
       subcategory.category = category || subcategory.category
       subcategory.image = image !== undefined ? image : subcategory.image
       subcategory.slug = slug || subcategory.slug

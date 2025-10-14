@@ -71,6 +71,10 @@ const categorySchema = mongoose.Schema(
       type: String,
       default: "",
     },
+    seoContent: {
+      type: String,
+      default: "",
+    },
     image: {
       type: String,
       default: "",
