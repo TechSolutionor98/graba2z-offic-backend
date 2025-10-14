@@ -1113,7 +1113,9 @@ router.get(
   asyncHandler(async (req, res) => {
     const { page = 1, limit = 50, status, search } = req.query
 
-    const query = {}
+    const query = {
+      status: { $ne: "Deleted" } // Exclude deleted orders
+    }
 
     if (status && status !== "all") {
       query.status = status
@@ -1153,7 +1155,7 @@ router.get(
   protect,
   admin,
   asyncHandler(async (req, res) => {
-    const orders = await Order.find({})
+    const orders = await Order.find({ status: { $ne: "Deleted" } })
       .populate({ path: "user", select: "name email" })
       .populate({ path: "orderItems.product", select: "name image sku" })
       .sort({ createdAt: -1 })
