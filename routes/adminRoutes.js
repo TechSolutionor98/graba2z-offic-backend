@@ -1132,9 +1132,15 @@ router.get(
     const orders = await Order.find(query)
       .populate({ path: "user", select: "name email" })
       .populate({ path: "orderItems.product", select: "name image sku" })
-      .sort({ createdAt: -1 })
+      .sort({ deliveredAt: -1, createdAt: -1 }) // Sort by delivered date first, then created date
       .limit(limit * 1)
       .skip((page - 1) * limit)
+
+    // Debug logging for delivered orders
+    if (status === "Delivered") {
+      console.log(`[DEBUG] Delivered orders query returned: ${orders.length} orders`)
+      console.log(`[DEBUG] Order IDs:`, orders.map(o => o._id.toString().slice(-6)))
+    }
 
     // TEMP DEBUG: log first order item product keys to ensure sku is present
     if (process.env.NODE_ENV !== "production" && orders[0]?.orderItems?.[0]?.product) {
