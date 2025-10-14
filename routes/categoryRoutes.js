@@ -67,7 +67,7 @@ router.post(
   protect,
   admin,
   asyncHandler(async (req, res) => {
-    const { name, description, seoContent, image, slug } = req.body
+    const { name, description, seoContent, metaTitle, metaDescription, redirectUrl, image, slug } = req.body
 
     if (!name || name.trim() === "") {
       res.status(400)
@@ -91,6 +91,9 @@ router.post(
       name: name.trim(),
       description: description || "",
       seoContent: seoContent || "",
+      metaTitle: metaTitle || "",
+      metaDescription: metaDescription || "",
+      redirectUrl: redirectUrl || "",
       image: image || "",
       slug: categorySlug,
       isActive: true,
@@ -110,7 +113,7 @@ router.put(
   protect,
   admin,
   asyncHandler(async (req, res) => {
-    const { name, description, seoContent, image, slug, isActive } = req.body
+    const { name, description, seoContent, metaTitle, metaDescription, redirectUrl, image, slug, isActive } = req.body
 
     const category = await Category.findById(req.params.id)
 
@@ -131,6 +134,9 @@ router.put(
       category.name = name?.trim() || category.name
       category.description = description !== undefined ? description : category.description
       category.seoContent = seoContent !== undefined ? seoContent : category.seoContent
+      category.metaTitle = metaTitle !== undefined ? metaTitle : category.metaTitle
+      category.metaDescription = metaDescription !== undefined ? metaDescription : category.metaDescription
+      category.redirectUrl = redirectUrl !== undefined ? redirectUrl : category.redirectUrl
       category.image = image !== undefined ? image : category.image
       category.slug = slug || category.slug
       category.isActive = isActive !== undefined ? isActive : category.isActive

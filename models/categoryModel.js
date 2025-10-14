@@ -75,6 +75,23 @@ const categorySchema = mongoose.Schema(
       type: String,
       default: "",
     },
+    metaTitle: {
+      type: String,
+      default: "",
+      trim: true,
+      maxlength: 60, // Google typically displays 50-60 characters
+    },
+    metaDescription: {
+      type: String,
+      default: "",
+      trim: true,
+      maxlength: 160, // Google typically displays 150-160 characters
+    },
+    redirectUrl: {
+      type: String,
+      default: "",
+      trim: true,
+    },
     image: {
       type: String,
       default: "",
