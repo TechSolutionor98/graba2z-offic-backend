@@ -3,7 +3,7 @@ import asyncHandler from "express-async-handler"
 import User from "../models/userModel.js"
 import generateToken from "../utils/generateToken.js"
 import { protect } from "../middleware/authMiddleware.js"
-import { sendVerificationEmail } from "../utils/emailService.js"
+import { sendVerificationEmail, sendAccountDeletionEmail } from "../utils/emailService.js"
 import { sendResetPasswordEmail } from "../utils/emailService.js"
 
 const router = express.Router()
@@ -361,6 +361,82 @@ router.put(
     } else {
       res.status(404)
       throw new Error("User not found")
+    }
+  }),
+)
+
+// @desc    Request account deletion - sends 6-digit code via email
+// @route   POST /api/users/request-account-deletion
+// @access  Private
+router.post(
+  "/request-account-deletion",
+  protect,
+  asyncHandler(async (req, res) => {
+    console.log("[Account Deletion] Request received for user:", req.user._id)
+    const user = await User.findById(req.user._id)
+
+    if (!user) {
+      res.status(404)
+      throw new Error("User not found")
+    }
+
+    console.log("[Account Deletion] User found:", user.email)
+
+    // Generate deletion verification code
+    const deletionCode = user.generateDeleteAccountCode()
+    console.log("[Account Deletion] Generated code:", deletionCode)
+    await user.save()
+    console.log("[Account Deletion] User saved with code")
+
+    // Send deletion verification email
+    try {
+      console.log("[Account Deletion] Attempting to send email to:", user.email)
+      await sendAccountDeletionEmail(user.email, user.name, deletionCode)
+      console.log("[Account Deletion] Email sent successfully")
+      res.json({
+        message: "Account deletion verification code sent to your email. Please check your inbox.",
+      })
+    } catch (emailError) {
+      console.error("[Account Deletion] Failed to send email:", emailError)
+      console.error("[Account Deletion] Error stack:", emailError.stack)
+      res.status(500)
+      throw new Error("Failed to send verification email. Please try again later.")
+    }
+  }),
+)
+
+// @desc    Verify deletion code and delete account
+// @route   POST /api/users/verify-account-deletion
+// @access  Private
+router.post(
+  "/verify-account-deletion",
+  protect,
+  asyncHandler(async (req, res) => {
+    const { code } = req.body
+
+    if (!code) {
+      res.status(400)
+      throw new Error("Verification code is required")
+    }
+
+    const user = await User.findById(req.user._id)
+
+    if (!user) {
+      res.status(404)
+      throw new Error("User not found")
+    }
+
+    // Verify the deletion code
+    if (user.verifyDeleteAccountCode(code)) {
+      // Code is valid, delete the user account
+      await User.findByIdAndDelete(user._id)
+      
+      res.json({
+        message: "Your account has been successfully deleted. We're sorry to see you go.",
+      })
+    } else {
+      res.status(400)
+      throw new Error("Invalid or expired verification code. Please request a new code.")
     }
   }),
 )

@@ -915,6 +915,173 @@ const getEmailTemplate = (type, data) => {
         </html>
       `
 
+    case "accountDeletion":
+      return `
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+          <meta charset="UTF-8" />
+          <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+          <title>Account Deletion Verification</title>
+          <style>
+            body {
+              background-color: #fee;
+              font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+              margin: 0;
+              padding: 0;
+            }
+            .container {
+              max-width: 600px;
+              margin: 32px auto;
+              background-color: #ffffff;
+              border-radius: 16px;
+              overflow: hidden;
+              box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+              border: 1px solid #e0e0e0;
+            }
+            .header {
+              background-color: #fff;
+              padding: 32px 0 16px 0;
+              text-align: center;
+              border-bottom: 1px solid #e0e0e0;
+            }
+            .header a {
+              display: inline-block;
+            }
+            .header img {
+              max-height: 60px;
+            }
+            .content {
+              padding: 40px 30px 32px 30px;
+              text-align: center;
+            }
+            .warning-icon {
+              width: 80px;
+              height: 80px;
+              background-color: #ef4444;
+              border-radius: 50%;
+              margin: 20px auto;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              color: white;
+              font-size: 40px;
+            }
+            .content h2 {
+              color: #dc2626;
+              font-size: 1.5rem;
+              margin-bottom: 0.5em;
+            }
+            .content p {
+              color: #444;
+              font-size: 1.1rem;
+              margin: 0.5em 0 1.5em 0;
+            }
+            .code-box {
+              background: #fef2f2;
+              border: 2px solid #fecaca;
+              border-radius: 10px;
+              margin: 32px auto 24px auto;
+              padding: 24px 0;
+              font-size: 2.2rem;
+              font-weight: bold;
+              color: #dc2626;
+              letter-spacing: 10px;
+              max-width: 320px;
+            }
+            .warning-box {
+              background: #fef2f2;
+              border-left: 4px solid #ef4444;
+              border-radius: 8px;
+              padding: 16px 20px;
+              margin: 20px 0;
+              text-align: left;
+            }
+            .warning-box strong {
+              color: #dc2626;
+            }
+            .footer {
+              background-color: #fee;
+              padding: 32px 20px 20px 20px;
+              text-align: center;
+              font-size: 13px;
+              color: #888;
+            }
+            .footer .socials {
+              margin: 18px 0 10px 0;
+            }
+            .footer .socials a {
+              display: inline-block;
+              margin: 0 10px;
+              text-decoration: none;
+            }
+            .footer .socials img {
+              width: 32px;
+              height: 32px;
+              vertical-align: middle;
+              border-radius: 50%;
+              background: #fff;
+              box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+              transition: box-shadow 0.2s;
+            }
+            .footer .socials img:hover {
+              box-shadow: 0 4px 16px rgba(239,68,68,0.15);
+            }
+            @media (max-width: 600px) {
+              .container { border-radius: 0; margin: 0; }
+              .content { padding: 24px 8px 24px 8px; }
+              .footer { padding: 24px 4px 12px 4px; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <a href="https://www.graba2z.ae/" target="_blank">
+                <img src="https://res.cloudinary.com/dyfhsu5v6/image/upload/v1753105567/admin-logo_ruxcjj.png" alt="Graba2z Logo" />
+              </a>
+              <div class="warning-icon">⚠️</div>
+            </div>
+            <div class="content">
+              <h2>Account Deletion Request</h2>
+              <p>Hi <b>${data.name || "User"}</b>,<br />
+              We received a request to permanently delete your Graba2z account. If you want to proceed, please enter the verification code below:</p>
+              <div class="code-box">${data.code || "000000"}</div>
+              <div class="warning-box">
+                <strong>⚠️ Warning:</strong> This action is permanent and cannot be undone. Once your account is deleted:
+                <ul style="text-align: left; margin: 10px 0 0 0; padding-left: 20px; color: #666;">
+                  <li>All your personal data will be permanently removed</li>
+                  <li>Your order history will be deleted</li>
+                  <li>Your wishlist and preferences will be lost</li>
+                  <li>You won't be able to recover your account</li>
+                </ul>
+              </div>
+              <p style="margin: 16px 0 0 0; color: #dc2626; font-weight: bold;">
+                Copy the code above and paste it on the website to confirm account deletion.
+              </p>
+              <p style="margin-top: 2em; color: #888; font-size: 1em;">This code will expire in 10 minutes.<br />If you didn't request account deletion, please ignore this email and secure your account immediately.</p>
+            </div>
+            <div class="footer">
+              <div class="socials">
+                <a href="https://www.facebook.com/grabatozae/" target="_blank"><img src="https://res.cloudinary.com/dyfhsu5v6/image/upload/v1753107123/WhatsApp_Image_2025-07-21_at_7.10.18_AM_1_axvzvv.jpg" alt="Facebook" style="width:32px;height:32px;margin:0 10px;vertical-align:middle;background:transparent;border-radius:8px;box-shadow:none;" /></a>
+                <a href="https://www.instagram.com/grabatoz/" target="_blank"><img src="https://res.cloudinary.com/dyfhsu5v6/image/upload/v1753107124/WhatsApp_Image_2025-07-21_at_7.10.18_AM_xgjv5f.jpg" alt="Instagram" style="width:32px;height:32px;margin:0 10px;vertical-align:middle;background:transparent;border-radius:8px;box-shadow:none;" /></a>
+                <a href="https://x.com/GrabAtoz" target="_blank"><img src="https://res.cloudinary.com/dyfhsu5v6/image/upload/v1753107545/WhatsApp_Image_2025-07-21_at_7.10.18_AM_2_cwzjg6.png" alt="X" style="width:32px;height:32px;margin:0 10px;vertical-align:middle;background:transparent;border-radius:8px;box-shadow:none;" /></a>
+                <a href="https://www.linkedin.com/company/grabatozae" target="_blank"><img src="https://res.cloudinary.com/dyfhsu5v6/image/upload/v1753107123/WhatsApp_Image_2025-07-21_at_7.10.18_AM_3_ll6y2i.jpg" alt="LinkedIn" style="width:32px;height:32px;margin:0 10px;vertical-align:middle;background:transparent;border-radius:8px;box-shadow:none;" /></a>
+              </div>
+              <p>This email was sent by: support@grabatoz.ae</p>
+              <br/>
+              <p>Kindly Do Not Reply to this Email</p>
+              <br/>
+              <div style="margin-top: 10px; color: #888;">
+                &copy; 2025 Graba2z. All rights reserved.<br />
+                <span style="font-size:12px;">If you did not request account deletion, please secure your account immediately.</span>
+              </div>
+            </div>
+          </div>
+        </body>
+        </html>
+      `
+
     case "reviewVerification":
       return `
         <!DOCTYPE html>
@@ -1103,9 +1270,13 @@ const getEmailTemplate = (type, data) => {
 // Generic send email function with sender type
 const sendEmail = async (to, subject, html, senderType = "support") => {
   try {
+    console.log(`[sendEmail] Starting - To: ${to}, Subject: ${subject}, Sender: ${senderType}`)
     const { transporter, from } = getMailConfig(senderType)
+    console.log(`[sendEmail] Transporter configured, From: ${from}`)
     if (senderType === "support") {
-      console.log("[DEBUG] SUPPORT_EMAIL_USER:", process.env.SUPPORT_EMAIL_USER)
+      console.log("[sendEmail] SUPPORT_EMAIL_USER:", process.env.SUPPORT_EMAIL_USER)
+      console.log("[sendEmail] SUPPORT_EMAIL_HOST:", process.env.SUPPORT_EMAIL_HOST)
+      console.log("[sendEmail] SUPPORT_EMAIL_PORT:", process.env.SUPPORT_EMAIL_PORT)
     }
     const mailOptions = {
       from,
@@ -1113,11 +1284,14 @@ const sendEmail = async (to, subject, html, senderType = "support") => {
       subject,
       html,
     }
+    console.log("[sendEmail] Sending email with options:", { from, to, subject: mailOptions.subject })
     const result = await transporter.sendMail(mailOptions)
-    console.log(`Email sent successfully from ${from}:`, result.messageId)
+    console.log(`[sendEmail] Email sent successfully from ${from}:`, result.messageId)
     return { success: true, messageId: result.messageId }
   } catch (error) {
-    console.error("Failed to send email:", error)
+    console.error("[sendEmail] Failed to send email:", error)
+    console.error("[sendEmail] Error code:", error.code)
+    console.error("[sendEmail] Error response:", error.response)
     throw new Error(`Email sending failed: ${error.message}`)
   }
 }
@@ -1204,6 +1378,24 @@ export const sendReviewVerificationEmail = async (email, name, code, productName
     return { success: true }
   } catch (error) {
     console.error("Failed to send review verification email:", error)
+    throw error
+  }
+}
+
+// Send account deletion verification email
+export const sendAccountDeletionEmail = async (email, name, code) => {
+  try {
+    console.log("[sendAccountDeletionEmail] Starting - Email:", email, "Name:", name, "Code:", code)
+    const html = getEmailTemplate("accountDeletion", { name, code })
+    console.log("[sendAccountDeletionEmail] Template generated, length:", html.length)
+    console.log("[sendAccountDeletionEmail] Calling sendEmail with support sender")
+    const result = await sendEmail(email, "Account Deletion Verification - Graba2z", html, "support")
+    console.log("[sendAccountDeletionEmail] Email sent successfully:", result)
+    return { success: true }
+  } catch (error) {
+    console.error("[sendAccountDeletionEmail] Failed to send account deletion email:", error)
+    console.error("[sendAccountDeletionEmail] Error details:", error.message)
+    console.error("[sendAccountDeletionEmail] Error stack:", error.stack)
     throw error
   }
 }

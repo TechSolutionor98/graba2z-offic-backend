@@ -66,6 +66,8 @@ const userSchema = mongoose.Schema(
     ],
     resetPasswordToken: String,
     resetPasswordExpires: Date,
+    deleteAccountCode: String,
+    deleteAccountExpires: Date,
   },
   {
     timestamps: true,
@@ -114,6 +116,33 @@ userSchema.methods.generatePasswordResetToken = function () {
   this.resetPasswordExpires = new Date(Date.now() + 30 * 60 * 1000) // 30 minutes
 
   return resetToken
+}
+
+// Method to generate account deletion code
+userSchema.methods.generateDeleteAccountCode = function () {
+  // Generate 6-digit code
+  const code = Math.floor(100000 + Math.random() * 900000).toString()
+
+  // Set code and expiration (10 minutes)
+  this.deleteAccountCode = code
+  this.deleteAccountExpires = new Date(Date.now() + 10 * 60 * 1000) // 10 minutes
+
+  return code
+}
+
+// Method to verify account deletion code
+userSchema.methods.verifyDeleteAccountCode = function (code) {
+  if (!this.deleteAccountCode || !this.deleteAccountExpires) {
+    return false
+  }
+
+  // Check if code has expired
+  if (new Date() > this.deleteAccountExpires) {
+    return false
+  }
+
+  // Check if code matches
+  return this.deleteAccountCode === code
 }
 
 // Encrypt password before saving
