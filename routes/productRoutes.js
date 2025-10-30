@@ -2089,13 +2089,14 @@ function escapeRegex(string) {
 // @access  Private/Admin
 router.get("/admin", protect, admin, async (req, res) => {
   try {
-    const { search, category, subcategory, parentCategory, limit = 20, page = 1 } = req.query
+    const { search, category, subcategory, parentCategory, brand, limit = 20, page = 1 } = req.query
     const query = {}
     const orConditions = []
 
     if (category) query.category = category
     if (subcategory) query.subCategory = subcategory
     if (parentCategory) query.parentCategory = parentCategory
+    if (brand) query.brand = brand
 
     if (typeof search === "string" && search.trim() !== "") {
       const safeSearch = escapeRegex(search)
@@ -2129,6 +2130,48 @@ router.get("/admin", protect, admin, async (req, res) => {
 
     const products = await productsQuery
     res.json({ products, totalCount })
+  } catch (error) {
+    console.error(error)
+    res.status(500).json({ message: "Server error" })
+  }
+})
+
+// @desc    Get product count only (Admin only - for efficient select all)
+// @route   GET /api/products/admin/count
+// @access  Private/Admin
+router.get("/admin/count", protect, admin, async (req, res) => {
+  try {
+    const { search, category, subcategory, parentCategory, brand } = req.query
+    const query = {}
+    const orConditions = []
+
+    if (category) query.category = category
+    if (subcategory) query.subCategory = subcategory
+    if (parentCategory) query.parentCategory = parentCategory
+    if (brand) query.brand = brand
+
+    if (typeof search === "string" && search.trim() !== "") {
+      const safeSearch = escapeRegex(search)
+      const regex = new RegExp(safeSearch, "i")
+      // Find matching brands by name
+      const matchingBrands = await Brand.find({ name: regex }).select("_id")
+      const brandIds = matchingBrands.map((b) => b._id)
+      orConditions.push(
+        { name: regex },
+        { description: regex },
+        { sku: regex },
+        { barcode: regex },
+        { tags: regex },
+        { brand: { $in: brandIds } },
+      )
+    }
+    if (orConditions.length > 0) {
+      query.$or = orConditions
+    }
+
+    // Get only the count - much faster than fetching products
+    const totalCount = await Product.countDocuments(query)
+    res.json({ totalCount })
   } catch (error) {
     console.error(error)
     res.status(500).json({ message: "Server error" })
