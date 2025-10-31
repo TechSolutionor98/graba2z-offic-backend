@@ -2089,7 +2089,7 @@ function escapeRegex(string) {
 // @access  Private/Admin
 router.get("/admin", protect, admin, async (req, res) => {
   try {
-    const { search, category, subcategory, parentCategory, brand, limit = 20, page = 1 } = req.query
+    const { search, category, subcategory, parentCategory, brand, isActive, limit = 20, page = 1 } = req.query
     const query = {}
     const orConditions = []
 
@@ -2097,6 +2097,11 @@ router.get("/admin", protect, admin, async (req, res) => {
     if (subcategory) query.subCategory = subcategory
     if (parentCategory) query.parentCategory = parentCategory
     if (brand) query.brand = brand
+    
+    // Add isActive filter if provided
+    if (isActive !== undefined && isActive !== null && isActive !== '') {
+      query.isActive = isActive === 'true' || isActive === true
+    }
 
     if (typeof search === "string" && search.trim() !== "") {
       const safeSearch = escapeRegex(search)
