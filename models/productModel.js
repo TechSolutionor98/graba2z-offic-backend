@@ -39,8 +39,23 @@ const productSchema = mongoose.Schema(
       ref: "Category",
       required: true,
     },
-    // Subcategory (shown in dropdown)
+    // Subcategory Level 1 (shown in dropdown)
     category: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "SubCategory",
+    },
+    // Subcategory Level 2 (optional)
+    subCategory2: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "SubCategory",
+    },
+    // Subcategory Level 3 (optional)
+    subCategory3: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "SubCategory",
+    },
+    // Subcategory Level 4 (optional)
+    subCategory4: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "SubCategory",
     },

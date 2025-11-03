@@ -503,15 +503,42 @@ router.get(
 router.get(
   "/",
   asyncHandler(async (req, res) => {
-    const { category } = req.query;
+    const { category, parentSubCategory, level } = req.query;
     let filter = { isActive: true, isDeleted: { $ne: true } };
+    
     if (category) {
       filter.category = category;
     }
+    if (parentSubCategory) {
+      filter.parentSubCategory = parentSubCategory;
+    }
+    if (level) {
+      filter.level = parseInt(level);
+    }
+    
     const subCategories = await SubCategory.find(filter)
       .populate("category", "name slug")
+      .populate("parentSubCategory", "name slug")
       .sort({ sortOrder: 1, name: 1 });
     res.json(subCategories);
+  })
+);
+
+// @desc    Get nested subcategories by parent subcategory ID
+// @route   GET /api/subcategories/children/:parentId
+// @access  Public
+router.get(
+  "/children/:parentId",
+  asyncHandler(async (req, res) => {
+    const children = await SubCategory.find({
+      parentSubCategory: req.params.parentId,
+      isActive: true,
+      isDeleted: { $ne: true },
+    })
+      .populate("category", "name slug")
+      .populate("parentSubCategory", "name slug")
+      .sort({ sortOrder: 1, name: 1 });
+    res.json(children);
   })
 );
 
@@ -523,7 +550,7 @@ router.post(
   protect,
   admin,
   asyncHandler(async (req, res) => {
-    const { name, description, seoContent, metaTitle, metaDescription, redirectUrl, category, image, slug } = req.body
+    const { name, description, seoContent, metaTitle, metaDescription, redirectUrl, category, parentSubCategory, level, image, slug } = req.body
 
     if (!name || name.trim() === "") {
       res.status(400)
@@ -542,19 +569,41 @@ router.post(
       throw new Error("Parent category not found")
     }
 
-    // Check if subcategory with same name already exists in this category
+    // Validate parent subcategory if provided
+    if (parentSubCategory) {
+      const parentSub = await SubCategory.findById(parentSubCategory)
+      if (!parentSub) {
+        res.status(400)
+        throw new Error("Parent subcategory not found")
+      }
+      // Ensure level is appropriate (parent level + 1)
+      if (level && level <= parentSub.level) {
+        res.status(400)
+        throw new Error("Level must be greater than parent subcategory level")
+      }
+    }
+
+    // Check if subcategory with same name already exists in this category/parent
     const existingSubCategory = await SubCategory.findOne({
       name: { $regex: new RegExp(`^${name.trim()}$`, "i") },
       category: category,
+      parentSubCategory: parentSubCategory || null,
     })
 
     if (existingSubCategory) {
       res.status(400)
-      throw new Error("Subcategory with this name already exists in this category")
+      throw new Error("Subcategory with this name already exists")
     }
 
     // Generate slug if not provided
     const subCategorySlug = slug || name.trim().toLowerCase().replace(/\s+/g, "-")
+
+    // Determine level automatically if not provided
+    let subcategoryLevel = level || 1
+    if (parentSubCategory && !level) {
+      const parentSub = await SubCategory.findById(parentSubCategory)
+      subcategoryLevel = parentSub.level + 1
+    }
 
     const subcategory = new SubCategory({
       name: name.trim(),
@@ -564,6 +613,8 @@ router.post(
       metaDescription: metaDescription || "",
       redirectUrl: redirectUrl || "",
       category: category,
+      parentSubCategory: parentSubCategory || null,
+      level: subcategoryLevel,
       image: image || "",
       slug: subCategorySlug,
       isActive: true,
@@ -572,6 +623,7 @@ router.post(
 
     const createdSubCategory = await subcategory.save()
     await createdSubCategory.populate("category", "name")
+    await createdSubCategory.populate("parentSubCategory", "name")
     res.status(201).json(createdSubCategory)
   }),
 )
@@ -584,22 +636,24 @@ router.put(
   protect,
   admin,
   asyncHandler(async (req, res) => {
-    const { name, description, seoContent, metaTitle, metaDescription, redirectUrl, category, image, slug, isActive } = req.body
+    const { name, description, seoContent, metaTitle, metaDescription, redirectUrl, category, parentSubCategory, level, image, slug, isActive } = req.body
 
     const subcategory = await SubCategory.findById(req.params.id)
 
     if (subcategory && !subcategory.isDeleted) {
       // Check if another subcategory with same name exists (excluding current)
       if (name && name.trim() !== subcategory.name) {
+        const parentSubCategoryId = parentSubCategory !== undefined ? parentSubCategory : subcategory.parentSubCategory
         const existingSubCategory = await SubCategory.findOne({
           name: { $regex: new RegExp(`^${name.trim()}$`, "i") },
           category: category || subcategory.category,
+          parentSubCategory: parentSubCategoryId || null,
           _id: { $ne: req.params.id },
         })
 
         if (existingSubCategory) {
           res.status(400)
-          throw new Error("Subcategory with this name already exists in this category")
+          throw new Error("Subcategory with this name already exists")
         }
       }
 
@@ -612,6 +666,21 @@ router.put(
         }
       }
 
+      // Validate parent subcategory if provided
+      if (parentSubCategory) {
+        const parentSub = await SubCategory.findById(parentSubCategory)
+        if (!parentSub) {
+          res.status(400)
+          throw new Error("Parent subcategory not found")
+        }
+        // Ensure level is appropriate (parent level + 1)
+        const newLevel = level !== undefined ? level : subcategory.level
+        if (newLevel <= parentSub.level) {
+          res.status(400)
+          throw new Error("Level must be greater than parent subcategory level")
+        }
+      }
+
       subcategory.name = name?.trim() || subcategory.name
       subcategory.description = description !== undefined ? description : subcategory.description
       subcategory.seoContent = seoContent !== undefined ? seoContent : subcategory.seoContent
@@ -619,12 +688,15 @@ router.put(
       subcategory.metaDescription = metaDescription !== undefined ? metaDescription : subcategory.metaDescription
       subcategory.redirectUrl = redirectUrl !== undefined ? redirectUrl : subcategory.redirectUrl
       subcategory.category = category || subcategory.category
+      subcategory.parentSubCategory = parentSubCategory !== undefined ? parentSubCategory : subcategory.parentSubCategory
+      subcategory.level = level !== undefined ? level : subcategory.level
       subcategory.image = image !== undefined ? image : subcategory.image
       subcategory.slug = slug || subcategory.slug
       subcategory.isActive = isActive !== undefined ? isActive : subcategory.isActive
 
       const updatedSubCategory = await subcategory.save()
       await updatedSubCategory.populate("category", "name")
+      await updatedSubCategory.populate("parentSubCategory", "name")
       res.json(updatedSubCategory)
     } else {
       res.status(404)

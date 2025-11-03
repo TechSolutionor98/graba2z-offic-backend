@@ -2466,7 +2466,7 @@ router.post(
   protect,
   admin,
   asyncHandler(async (req, res) => {
-    const { parentCategory, category, ...productData } = req.body
+    const { parentCategory, category, subCategory2, subCategory3, subCategory4, ...productData } = req.body
 
     // Verify parentCategory exists
     if (parentCategory) {
@@ -2489,6 +2489,33 @@ router.post(
       }
     }
 
+    // Verify subCategory2 exists if provided
+    if (subCategory2) {
+      const subCategory2Exists = await SubCategory.findById(subCategory2)
+      if (!subCategory2Exists) {
+        res.status(400)
+        throw new Error("Invalid subcategory level 2")
+      }
+    }
+
+    // Verify subCategory3 exists if provided
+    if (subCategory3) {
+      const subCategory3Exists = await SubCategory.findById(subCategory3)
+      if (!subCategory3Exists) {
+        res.status(400)
+        throw new Error("Invalid subcategory level 3")
+      }
+    }
+
+    // Verify subCategory4 exists if provided
+    if (subCategory4) {
+      const subCategory4Exists = await SubCategory.findById(subCategory4)
+      if (!subCategory4Exists) {
+        res.status(400)
+        throw new Error("Invalid subcategory level 4")
+      }
+    }
+
     // Check if slug is unique
     if (productData.slug) {
       const existingProduct = await Product.findOne({ slug: productData.slug })
@@ -2503,6 +2530,9 @@ router.post(
       parentCategory,
       category,
       subCategory: category || undefined, // for backward compatibility
+      subCategory2: subCategory2 || undefined,
+      subCategory3: subCategory3 || undefined,
+      subCategory4: subCategory4 || undefined,
       createdBy: req.user._id,
     })
 
@@ -2510,6 +2540,9 @@ router.post(
     const populatedProduct = await Product.findById(createdProduct._id)
       .populate("parentCategory", "name slug")
       .populate("category", "name slug")
+      .populate("subCategory2", "name slug")
+      .populate("subCategory3", "name slug")
+      .populate("subCategory4", "name slug")
       .populate("brand", "name")
     res.status(201).json(populatedProduct)
   }),
@@ -2526,7 +2559,7 @@ router.put(
     const product = await Product.findById(req.params.id)
 
     if (product) {
-      const { parentCategory, category, slug, ...updateData } = req.body
+      const { parentCategory, category, subCategory2, subCategory3, subCategory4, slug, ...updateData } = req.body
 
       // Verify parentCategory exists if provided
       if (parentCategory) {
@@ -2543,6 +2576,33 @@ router.put(
         if (!subCategoryExists) {
           res.status(400)
           throw new Error("Invalid subcategory")
+        }
+      }
+
+      // Verify subCategory2 exists if provided
+      if (subCategory2) {
+        const subCategory2Exists = await SubCategory.findById(subCategory2)
+        if (!subCategory2Exists) {
+          res.status(400)
+          throw new Error("Invalid subcategory level 2")
+        }
+      }
+
+      // Verify subCategory3 exists if provided
+      if (subCategory3) {
+        const subCategory3Exists = await SubCategory.findById(subCategory3)
+        if (!subCategory3Exists) {
+          res.status(400)
+          throw new Error("Invalid subcategory level 3")
+        }
+      }
+
+      // Verify subCategory4 exists if provided
+      if (subCategory4) {
+        const subCategory4Exists = await SubCategory.findById(subCategory4)
+        if (!subCategory4Exists) {
+          res.status(400)
+          throw new Error("Invalid subcategory level 4")
         }
       }
 
@@ -2565,12 +2625,18 @@ router.put(
         product.category = category
         product.subCategory = category // for backward compatibility
       }
+      if (subCategory2 !== undefined) product.subCategory2 = subCategory2
+      if (subCategory3 !== undefined) product.subCategory3 = subCategory3
+      if (subCategory4 !== undefined) product.subCategory4 = subCategory4
       if (slug) product.slug = slug
 
       const updatedProduct = await product.save()
       const populatedProduct = await Product.findById(updatedProduct._id)
         .populate("parentCategory", "name slug")
         .populate("category", "name slug")
+        .populate("subCategory2", "name slug")
+        .populate("subCategory3", "name slug")
+        .populate("subCategory4", "name slug")
         .populate("brand", "name")
       res.json(populatedProduct)
     } else {

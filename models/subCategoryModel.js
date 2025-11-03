@@ -46,6 +46,19 @@ const subCategorySchema = mongoose.Schema(
       ref: "Category",
       required: true,
     },
+    // Parent subcategory for nested subcategories (optional)
+    parentSubCategory: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "SubCategory",
+      default: null,
+    },
+    // Level indicator (1, 2, 3, or 4)
+    level: {
+      type: Number,
+      default: 1,
+      min: 1,
+      max: 4,
+    },
     isActive: {
       type: Boolean,
       default: true,
@@ -73,6 +86,7 @@ const subCategorySchema = mongoose.Schema(
 
 // Add index for better performance
 subCategorySchema.index({ isDeleted: 1, isActive: 1, category: 1 })
+subCategorySchema.index({ parentSubCategory: 1, level: 1 })
 
 const SubCategory = mongoose.model("SubCategory", subCategorySchema)
 
