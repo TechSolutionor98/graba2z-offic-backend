@@ -25,13 +25,13 @@ const subCategorySchema = mongoose.Schema(
       type: String,
       default: "",
       trim: true,
-      maxlength: 60, // Google typically displays 50-60 characters
+      maxlength: 100, // Increased limit for better SEO flexibility
     },
     metaDescription: {
       type: String,
       default: "",
       trim: true,
-      maxlength: 160, // Google typically displays 150-160 characters
+      maxlength: 300, // Increased limit for better SEO flexibility
     },
     redirectUrl: {
       type: String,
