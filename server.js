@@ -43,6 +43,7 @@ import mobileApiRoutes from "./routes/mobileApiRoutes.js"
 import reviewRoutes from "./routes/reviewRoutes.js"
 import adminReviewRoutes from "./routes/adminReviewRoutes.js"
 import priceAdjustmentRoutes from "./routes/priceAdjustmentRoutes.js"
+import redirectRoutes from "./routes/redirectRoutes.js"
 
 dotenv.config()
 
@@ -118,6 +119,7 @@ app.use("/api/newsletter", newsletterRoutes)
 
 
 app.use("/api/price-adjustment", priceAdjustmentRoutes)
+app.use("/api/redirects", redirectRoutes)
 // @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
 
