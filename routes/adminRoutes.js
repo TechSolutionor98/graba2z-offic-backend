@@ -1182,17 +1182,30 @@ router.put(
 
     if (order) {
       const previousStatus = order.status
-      order.status = req.body.status
+
+      // Normalize incoming status to match schema enum values (case-insensitive)
+      const incoming = typeof req.body.status === "string" ? req.body.status.trim() : ""
+      const allowedStatuses = Order.schema.path("status").enumValues || []
+      const normalized = allowedStatuses.find((s) => s.toLowerCase() === incoming.toLowerCase())
+
+      if (!normalized) {
+        res.status(400)
+        throw new Error(
+          `Invalid status '${req.body.status}'. Allowed values: ${allowedStatuses.join(", ")}`,
+        )
+      }
+
+      order.status = normalized
 
       // Update delivered date if status is Delivered
-      if (req.body.status === "Delivered" && previousStatus !== "Delivered") {
+      if (normalized === "Delivered" && previousStatus !== "Delivered") {
         order.deliveredAt = new Date()
       }
 
       const updatedOrder = await order.save()
 
       // Send notification email only if status has changed
-      if (previousStatus !== req.body.status) {
+      if (previousStatus !== normalized) {
         try {
           await sendOrderNotification(updatedOrder)
           console.log(`Order status update email sent for order ${updatedOrder._id}`)
@@ -1696,6 +1709,12 @@ router.post(
         Number(discountAmount || 0),
     )
 
+    // Normalize provided status to schema enum values
+    const allowedStatuses = Order.schema.path("status").enumValues || []
+    const normalizedStatus = allowedStatuses.find(
+      (s) => s.toLowerCase() === String(status || "New").trim().toLowerCase(),
+    ) || "New"
+
     const order = new Order({
       orderItems,
       user: userId || null,
@@ -1709,7 +1728,7 @@ router.post(
       discountAmount: Number(Number(discountAmount || 0).toFixed(2)), // special discount stored
       totalPrice: Number((typeof totalPrice === "number" ? totalPrice : computedTotal).toFixed(2)),
       customerNotes,
-      status: status || "New",
+      status: normalizedStatus,
     })
 
     const createdOrder = await order.save()

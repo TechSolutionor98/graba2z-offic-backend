@@ -135,7 +135,23 @@ router.put(
     }
 
     const oldStatus = order.status
-    order.status = status
+
+    // Normalize incoming status to match schema enum values (case-insensitive)
+    if (typeof status === "string" && status.trim().length > 0) {
+      const allowedStatuses = Order.schema.path("status").enumValues || []
+      const normalized = allowedStatuses.find(
+        (s) => s.toLowerCase() === status.toLowerCase().trim(),
+      )
+
+      if (!normalized) {
+        res.status(400)
+        throw new Error(
+          `Invalid status '${status}'. Allowed values: ${allowedStatuses.join(", ")}`,
+        )
+      }
+
+      order.status = normalized
+    }
 
     if (trackingId) {
       order.trackingId = trackingId
