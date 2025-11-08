@@ -675,19 +675,7 @@ const getEmailTemplate = (type, data) => {
               <div class="order-number">Order #${data.orderNumber || data._id?.toString().slice(-6) || "N/A"}</div>
               <div class="greeting">Hi ${customerName}, Thank you for your purchase.</div>
               <div class="processing-text">We are processing your order.</div>
-              <div class="action-buttons">
-                <a href="${process.env.FRONTEND_URL || "https://graba2z.ae"}" class="button">Visit Website</a>
-                <a href="${process.env.FRONTEND_URL || "https://graba2z.ae"}/track-order" class="button">Track Your Order</a>
-              </div>
-              ${
-                orderItems.length > 0
-                  ? `
-              <div class="product-section">
-                ${orderItemsHtml}
-              </div>
-              `
-                  : ""
-              }
+              <!-- ORDER_CONFIRMATION_MINIMAL: product list + buttons removed per request -->
               <div class="info-section">
                 <div class="info-title">Payment Method</div>
                 <div class="info-content">${data.paymentMethod || "Cash on delivery"}</div>
@@ -786,27 +774,6 @@ const getEmailTemplate = (type, data) => {
         return statusSteps[0]
       }
       const currentStep = getCurrentStep(data.status)
-      // Order summary table (scoped variables)
-      const statusOrderItems = Array.isArray(data.orderItems) ? data.orderItems : []
-      const statusOrderItemsHtml = statusOrderItems
-        .map((item) => {
-          // Truncate product name to two lines (max 80 chars)
-          let name = item.product?.name || item.name || "Product"
-          if (name.length > 80) name = name.slice(0, 77) + "..."
-          return `
-          <tr style="border-bottom:1px solid #eee;">
-            <td style="padding:10px 0;"><img src="${item.product?.image || item.image || "/placeholder.svg?height=80&width=80"}" alt="${name}" style="width:48px;height:48px;border-radius:8px;object-fit:cover;background:#f0f0f0;" /></td>
-            <td style="padding:10px 0 10px 12px;font-size:15px;color:#222;max-width:220px;line-height:1.3;">${name}</td>
-            <td style="padding:10px 0;font-size:15px;color:#333;">AED ${(item.price || 0).toFixed(2)}</td>
-            <td style="padding:10px 0;font-size:15px;color:#333;">${item.quantity || 1}</td>
-          </tr>
-        `
-        })
-        .join("")
-      const statusSubtotal = data.itemsPrice || 0
-      const statusShipping = data.shippingPrice || 0
-      const statusTotal = data.totalPrice || 0
-      const statusVatAmount = (statusTotal * 0.05).toFixed(2)
       return `
         <!DOCTYPE html>
         <html lang="en">
@@ -845,13 +812,7 @@ const getEmailTemplate = (type, data) => {
             .status-badge { display: flex; align-items: center; justify-content: center; margin: 24px 0 24px 0; }
             .status-icon { width: 54px; height: 54px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 32px; font-weight: bold; background: #8BC34A; color: #fff; margin-right: 16px; box-shadow: 0 2px 8px #8BC34A33; }
             .status-label { font-size: 20px; font-weight: bold; color: #689f38; letter-spacing: 0.2px; }
-            .order-summary-table { width: 100%; border-collapse: collapse; margin: 30px 0 10px 0; }
-            .order-summary-table th { background: #f9f9f9; color: #333; font-size: 15px; font-weight: 600; padding: 10px 0; border-bottom: 2px solid #e0e0e0; }
-            .order-summary-table td { text-align: center; }
-            .order-summary-totals { width: 100%; margin-top: 10px; }
-            .order-summary-totals td { font-size: 15px; padding: 6px 0; color: #333; }
-            .order-summary-totals .total { font-weight: bold; font-size: 17px; color: #689f38; }
-            .order-summary-totals .vat { font-size: 13px; color: #888; text-align: right; }
+            /* Removed tables per request */
             .footer { background-color: #e8f7ee; padding: 32px 20px 20px 20px; text-align: center; font-size: 13px; color: #888; }
             .footer .socials { margin: 18px 0 10px 0; }
             .footer .socials a { display: inline-block; margin: 0 10px; text-decoration: none; }
@@ -875,24 +836,9 @@ const getEmailTemplate = (type, data) => {
                 <div class="status-icon">${currentStep.icon}</div>
                 <span class="status-label">${currentStep.label}</span>
               </div>
-              <table class="order-summary-table">
-                <tr>
-                  <th>Image</th>
-                  <th>Product</th>
-                  <th>Price</th>
-                  <th>Qty</th>
-                </tr>
-                ${statusOrderItemsHtml}
-              </table>
-              <table class="order-summary-totals">
-                <tr><td style="text-align:right;">Subtotal:</td><td style="text-align:right;">AED ${statusSubtotal.toFixed(2)}</td></tr>
-                <tr><td style="text-align:right;">Shipping:</td><td style="text-align:right;">AED ${statusShipping.toFixed(2)}</td></tr>
-                <tr class="total"><td style="text-align:right;">Total:</td><td style="text-align:right;">AED ${statusTotal.toFixed(2)}</td></tr>
-                <tr><td colspan="2" class="vat">(includes ${statusVatAmount} AED VAT)</td></tr>
-              </table>
-              <div class="action-buttons">
-                <a href="${process.env.FRONTEND_URL || "https://graba2z.ae"}/track-order" class="button">Track Your Order</a>
-              </div>
+              <!-- STATUS_TEMPLATE_MINIMAL v2: only header + status badge retained -->
+              <!-- If you still see tables, production hasn't redeployed this file. -->
+              
             </div>
             <div class="footer">
               <div class="socials">
@@ -1352,6 +1298,20 @@ export const sendOrderStatusUpdateEmail = async (order) => {
       orderNumber,
       customerName,
     })
+    // Defensive: strip any product/totals blocks if present due to stale template
+    let sanitizedHtml = html
+      // Remove product-section blocks
+      .replace(/<div class="product-section">[\s\S]*?<\/div>\s*/g, '')
+      // Remove order-summary blocks
+      .replace(/<div class="order-summary">[\s\S]*?<\/div>\s*/g, '')
+      // Remove summary rows if present standalone
+      .replace(/<div class="summary-row[^"]*">[\s\S]*?<\/div>\s*/g, '')
+      // Remove track button if any
+      .replace(/<a [^>]*>\s*Track Your Order\s*<\/a>/gi, '')
+    
+    // Debug marker to ensure minimal template is deployed
+    console.log('[sendOrderStatusUpdateEmail] Template length:', sanitizedHtml.length)
+    console.log('[sendOrderStatusUpdateEmail] Minimal marker present:', sanitizedHtml.includes('STATUS_TEMPLATE_MINIMAL'))
 
     const statusMessages = {
       processing: "Order is Being Processed",
@@ -1362,7 +1322,7 @@ export const sendOrderStatusUpdateEmail = async (order) => {
     }
 
     const subject = `${statusMessages[order.status] || "Order Update"} #${orderNumber} - Graba2z`
-    await sendEmail(customerEmail, subject, html, "order")
+  await sendEmail(customerEmail, subject, sanitizedHtml, "order")
     return { success: true }
   } catch (error) {
     console.error("Failed to send order status update email:", error)
@@ -1447,3 +1407,153 @@ export default {
   sendNewsletterConfirmation,
   sendReviewVerificationEmail,
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
