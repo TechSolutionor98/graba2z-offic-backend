@@ -1,4 +1,4 @@
-import express from 'express'
+ import express from 'express'
 import asyncHandler from 'express-async-handler'
 import Product from '../models/productModel.js'
 import Category from '../models/categoryModel.js'
@@ -31,7 +31,7 @@ const escapeXml = (unsafe) => {
 // @access  Public
 router.get('/sitemap.xml', asyncHandler(async (req, res) => {
   try {
-    const baseUrl = 'https://grabatoz.ae'
+    const baseUrl = 'https://www.grabatoz.ae'
     
     // Fetch all data
     const [products, categories, subCategories, brands, blogs, blogCategories] = await Promise.all([
