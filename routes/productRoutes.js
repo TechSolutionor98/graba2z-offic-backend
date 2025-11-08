@@ -1235,6 +1235,7 @@ router.post(
       try {
         // Skip row if all fields are empty/falsy
         if (Object.values(prod).every((v) => !v)) {
+          console.log(`Product ${i}: Skipped - Empty row`)
           results.push({ index: i, status: "failed", reason: "Empty row", product: prod })
           failed++
           continue
@@ -1246,6 +1247,7 @@ router.post(
         })
 
         if (existing) {
+          console.log(`Product ${i} (${prod.name}): Failed - Duplicate product`)
           results.push({ index: i, status: "failed", reason: "Duplicate product name or slug", product: prod })
           failed++
           continue
@@ -1253,7 +1255,8 @@ router.post(
 
         // Validate required fields
         if (!prod.name || !prod.parentCategory) {
-          results.push({ index: i, status: "failed", reason: "Missing required fields", product: prod })
+          console.log(`Product ${i}: Failed - Missing required fields (name: ${prod.name}, parentCategory: ${prod.parentCategory})`)
+          results.push({ index: i, status: "failed", reason: "Missing required fields (name, parentCategory)", product: prod })
           failed++
           continue
         }
@@ -1262,27 +1265,34 @@ router.post(
         let stockStatus = prod.stockStatus || "Available Product"
         if (!allowedStockStatus.includes(stockStatus)) stockStatus = "Available Product"
 
+        // Extract IDs from populated objects or use direct IDs
+        const parentCategoryId = prod.parentCategory?._id || prod.parentCategory
+        const categoryId = prod.category?._id || prod.category
+        const brandId = prod.brand?._id || prod.brand
+        const taxId = prod.tax?._id || prod.tax
+        const unitId = prod.unit?._id || prod.unit
+
         const product = new Product({
           name: prod.name || "",
           slug: prod.slug || generateSlug(prod.name || ""),
           sku: prod.sku || "",
           barcode: prod.barcode || "",
-          parentCategory: prod.parentCategory, // Main category
-          category: prod.category, // Subcategory
-          subCategory: prod.category, // For backward compatibility
-          brand: prod.brand,
+          parentCategory: parentCategoryId, // Main category
+          category: categoryId, // Subcategory
+          subCategory: categoryId, // For backward compatibility
+          brand: brandId,
           buyingPrice: prod.buyingPrice || 0,
           price: prod.price || 0,
           offerPrice: prod.offerPrice || 0,
           discount: prod.discount || 0,
-          tax: prod.tax,
+          tax: taxId,
           stockStatus,
           showStockOut: prod.showStockOut !== undefined ? Boolean(prod.showStockOut) : true,
           canPurchase: prod.canPurchase !== undefined ? Boolean(prod.canPurchase) : true,
           refundable: prod.refundable !== undefined ? Boolean(prod.refundable) : true,
           maxPurchaseQty: prod.maxPurchaseQty || 10,
           lowStockWarning: prod.lowStockWarning || 5,
-          unit: prod.unit,
+          unit: unitId,
           weight: prod.weight || 0,
           tags: prod.tags || [],
           description: prod.description || "",
@@ -1295,13 +1305,19 @@ router.post(
         })
 
         await product.save()
+        console.log(`Product ${i} (${prod.name}): SUCCESS`)
         results.push({ index: i, status: "success", product: product })
         success++
       } catch (error) {
+        console.log(`Product ${i} (${prod.name}): FAILED - ${error.message}`)
         results.push({ index: i, status: "failed", reason: error.message, product: prod })
         failed++
       }
     }
+
+    console.log(`\n=== BULK SAVE SUMMARY ===`)
+    console.log(`Total: ${products.length}, Success: ${success}, Failed: ${failed}`)
+    console.log(`========================\n`)
 
     // Populate category, subcategory, and brand in the results
     const populatedResults = await Promise.all(
