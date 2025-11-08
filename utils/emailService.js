@@ -1,5 +1,23 @@
 import nodemailer from "nodemailer"
 
+// Helper to ensure image URLs are absolute for email clients
+const toAbsoluteUrl = (src) => {
+  if (!src) return "https://via.placeholder.com/56?text=No+Image"
+  const s = String(src)
+  if (s.startsWith("http://") || s.startsWith("https://")) return s
+  if (s.startsWith("//")) return `https:${s}`
+  // prefer explicit public/base URLs if provided
+  const base =
+    process.env.PUBLIC_BASE_URL ||
+    process.env.SERVER_PUBLIC_URL ||
+    process.env.API_BASE_URL ||
+    process.env.FRONTEND_URL ||
+    "https://www.graba2z.ae"
+  if (s.startsWith("/")) return `${base}${s}`
+  // otherwise treat as uploads path
+  return `${base}/uploads/${s}`
+}
+
 // Create transporters for order and support emails
 const orderTransporter = nodemailer.createTransport({
   host: process.env.ORDER_EMAIL_HOST,
@@ -801,6 +819,107 @@ const getEmailTemplate = (type, data) => {
         return { bg: "#E3F2FD", text: "#1565C0", iconBg: "#1E88E5" }
       }
       const theme = getTheme(data.status)
+      // Build invoice table ONLY for Delivered status
+      const normalizedStatusForInvoice = (data.status || '').toString().trim().toLowerCase()
+      const isDeliveredStatus = normalizedStatusForInvoice === 'delivered'
+      const orderItemsList = Array.isArray(data.orderItems) ? data.orderItems : []
+      const currency = 'AED'
+      const itemsSubtotal = orderItemsList.reduce((sum, it) => sum + (Number(it.price) || 0) * (Number(it.quantity) || 1), 0)
+      const shippingPrice = Number(data.shippingPrice || 0)
+      const taxPrice = Number(data.taxPrice || 0)
+      const discountAmount = Number(data.discountAmount || 0)
+      const grandTotal = Number(data.totalPrice || (itemsSubtotal + shippingPrice + taxPrice - discountAmount))
+      const paymentMethod = data.paymentMethod || 'Cash on Delivery'
+      const paymentStatus = data.isPaid ? 'Paid' : 'Unpaid'
+      const paidAtDisplay = data.isPaid && data.paidAt ? new Date(data.paidAt).toLocaleDateString() : ''
+      const invoiceSection = isDeliveredStatus ? `
+        <style>
+          .invoice-wrapper {margin:40px auto 24px;max-width:560px;background:#f9f9f9;border:1px solid #e0e0e0;border-radius:12px;padding:24px;}
+          .invoice-wrapper h3 {margin:0 0 16px;font-size:20px;color:#333;font-weight:600;}
+          table.invoice-table {width:100%;border-collapse:collapse;font-size:14px;}
+          table.invoice-table thead th {text-align:left;background:#eceff1;padding:10px 8px;font-weight:600;color:#37474f;border-bottom:1px solid #cfd8dc;}
+          table.invoice-table tbody td {padding:8px 8px;border-bottom:1px solid #e0e0e0;vertical-align:middle;}
+          table.invoice-table tbody tr:last-child td {border-bottom:none;}
+          table.invoice-table tfoot td {padding:8px 8px;font-weight:600;}
+          table.invoice-table tfoot tr.total-row td {border-top:2px solid #ccc;font-size:15px;}
+          .text-right {text-align:right;}
+          .muted {color:#666;font-weight:400;}
+          .paid-at {font-size:12px;color:#2e7d32;font-weight:500;}
+          /* Force predictable image sizing in most email clients */
+          .img-cell {width:56px;}
+          .img-cell img {display:block;width:56px;height:56px;max-width:56px;max-height:56px;object-fit:cover;border-radius:8px;background:#fff;border:1px solid #ddd;}
+          @media (max-width:600px){
+            .invoice-wrapper{padding:16px;margin:32px 8px;}
+            table.invoice-table thead{display:none;}
+            table.invoice-table tbody td{display:block;padding:6px 4px;border-bottom:1px solid #e0e0e0;}
+            table.invoice-table tbody tr{margin-bottom:16px;display:block;}
+            table.invoice-table tbody td[data-label]{position:relative;padding-left:52%;}
+            table.invoice-table tbody td[data-label]:before{content:attr(data-label);position:absolute;left:0;width:48%;padding-left:4px;font-weight:600;color:#455a64;}
+            table.invoice-table tbody td.img-cell{padding-left:0;}
+            /* Larger but constrained image on mobile */
+            table.invoice-table tbody td.img-cell img{display:block;width:96px;height:96px;max-width:96px;max-height:96px;border-radius:10px;object-fit:cover;}
+          }
+        </style>
+        <div class="invoice-wrapper">
+          <h3>Delivery Invoice</h3>
+          <table class="invoice-table" role="presentation" cellspacing="0" cellpadding="0">
+            <thead>
+              <tr>
+                <th style="width:12%;">Image</th>
+                <th style="width:56%;">Item</th>
+                <th style="width:12%;">Qty</th>
+                <th style="width:20%;" class="text-right">Price (${currency})</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${orderItemsList.map(it => {
+                const lineTotal = (Number(it.price)||0) * (Number(it.quantity)||1)
+                const name = (it.product && (it.product.name || it.product.title)) || it.name || 'Item'
+                const rawImg = (it.product && it.product.image) || it.image
+                const imgSrc = toAbsoluteUrl(rawImg)
+                return `<tr>
+                  <td class="img-cell" data-label="Image" style="width:56px;">
+                    <img src="${imgSrc}" alt="${name}" width="56" height="56" style="display:block;width:56px;height:56px;max-width:56px;max-height:56px;object-fit:cover;border-radius:8px;background:#fff;border:1px solid #ddd;" />
+                  </td>
+                  <td data-label="Item">${name}</td>
+                  <td data-label="Qty">${Number(it.quantity)||1}</td>
+                  <td data-label="Price" class="text-right">${(Number(it.price)||0).toFixed(2)}</td>
+                </tr>`
+              }).join('')}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colspan="3" class="text-right muted">Items Subtotal</td>
+                <td class="text-right">${itemsSubtotal.toFixed(2)}</td>
+              </tr>
+              <tr>
+                <td colspan="3" class="text-right muted">Shipping</td>
+                <td class="text-right">${shippingPrice.toFixed(2)}</td>
+              </tr>
+              ${taxPrice > 0 ? `<tr>
+                <td colspan="3" class="text-right muted">Tax</td>
+                <td class="text-right">${taxPrice.toFixed(2)}</td>
+              </tr>` : ''}
+              ${discountAmount > 0 ? `<tr>
+                <td colspan="3" class="text-right muted">Discount</td>
+                <td class="text-right">- ${discountAmount.toFixed(2)}</td>
+              </tr>` : ''}
+              <tr class="total-row">
+                <td colspan="3" class="text-right">Grand Total (${currency})</td>
+                <td class="text-right">${grandTotal.toFixed(2)}</td>
+              </tr>
+              <tr>
+                <td colspan="3" class="text-right muted">Payment Method</td>
+                <td class="text-right">${paymentMethod}</td>
+              </tr>
+              <tr>
+                <td colspan="3" class="text-right muted">Payment Status</td>
+                <td class="text-right">${paymentStatus} ${paidAtDisplay ? `<span class="paid-at">(on ${paidAtDisplay})</span>` : ''}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      ` : ''
       return `
         <!DOCTYPE html>
         <html lang="en">
@@ -867,6 +986,7 @@ const getEmailTemplate = (type, data) => {
               </div>
               <!-- STATUS_TEMPLATE_MINIMAL v2: only header + status badge retained -->
               <!-- If you still see tables, production hasn't redeployed this file. -->
+              ${invoiceSection}
               <div style="text-align:center;margin-top:16px;">
                 <a href="https://www.graba2z.ae/track-order" 
                    style="display:inline-block;background:#84cc16;color:#ffffff;text-decoration:none;padding:14px 32px;font-size:14px;font-weight:600;border-radius:28px;letter-spacing:0.5px;font-family:'Segoe UI',Tahoma,Arial,sans-serif;">
