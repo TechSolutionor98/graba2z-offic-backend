@@ -674,7 +674,7 @@ const getEmailTemplate = (type, data) => {
             <div class="content">
               <div class="order-number">Order #${data.orderNumber || data._id?.toString().slice(-6) || "N/A"}</div>
               <div class="greeting">Hi ${customerName}, Thank you for your purchase.</div>
-              <div class="processing-text">We are processing your order.</div>
+              <div class="processing-text">Your order has been placed.</div>
               <!-- ORDER_CONFIRMATION_MINIMAL: product list + buttons removed per request -->
               <div class="info-section">
                 <div class="info-title">Payment Method</div>
@@ -753,11 +753,13 @@ const getEmailTemplate = (type, data) => {
       `
 
     case "orderStatusUpdate":
-      // Status icon and label for current status only
+      // Status icon/label and theming
       const statusSteps = [
-        { key: "Processing", label: "Processing", icon: "⚙️" },
+        { key: "Order Placed", label: "Order Placed", icon: "🛒" },
+        { key: "On Hold", label: "On Hold", icon: "⏸️" },
         { key: "Confirmed", label: "Confirmed", icon: "✅" },
         { key: "Shipped", label: "Shipped", icon: "📦" },
+        { key: "On the Way", label: "On the Way", icon: "🚚" },
         { key: "Out for Delivery", label: "Out for Delivery", icon: "🚚" },
         { key: "Delivered", label: "Delivered", icon: "🎉" },
         { key: "Cancelled", label: "Cancelled", icon: "❌" },
@@ -765,15 +767,34 @@ const getEmailTemplate = (type, data) => {
       const getCurrentStep = (status) => {
         if (!status) return statusSteps[0]
         const normalized = status.trim().toLowerCase()
-        if (normalized === "processing") return statusSteps[0]
-        if (normalized === "confirmed") return statusSteps[1]
-        if (normalized === "shipped") return statusSteps[2]
-        if (normalized === "out for delivery") return statusSteps[3]
-        if (normalized === "delivered") return statusSteps[4]
-        if (normalized === "cancelled") return statusSteps[5]
-        return statusSteps[0]
+        // Map legacy initial statuses to Order Placed for customer-facing display
+        if (["processing", "in process", "new", "new order", "order placed"].includes(normalized)) return statusSteps.find(s=>s.key==="Order Placed")
+        if (["on hold", "on-hold", "hold"].includes(normalized)) return statusSteps.find(s=>s.key==="On Hold")
+        if (["confirmed", "confirm"].includes(normalized)) return statusSteps.find(s=>s.key==="Confirmed")
+        if (["shipped", "dispatched", "dispatch"].includes(normalized)) return statusSteps.find(s=>s.key==="Shipped")
+        if (["on the way", "on-the-way"].includes(normalized)) return statusSteps.find(s=>s.key==="On the Way")
+        if (["out for delivery", "out of delivery", "out-of-delivery"].includes(normalized)) return statusSteps.find(s=>s.key==="Out for Delivery")
+        if (["delivered"].includes(normalized)) return statusSteps.find(s=>s.key==="Delivered")
+        if (["cancelled", "canceled"].includes(normalized)) return statusSteps.find(s=>s.key==="Cancelled")
+        return statusSteps.find(s=>s.key==="Order Placed")
       }
       const currentStep = getCurrentStep(data.status)
+
+      // Theme colors per status (background, text, icon background)
+      const getTheme = (status) => {
+        const n = (status || "").toString().trim().toLowerCase()
+        if (["order placed", "new order", "new", "processing", "in process"].includes(n)) return { bg: "#E3F2FD", text: "#1565C0", iconBg: "#1E88E5" }
+        if (["confirmed", "confirm"].includes(n)) return { bg: "#E8F5E9", text: "#2E7D32", iconBg: "#43A047" }
+        if (["shipped", "dispatched", "dispatch"].includes(n)) return { bg: "#E3F2FD", text: "#1565C0", iconBg: "#1E88E5" }
+        if (["on the way", "on-the-way"].includes(n)) return { bg: "#E3F2FD", text: "#1565C0", iconBg: "#1E88E5" }
+        if (["out for delivery", "out of delivery", "out-of-delivery"].includes(n)) return { bg: "#FFF8E1", text: "#F57F17", iconBg: "#F9A825" }
+        if (["delivered"].includes(n)) return { bg: "#E8F5E9", text: "#2E7D32", iconBg: "#43A047" }
+        if (["cancelled", "canceled"].includes(n)) return { bg: "#FFEBEE", text: "#C62828", iconBg: "#E53935" }
+        if (["on hold", "on-hold", "hold"].includes(n)) return { bg: "#ECEFF1", text: "#455A64", iconBg: "#78909C" }
+        // default: processing
+        return { bg: "#E3F2FD", text: "#1565C0", iconBg: "#1E88E5" }
+      }
+      const theme = getTheme(data.status)
       return `
         <!DOCTYPE html>
         <html lang="en">
@@ -809,9 +830,9 @@ const getEmailTemplate = (type, data) => {
             .order-number { font-size: 24px; font-weight: bold; color: #333; text-align: center; margin-bottom: 20px; }
             .greeting { font-size: 18px; text-align: center; margin-bottom: 10px; color: #333; }
             .processing-text { font-size: 16px; text-align: center; color: #666; margin-bottom: 30px; }
-            .status-badge { display: flex; align-items: center; justify-content: center; margin: 24px 0 24px 0; }
-            .status-icon { width: 54px; height: 54px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 32px; font-weight: bold; background: #8BC34A; color: #fff; margin-right: 16px; box-shadow: 0 2px 8px #8BC34A33; }
-            .status-label { font-size: 20px; font-weight: bold; color: #689f38; letter-spacing: 0.2px; }
+            .status-card { margin: 0 auto 24px auto; padding: 24px; border-radius: 12px; text-align: center; }
+            .status-icon { font-size: 44px; line-height: 1; margin: 0 auto 12px auto; }
+            .status-label { font-size: 20px; font-weight: 700; letter-spacing: 0.2px; }
             /* Removed tables per request */
             .footer { background-color: #e8f7ee; padding: 32px 20px 20px 20px; text-align: center; font-size: 13px; color: #888; }
             .footer .socials { margin: 18px 0 10px 0; }
@@ -829,16 +850,23 @@ const getEmailTemplate = (type, data) => {
               </a>
             </div>
             <div class="content">
-              <div class="order-number">Order #${data.orderNumber || data._id?.toString().slice(-6) || "N/A"}</div>
-              <div class="greeting">Hello ${data.customerName || "Customer"}!</div>
-              <div class="processing-text">Your order status has been updated.</div>
-              <div class="status-badge">
-                <div class="status-icon">${currentStep.icon}</div>
-                <span class="status-label">${currentStep.label}</span>
+              <div class="status-section" style="background:${theme.bg};border-radius:16px;padding:40px 30px 32px;margin:0 auto 30px;max-width:520px;">
+                <div class="order-number" style="margin-bottom:18px;">Order #${data.orderNumber || data._id?.toString().slice(-6) || "N/A"}</div>
+                <div class="greeting" style="margin-bottom:8px;">Hello ${data.customerName || "Customer"}!</div>
+                <div class="processing-text" style="margin-bottom:32px;">Your order status has been updated.</div>
+                <div class="status-card" style="background:transparent;padding:0;margin:0;">
+                  <div class="status-icon" style="color:${theme.text};">${currentStep.icon}</div>
+                  <div class="status-label" style="color:${theme.text};margin-top:4px;">${currentStep.label}</div>
+                </div>
               </div>
               <!-- STATUS_TEMPLATE_MINIMAL v2: only header + status badge retained -->
               <!-- If you still see tables, production hasn't redeployed this file. -->
-              
+              <div style="text-align:center;margin-top:16px;">
+                <a href="https://www.graba2z.ae/track-order" 
+                   style="display:inline-block;background:#84cc16;color:#ffffff;text-decoration:none;padding:14px 32px;font-size:14px;font-weight:600;border-radius:28px;letter-spacing:0.5px;font-family:'Segoe UI',Tahoma,Arial,sans-serif;">
+                  TRACK YOUR ORDER
+                </a>
+              </div>
             </div>
             <div class="footer">
               <div class="socials">
@@ -1306,22 +1334,30 @@ export const sendOrderStatusUpdateEmail = async (order) => {
       .replace(/<div class="order-summary">[\s\S]*?<\/div>\s*/g, '')
       // Remove summary rows if present standalone
       .replace(/<div class="summary-row[^"]*">[\s\S]*?<\/div>\s*/g, '')
-      // Remove track button if any
-      .replace(/<a [^>]*>\s*Track Your Order\s*<\/a>/gi, '')
     
     // Debug marker to ensure minimal template is deployed
     console.log('[sendOrderStatusUpdateEmail] Template length:', sanitizedHtml.length)
     console.log('[sendOrderStatusUpdateEmail] Minimal marker present:', sanitizedHtml.includes('STATUS_TEMPLATE_MINIMAL'))
 
     const statusMessages = {
-      processing: "Order is Being Processed",
+      processing: "Order Placed",
+      "in process": "Order Placed",
+      placed: "Order Placed",
+      "order placed": "Order Placed",
+      "new order": "Order Placed",
       confirmed: "Order Confirmed",
       shipped: "Order Shipped",
       delivered: "Order Delivered",
       cancelled: "Order Cancelled",
+      hold: "Order On Hold",
+      "on hold": "Order On Hold",
+      dispatched: "Order Shipped",
+      "on the way": "Order On The Way",
+      "out for delivery": "Order Out for Delivery",
     }
 
-    const subject = `${statusMessages[order.status] || "Order Update"} #${orderNumber} - Graba2z`
+    const normalizedStatus = (order.status || '').toString().trim().toLowerCase()
+    const subject = `${statusMessages[normalizedStatus] || "Order Update"} #${orderNumber} - Graba2z`
   await sendEmail(customerEmail, subject, sanitizedHtml, "order")
     return { success: true }
   } catch (error) {
