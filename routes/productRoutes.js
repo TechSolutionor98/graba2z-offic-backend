@@ -96,9 +96,19 @@ function remapRow(row) {
   return mapped
 }
 
+// Robust slug generator: lowercases, converts & to 'and', removes quotes, replaces non-alphanumerics with '-',
+// collapses multiple dashes, and trims leading/trailing dashes.
 function generateSlug(name) {
-  return name.trim().toLowerCase().replace(/\s+/g, "-")
+  return String(name || "")
+    .toLowerCase()
+    .replace(/&/g, "-and-")
+    .replace(/["'’`]+/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
 }
+
+const sanitizeSlug = (slug) => generateSlug(slug)
 
 // Helper to escape regex special characters
 function escapeRegex(string) {
@@ -555,13 +565,19 @@ router.post(
       }
     }
 
-    // Check if slug is unique
+    // Sanitize slug if provided and check uniqueness
     if (productData.slug) {
+      productData.slug = sanitizeSlug(productData.slug)
       const existingProduct = await Product.findOne({ slug: productData.slug })
       if (existingProduct) {
         res.status(400)
         throw new Error("Product slug already exists")
       }
+    }
+
+    // Ensure slug exists
+    if (!productData.slug && productData.name) {
+      productData.slug = generateSlug(productData.name)
     }
 
     const product = new Product({
@@ -647,11 +663,13 @@ router.put(
 
       // Check if slug is unique (excluding current product)
       if (slug && slug !== product.slug) {
-        const existingProduct = await Product.findOne({ slug, _id: { $ne: req.params.id } })
+        const cleanSlug = sanitizeSlug(slug)
+        const existingProduct = await Product.findOne({ slug: cleanSlug, _id: { $ne: req.params.id } })
         if (existingProduct) {
           res.status(400)
           throw new Error("Product slug already exists")
         }
+        product.slug = cleanSlug
       }
 
       // Update product fields
@@ -667,7 +685,7 @@ router.put(
       if (subCategory2 !== undefined) product.subCategory2 = subCategory2
       if (subCategory3 !== undefined) product.subCategory3 = subCategory3
       if (subCategory4 !== undefined) product.subCategory4 = subCategory4
-      if (slug) product.slug = slug
+  // product.slug already set above if slug was provided
 
       const updatedProduct = await product.save()
       const populatedProduct = await Product.findById(updatedProduct._id)
