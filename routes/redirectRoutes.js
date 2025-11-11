@@ -11,12 +11,23 @@ const router = express.Router()
 router.get(
   "/check",
   asyncHandler(async (req, res) => {
-    const { path } = req.query
+    let { path } = req.query
 
     if (!path) {
       res.status(400)
       throw new Error("Path parameter is required")
     }
+
+    // Decode and normalize the path
+    try {
+      path = decodeURIComponent(path)
+    } catch (_) {
+      // ignore decode errors, use raw
+    }
+    // Ensure leading slash for consistency
+    if (!path.startsWith("/")) path = "/" + path
+    // Remove trailing slash except for root
+    if (path.length > 1 && path.endsWith("/")) path = path.slice(0, -1)
 
     // Find active redirect for this path
     const redirect = await Redirect.findOne({
@@ -25,14 +36,21 @@ router.get(
     })
 
     if (redirect) {
-      res.json({
+      return res.json({
+        found: true,
+        redirectFrom: path,
         redirectTo: redirect.redirectTo,
         redirectType: redirect.redirectType,
       })
-    } else {
-      res.status(404)
-      throw new Error("No redirect found")
     }
+
+    // Graceful 200 response when no redirect exists (avoid frontend 404 error spam)
+    return res.json({
+      found: false,
+      redirectFrom: path,
+      redirectTo: null,
+      redirectType: null,
+    })
   }),
 )
 
