@@ -157,7 +157,7 @@ router.get("/admin", protect, admin, async (req, res) => {
     const totalCount = await Product.countDocuments(query)
 
     let productsQuery = Product.find(query)
-      .populate("brand category subCategory parentCategory")
+      .populate("brand category subCategory parentCategory subCategory2 subCategory3 subCategory4")
       .sort({ createdAt: -1 })
 
     // Pagination
@@ -415,6 +415,124 @@ router.post(
       .populate("parentCategory", "name slug")
 
     res.json(products)
+  }),
+)
+
+// @desc    Bulk move products to new categories
+// @route   PUT /api/products/bulk-move
+// @access  Private/Admin
+router.put(
+  "/bulk-move",
+  protect,
+  admin,
+  asyncHandler(async (req, res) => {
+    try {
+      console.log('Bulk move request received:', req.body)
+      
+      const { productIds, parentCategory, category, subCategory2, subCategory3, subCategory4 } = req.body
+
+      if (!productIds || !Array.isArray(productIds) || productIds.length === 0) {
+        res.status(400)
+        throw new Error("Product IDs are required")
+      }
+
+      if (!parentCategory) {
+        res.status(400)
+        throw new Error("Parent category is required")
+      }
+
+      // Verify parent category exists
+      const parentCategoryExists = await Category.findById(parentCategory)
+      if (!parentCategoryExists) {
+        res.status(400)
+        throw new Error("Invalid parent category")
+      }
+
+      // Verify subcategories if provided (only if not null/empty)
+      if (category && category !== '') {
+        const categoryExists = await SubCategory.findById(category)
+        if (!categoryExists) {
+          res.status(400)
+          throw new Error("Invalid subcategory level 1")
+        }
+      }
+
+      if (subCategory2 && subCategory2 !== '') {
+        const subCategory2Exists = await SubCategory.findById(subCategory2)
+        if (!subCategory2Exists) {
+          res.status(400)
+          throw new Error("Invalid subcategory level 2")
+        }
+      }
+
+      if (subCategory3 && subCategory3 !== '') {
+        const subCategory3Exists = await SubCategory.findById(subCategory3)
+        if (!subCategory3Exists) {
+          res.status(400)
+          throw new Error("Invalid subcategory level 3")
+        }
+      }
+
+      if (subCategory4 && subCategory4 !== '') {
+        const subCategory4Exists = await SubCategory.findById(subCategory4)
+        if (!subCategory4Exists) {
+          res.status(400)
+          throw new Error("Invalid subcategory level 4")
+        }
+      }
+
+      // Prepare update object - only set fields that have values
+      const updateData = {
+        parentCategory,
+      }
+
+      if (category && category !== '') {
+        updateData.category = category
+        updateData.subCategory = category // for backward compatibility
+      } else {
+        updateData.category = null
+        updateData.subCategory = null
+      }
+
+      if (subCategory2 && subCategory2 !== '') {
+        updateData.subCategory2 = subCategory2
+      } else {
+        updateData.subCategory2 = null
+      }
+
+      if (subCategory3 && subCategory3 !== '') {
+        updateData.subCategory3 = subCategory3
+      } else {
+        updateData.subCategory3 = null
+      }
+
+      if (subCategory4 && subCategory4 !== '') {
+        updateData.subCategory4 = subCategory4
+      } else {
+        updateData.subCategory4 = null
+      }
+
+      console.log('Updating products with data:', updateData)
+      console.log('Product IDs:', productIds)
+
+      // Update all products
+      const result = await Product.updateMany(
+        { _id: { $in: productIds } },
+        { $set: updateData }
+      )
+
+      console.log('Update result:', result)
+
+      res.json({
+        message: `Successfully moved ${result.modifiedCount} product(s)`,
+        modifiedCount: result.modifiedCount,
+        matchedCount: result.matchedCount,
+      })
+    } catch (error) {
+      console.error('Bulk move error:', error)
+      res.status(500)
+      throw error
+    }
   }),
 )
 
