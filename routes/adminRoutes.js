@@ -1131,7 +1131,10 @@ router.get(
 
     const orders = await Order.find(query)
       .populate({ path: "user", select: "name email" })
-      .populate({ path: "orderItems.product", select: "name image sku" })
+      .populate({
+        path: "orderItems.product",
+        select: "name image sku price offerPrice oldPrice discount",
+      })
       .sort({ deliveredAt: -1, createdAt: -1 }) // Sort by delivered date first, then created date
       .limit(limit * 1)
       .skip((page - 1) * limit)
@@ -1163,7 +1166,10 @@ router.get(
   asyncHandler(async (req, res) => {
     const orders = await Order.find({ status: { $ne: "Deleted" } })
       .populate({ path: "user", select: "name email" })
-      .populate({ path: "orderItems.product", select: "name image sku" })
+      .populate({
+        path: "orderItems.product",
+        select: "name image sku price offerPrice oldPrice discount",
+      })
       .sort({ createdAt: -1 })
       .limit(5)
     res.json(orders)
