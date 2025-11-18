@@ -128,6 +128,9 @@ const orderSchema = mongoose.Schema(
       type: String,
       maxlength: 500,
     },
+    sellerComments: {
+      type: String,
+    },
   },
   {
     timestamps: true,
