@@ -9,8 +9,6 @@ const productSchema = mongoose.Schema(
     },
     sku: {
       type: String,
-      unique: true,
-      sparse: true,
     },
     slug: {
       type: String,
@@ -19,8 +17,6 @@ const productSchema = mongoose.Schema(
     },
     barcode: {
       type: String,
-      unique: true,
-      sparse: true,
     },
     stockStatus: {
       type: String,
