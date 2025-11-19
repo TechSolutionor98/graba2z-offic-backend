@@ -626,15 +626,29 @@ router.post(
       }
 
       // Generate slug if not provided
-      let subCategorySlug = slug || name.trim().toLowerCase()
+      let baseSlug = slug || name.trim().toLowerCase()
         .replace(/[^a-z0-9]+/g, "-")
         .replace(/^-+|-+$/g, "")
+      
+      // Build the full context-aware slug
+      // For level 1: category-slug-subcategory-name
+      // For level 2+: parent-slug-subcategory-name
+      let contextPrefix = ""
+      if (parentSubCategory && parentSub) {
+        // For nested subcategories, use parent's slug as prefix
+        contextPrefix = `${parentSub.slug}-`
+      } else if (parentCategory) {
+        // For level 1 subcategories, use category slug as prefix
+        contextPrefix = `${parentCategory.slug}-`
+      }
+      
+      let subCategorySlug = `${contextPrefix}${baseSlug}`
 
       // Check if slug already exists and make it unique
       let slugExists = await SubCategory.findOne({ slug: subCategorySlug, isDeleted: { $ne: true } })
       let counter = 1
       while (slugExists) {
-        subCategorySlug = `${slug || name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")}-${counter}`
+        subCategorySlug = `${contextPrefix}${baseSlug}-${counter}`
         slugExists = await SubCategory.findOne({ slug: subCategorySlug, isDeleted: { $ne: true } })
         counter++
       }
@@ -765,25 +779,34 @@ router.put(
 
       // Handle slug update
       let newSlug = subcategory.slug
-      if (slug && slug !== subcategory.slug) {
-        // Check if new slug already exists
-        const slugExists = await SubCategory.findOne({ 
-          slug: slug, 
-          _id: { $ne: req.params.id },
-          isDeleted: { $ne: true }
-        })
-        if (slugExists) {
-          res.status(400)
-          throw new Error("Slug already exists. Please use a different slug.")
-        }
-        newSlug = slug
-      } else if (name && name.trim() !== subcategory.name) {
-        // Generate new slug from name if name changed and no slug provided
-        newSlug = name.trim().toLowerCase()
+      const shouldUpdateSlug = (slug && slug !== subcategory.slug) || (name && name.trim() !== subcategory.name)
+      
+      if (shouldUpdateSlug) {
+        // Generate base slug
+        let baseSlug = slug || (name ? name.trim().toLowerCase()
           .replace(/[^a-z0-9]+/g, "-")
-          .replace(/^-+|-+$/g, "")
+          .replace(/^-+|-+$/g, "") : subcategory.slug.split('-').pop())
         
-        // Check if generated slug already exists
+        // Build context prefix based on parent
+        let contextPrefix = ""
+        const updatedParentSubCategory = parentSubCategory !== undefined ? parentSubCategory : subcategory.parentSubCategory
+        const updatedCategory = category || subcategory.category
+        
+        if (updatedParentSubCategory) {
+          const parentSub = await SubCategory.findById(updatedParentSubCategory)
+          if (parentSub) {
+            contextPrefix = `${parentSub.slug}-`
+          }
+        } else {
+          const parentCat = await Category.findById(updatedCategory)
+          if (parentCat && parentCat.slug) {
+            contextPrefix = `${parentCat.slug}-`
+          }
+        }
+        
+        newSlug = `${contextPrefix}${baseSlug}`
+        
+        // Check if new slug already exists and make it unique
         let slugExists = await SubCategory.findOne({ 
           slug: newSlug, 
           _id: { $ne: req.params.id },
@@ -791,7 +814,7 @@ router.put(
         })
         let counter = 1
         while (slugExists) {
-          newSlug = `${name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")}-${counter}`
+          newSlug = `${contextPrefix}${baseSlug}-${counter}`
           slugExists = await SubCategory.findOne({ 
             slug: newSlug, 
             _id: { $ne: req.params.id },
