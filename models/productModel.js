@@ -9,6 +9,8 @@ const productSchema = mongoose.Schema(
     },
     sku: {
       type: String,
+      unique: true,
+      sparse: true, // allows null/undefined values but ensures non-null values are unique
     },
     slug: {
       type: String,
@@ -17,6 +19,8 @@ const productSchema = mongoose.Schema(
     },
     barcode: {
       type: String,
+      unique: true,
+      sparse: true, // allows null/undefined values but ensures non-null values are unique
     },
     stockStatus: {
       type: String,

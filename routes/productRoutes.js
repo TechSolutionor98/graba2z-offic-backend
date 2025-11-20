@@ -693,9 +693,35 @@ router.post(
       }
     }
 
+    // Check SKU uniqueness if provided
+    if (productData.sku && productData.sku.trim() !== "") {
+      const existingSKU = await Product.findOne({ sku: productData.sku.trim() })
+      if (existingSKU) {
+        res.status(400)
+        throw new Error(`SKU '${productData.sku}' already exists`)
+      }
+    }
+
+    // Check barcode uniqueness if provided
+    if (productData.barcode && productData.barcode.trim() !== "") {
+      const existingBarcode = await Product.findOne({ barcode: productData.barcode.trim() })
+      if (existingBarcode) {
+        res.status(400)
+        throw new Error(`Barcode '${productData.barcode}' already exists`)
+      }
+    }
+
     // Ensure slug exists
     if (!productData.slug && productData.name) {
       productData.slug = generateSlug(productData.name)
+    }
+
+    // Normalize SKU and barcode - set to undefined if empty to work with sparse index
+    if (productData.sku !== undefined) {
+      productData.sku = productData.sku && productData.sku.trim() !== "" ? productData.sku.trim() : undefined
+    }
+    if (productData.barcode !== undefined) {
+      productData.barcode = productData.barcode && productData.barcode.trim() !== "" ? productData.barcode.trim() : undefined
     }
 
     const product = new Product({
@@ -788,6 +814,32 @@ router.put(
           throw new Error("Product slug already exists")
         }
         product.slug = cleanSlug
+      }
+
+      // Check SKU uniqueness if provided and changed (excluding current product)
+      if (updateData.sku !== undefined) {
+        const newSKU = updateData.sku && updateData.sku.trim() !== "" ? updateData.sku.trim() : undefined
+        if (newSKU && newSKU !== product.sku) {
+          const existingSKU = await Product.findOne({ sku: newSKU, _id: { $ne: req.params.id } })
+          if (existingSKU) {
+            res.status(400)
+            throw new Error(`SKU '${newSKU}' already exists`)
+          }
+        }
+        updateData.sku = newSKU
+      }
+
+      // Check barcode uniqueness if provided and changed (excluding current product)
+      if (updateData.barcode !== undefined) {
+        const newBarcode = updateData.barcode && updateData.barcode.trim() !== "" ? updateData.barcode.trim() : undefined
+        if (newBarcode && newBarcode !== product.barcode) {
+          const existingBarcode = await Product.findOne({ barcode: newBarcode, _id: { $ne: req.params.id } })
+          if (existingBarcode) {
+            res.status(400)
+            throw new Error(`Barcode '${newBarcode}' already exists`)
+          }
+        }
+        updateData.barcode = newBarcode
       }
 
       // Update product fields
@@ -1260,14 +1312,23 @@ router.post(
     const level3Cache = new Map()
     const level4Cache = new Map()
 
-    // Existing product name/slug to avoid duplicates
+    // Existing product name/slug/sku/barcode to avoid duplicates
     const names = csvData.map((r) => r.name).filter(Boolean)
     const slugs = csvData.map((r) => r.slug).filter(Boolean)
-    const existingProducts = await Product.find({ $or: [{ name: { $in: names } }, { slug: { $in: slugs } }] }).select(
-      "name slug",
-    )
+    const skus = csvData.map((r) => getField(r, ["sku"])).filter(Boolean)
+    const barcodes = csvData.map((r) => getField(r, ["barcode"])).filter(Boolean)
+    const existingProducts = await Product.find({ 
+      $or: [
+        { name: { $in: names } }, 
+        { slug: { $in: slugs } },
+        ...(skus.length > 0 ? [{ sku: { $in: skus } }] : []),
+        ...(barcodes.length > 0 ? [{ barcode: { $in: barcodes } }] : [])
+      ] 
+    }).select("name slug sku barcode")
     const existingNames = new Set(existingProducts.map((p) => p.name))
     const existingSlugs = new Set(existingProducts.map((p) => p.slug))
+    const existingSKUs = new Set(existingProducts.map((p) => p.sku).filter(Boolean))
+    const existingBarcodes = new Set(existingProducts.map((p) => p.barcode).filter(Boolean))
 
     const allowedStockStatus = ["Available Product", "Out of Stock", "PreOrder"]
     const previewProducts = []
@@ -1309,6 +1370,19 @@ router.post(
         invalidRows.push({ row: i + 2, reason: "Duplicate product name or slug", data: row })
         continue
       }
+      const rowSKU = getField(row, ["sku"])
+      const rowBarcode = getField(row, ["barcode"])
+      if (rowSKU && existingSKUs.has(rowSKU)) {
+        invalidRows.push({ row: i + 2, reason: `Duplicate SKU: ${rowSKU}`, data: row })
+        continue
+      }
+      if (rowBarcode && existingBarcodes.has(rowBarcode)) {
+        invalidRows.push({ row: i + 2, reason: `Duplicate Barcode: ${rowBarcode}`, data: row })
+        continue
+      }
+      // Track SKUs and barcodes within this batch to prevent duplicates in same file
+      if (rowSKU) existingSKUs.add(rowSKU)
+      if (rowBarcode) existingBarcodes.add(rowBarcode)
       const parentCategoryId = parentCategoryMap.get(parentName.trim().toLowerCase())
       const level1Name = getField(row, ["category", "subcategory", "sub_category", "category1", "category_level_1"])
       const level2Name = getField(row, ["sub_category_2", "subcategory2", "subCategory2", "category2", "category_level_2"])
@@ -1435,14 +1509,31 @@ router.post(
           continue
         }
 
-        // Check for duplicate by name or slug
-        const existing = await Product.findOne({
-          $or: [{ name: prod.name }, { slug: prod.slug }],
-        })
+        // Check for duplicate by name, slug, SKU, or barcode
+        const duplicateQuery = [
+          { name: prod.name }, 
+          { slug: prod.slug }
+        ]
+        
+        // Only check SKU/barcode if they have values
+        if (prod.sku && prod.sku.trim() !== "") {
+          duplicateQuery.push({ sku: prod.sku.trim() })
+        }
+        if (prod.barcode && prod.barcode.trim() !== "") {
+          duplicateQuery.push({ barcode: prod.barcode.trim() })
+        }
+        
+        const existing = await Product.findOne({ $or: duplicateQuery })
 
         if (existing) {
-          console.log(`Product ${i} (${prod.name}): Failed - Duplicate product`)
-          results.push({ index: i, status: "failed", reason: "Duplicate product name or slug", product: prod })
+          let reason = "Duplicate product"
+          if (existing.name === prod.name) reason = "Duplicate product name"
+          else if (existing.slug === prod.slug) reason = "Duplicate product slug"
+          else if (existing.sku === prod.sku) reason = `Duplicate SKU: ${prod.sku}`
+          else if (existing.barcode === prod.barcode) reason = `Duplicate Barcode: ${prod.barcode}`
+          
+          console.log(`Product ${i} (${prod.name}): Failed - ${reason}`)
+          results.push({ index: i, status: "failed", reason, product: prod })
           failed++
           continue
         }
@@ -1472,8 +1563,8 @@ router.post(
         const product = new Product({
           name: prod.name || "",
           slug: prod.slug || generateSlug(prod.name || ""),
-          sku: prod.sku || "",
-          barcode: prod.barcode || "",
+          sku: (prod.sku && prod.sku.trim() !== "") ? prod.sku.trim() : undefined,
+          barcode: (prod.barcode && prod.barcode.trim() !== "") ? prod.barcode.trim() : undefined,
           parentCategory: parentCategoryId, // Main category
           category: categoryId, // Level 1
           subCategory: categoryId, // Backward compatibility
@@ -1747,13 +1838,35 @@ router.post(
           counter++
         }
 
-        // Check if product with same SKU already exists
-        const existingProduct = await Product.findOne({ sku: productData.sku })
+        // Check if product with same name, slug, SKU, or barcode already exists
+        const duplicateQuery = [
+          { name: productName },
+          { slug: productSlug }
+        ]
+        
+        // Only check SKU/barcode if they have values
+        const trimmedSKU = String(productData.sku || "").trim()
+        const trimmedBarcode = String(productData.barcode || "").trim()
+        
+        if (trimmedSKU !== "") {
+          duplicateQuery.push({ sku: trimmedSKU })
+        }
+        if (trimmedBarcode !== "") {
+          duplicateQuery.push({ barcode: trimmedBarcode })
+        }
+        
+        const existingProduct = await Product.findOne({ $or: duplicateQuery })
         if (existingProduct) {
+          let reason = "Duplicate product"
+          if (existingProduct.name === productName) reason = "Duplicate product name"
+          else if (existingProduct.slug === productSlug) reason = "Duplicate product slug"
+          else if (existingProduct.sku === trimmedSKU) reason = `Duplicate SKU: ${trimmedSKU}`
+          else if (existingProduct.barcode === trimmedBarcode) reason = `Duplicate Barcode: ${trimmedBarcode}`
+          
           results.push({
             status: "error",
             product: productData,
-            message: `Product with SKU '${productData.sku}' already exists`,
+            message: reason,
             originalIndex: i,
           })
           failedCount++
@@ -1764,7 +1877,7 @@ router.post(
         const product = new Product({
           name: productName,
           slug: productSlug,
-          sku: String(productData.sku || "").trim(),
+          sku: trimmedSKU !== "" ? trimmedSKU : undefined,
           parentCategory: parentCategory?._id,
           category: subCategory?._id,
           brand: brand?._id,
@@ -1798,7 +1911,7 @@ router.post(
             : [],
           details: String(productData.details || "").trim(),
           shortDescription: String(productData.shortDescription || "").trim(),
-          barcode: String(productData.barcode || "").trim(),
+          barcode: trimmedBarcode !== "" ? trimmedBarcode : undefined,
           isActive: true,
           countInStock: Number(productData.countInStock) || 0,
           createdBy: req.user._id,
