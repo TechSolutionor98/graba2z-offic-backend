@@ -873,6 +873,133 @@ router.put(
   }),
 )
 
+// @desc    Duplicate a product
+// @route   POST /api/products/:id/duplicate
+// @access  Private/Admin
+router.post(
+  "/:id/duplicate",
+  protect,
+  admin,
+  asyncHandler(async (req, res) => {
+    const product = await Product.findById(req.params.id)
+
+    if (!product) {
+      res.status(404)
+      throw new Error("Product not found")
+    }
+
+    // Helper function to increment last digit
+    const incrementLastDigit = (str) => {
+      if (!str || str.trim() === "") return undefined
+      const match = str.match(/^(.*?)(\d+)$/)
+      if (match) {
+        const prefix = match[1]
+        const number = Number.parseInt(match[2])
+        const incremented = number + 1
+        // Preserve leading zeros
+        const paddedNumber = String(incremented).padStart(match[2].length, '0')
+        return prefix + paddedNumber
+      }
+      // If no number at end, append -1
+      return str + "-1"
+    }
+
+    // Duplicate SKU with incremented last digit
+    let newSKU = incrementLastDigit(product.sku)
+    if (newSKU) {
+      // Ensure SKU is unique
+      let counter = 1
+      while (await Product.findOne({ sku: newSKU })) {
+        newSKU = incrementLastDigit(newSKU)
+        counter++
+        if (counter > 100) {
+          // Safety limit to prevent infinite loop
+          newSKU = `${product.sku}-copy-${Date.now()}`
+          break
+        }
+      }
+    }
+
+    // Duplicate barcode with incremented last digit
+    let newBarcode = incrementLastDigit(product.barcode)
+    if (newBarcode) {
+      // Ensure barcode is unique
+      let counter = 1
+      while (await Product.findOne({ barcode: newBarcode })) {
+        newBarcode = incrementLastDigit(newBarcode)
+        counter++
+        if (counter > 100) {
+          // Safety limit to prevent infinite loop
+          newBarcode = `${product.barcode}-copy-${Date.now()}`
+          break
+        }
+      }
+    }
+
+    // Create new slug with -duplicate suffix
+    let newSlug = `${product.slug}-duplicate`
+    // Ensure slug is unique
+    let slugCounter = 1
+    while (await Product.findOne({ slug: newSlug })) {
+      newSlug = `${product.slug}-duplicate-${slugCounter}`
+      slugCounter++
+    }
+
+    // Create duplicated product
+    const duplicatedProduct = new Product({
+      name: `${product.name} (Copy)`,
+      slug: newSlug,
+      sku: newSKU,
+      barcode: newBarcode,
+      stockStatus: product.stockStatus,
+      brand: product.brand,
+      parentCategory: product.parentCategory,
+      category: product.category,
+      subCategory: product.subCategory,
+      subCategory2: product.subCategory2,
+      subCategory3: product.subCategory3,
+      subCategory4: product.subCategory4,
+      description: product.description,
+      shortDescription: product.shortDescription,
+      buyingPrice: product.buyingPrice,
+      price: product.price,
+      offerPrice: product.offerPrice,
+      discount: product.discount,
+      oldPrice: product.oldPrice,
+      image: product.image,
+      galleryImages: product.galleryImages,
+      countInStock: product.countInStock,
+      lowStockWarning: product.lowStockWarning,
+      maxPurchaseQty: product.maxPurchaseQty,
+      weight: product.weight,
+      unit: product.unit,
+      tax: product.tax,
+      deliveryCharge: product.deliveryCharge,
+      tags: product.tags,
+      isActive: false, // Set duplicated products to inactive by default
+      canPurchase: product.canPurchase,
+      showStockOut: product.showStockOut,
+      refundable: product.refundable,
+      featured: false, // Don't duplicate featured status
+      specifications: product.specifications,
+      createdBy: req.user._id,
+    })
+
+    const createdProduct = await duplicatedProduct.save()
+    
+    // Populate references for response
+    const populatedProduct = await Product.findById(createdProduct._id)
+      .populate("parentCategory", "name slug")
+      .populate("category", "name slug")
+      .populate("subCategory2", "name slug")
+      .populate("subCategory3", "name slug")
+      .populate("subCategory4", "name slug")
+      .populate("brand", "name")
+
+    res.status(201).json(populatedProduct)
+  }),
+)
+
 // @desc    Delete a product
 // @route   DELETE /api/products/:id
 // @access  Private/Admin
