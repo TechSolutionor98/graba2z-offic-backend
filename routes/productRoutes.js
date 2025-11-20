@@ -936,18 +936,68 @@ router.post(
       }
     }
 
-    // Create new slug with -duplicate suffix
-    let newSlug = `${product.slug}-duplicate`
+    // Helper to extract base name and copy number
+    const extractCopyInfo = (name) => {
+      // Match patterns like "Product Name (Copy)", "Product Name (Copy 1)", "Product Name (Copy 2)", etc.
+      const copyMatch = name.match(/^(.+?)\s*\(Copy\s*(\d*)\)$/i)
+      if (copyMatch) {
+        const baseName = copyMatch[1].trim()
+        const copyNum = copyMatch[2] ? parseInt(copyMatch[2]) : 0
+        return { baseName, copyNum }
+      }
+      return { baseName: name, copyNum: null }
+    }
+
+    // Generate new product name with incremental copy number
+    const { baseName, copyNum } = extractCopyInfo(product.name)
+    let newName
+    if (copyNum === null) {
+      newName = `${baseName} (Copy)`
+    } else {
+      newName = `${baseName} (Copy ${copyNum + 1})`
+    }
+
+    // Ensure name is unique
+    let nameCounter = copyNum !== null ? copyNum + 1 : 1
+    while (await Product.findOne({ name: newName })) {
+      if (nameCounter === 1 && copyNum === null) {
+        newName = `${baseName} (Copy 1)`
+      } else {
+        newName = `${baseName} (Copy ${nameCounter})`
+      }
+      nameCounter++
+    }
+
+    // Extract base slug and copy number from slug
+    const extractSlugCopyInfo = (slug) => {
+      const duplicateMatch = slug.match(/^(.+?)-duplicate(?:-(\d+))?$/)
+      if (duplicateMatch) {
+        const baseSlug = duplicateMatch[1]
+        const copyNum = duplicateMatch[2] ? parseInt(duplicateMatch[2]) : 0
+        return { baseSlug, copyNum }
+      }
+      return { baseSlug: slug, copyNum: null }
+    }
+
+    // Generate new slug with incremental number
+    const { baseSlug, copyNum: slugCopyNum } = extractSlugCopyInfo(product.slug)
+    let newSlug
+    if (slugCopyNum === null) {
+      newSlug = `${baseSlug}-duplicate`
+    } else {
+      newSlug = `${baseSlug}-duplicate-${slugCopyNum + 1}`
+    }
+
     // Ensure slug is unique
-    let slugCounter = 1
+    let slugCounter = slugCopyNum !== null ? slugCopyNum + 1 : 1
     while (await Product.findOne({ slug: newSlug })) {
-      newSlug = `${product.slug}-duplicate-${slugCounter}`
+      newSlug = `${baseSlug}-duplicate-${slugCounter}`
       slugCounter++
     }
 
     // Create duplicated product
     const duplicatedProduct = new Product({
-      name: `${product.name} (Copy)`,
+      name: newName,
       slug: newSlug,
       sku: newSKU,
       barcode: newBarcode,
