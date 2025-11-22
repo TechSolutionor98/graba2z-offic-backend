@@ -199,34 +199,10 @@ router.get(
         },
         {
           $lookup: {
-            from: "subcategories",
+            from: "categories",
             localField: "category",
             foreignField: "_id",
             as: "category",
-          },
-        },
-        {
-          $lookup: {
-            from: "subcategories",
-            localField: "subCategory2",
-            foreignField: "_id",
-            as: "subCategory2",
-          },
-        },
-        {
-          $lookup: {
-            from: "subcategories",
-            localField: "subCategory3",
-            foreignField: "_id",
-            as: "subCategory3",
-          },
-        },
-        {
-          $lookup: {
-            from: "subcategories",
-            localField: "subCategory4",
-            foreignField: "_id",
-            as: "subCategory4",
           },
         },
         {
@@ -246,24 +222,6 @@ router.get(
         {
           $unwind: {
             path: "$category",
-            preserveNullAndEmptyArrays: true,
-          },
-        },
-        {
-          $unwind: {
-            path: "$subCategory2",
-            preserveNullAndEmptyArrays: true,
-          },
-        },
-        {
-          $unwind: {
-            path: "$subCategory3",
-            preserveNullAndEmptyArrays: true,
-          },
-        },
-        {
-          $unwind: {
-            path: "$subCategory4",
             preserveNullAndEmptyArrays: true,
           },
         },
@@ -357,13 +315,9 @@ router.get(
             : product.shortDescription || product.name || "No description available"
 
           const googleProductCategory = determineGoogleCategory(product.parentCategory?.name, product.category?.name)
-          
-          // Build complete category hierarchy including all subcategory levels
-          let productType = product.parentCategory?.name || "Uncategorized"
-          if (product.category?.name) productType += ` > ${product.category.name}`
-          if (product.subCategory2?.name) productType += ` > ${product.subCategory2.name}`
-          if (product.subCategory3?.name) productType += ` > ${product.subCategory3.name}`
-          if (product.subCategory4?.name) productType += ` > ${product.subCategory4.name}`
+          const productType =
+            (product.parentCategory?.name || "Uncategorized") +
+            (product.category?.name ? ` > ${product.category.name}` : "")
 
           const additionalImages = []
           if (product.galleryImages && product.galleryImages.length > 0) {
@@ -474,34 +428,10 @@ router.get(
         },
         {
           $lookup: {
-            from: "subcategories",
+            from: "categories",
             localField: "category",
             foreignField: "_id",
             as: "category",
-          },
-        },
-        {
-          $lookup: {
-            from: "subcategories",
-            localField: "subCategory2",
-            foreignField: "_id",
-            as: "subCategory2",
-          },
-        },
-        {
-          $lookup: {
-            from: "subcategories",
-            localField: "subCategory3",
-            foreignField: "_id",
-            as: "subCategory3",
-          },
-        },
-        {
-          $lookup: {
-            from: "subcategories",
-            localField: "subCategory4",
-            foreignField: "_id",
-            as: "subCategory4",
           },
         },
         {
@@ -521,24 +451,6 @@ router.get(
         {
           $unwind: {
             path: "$category",
-            preserveNullAndEmptyArrays: true,
-          },
-        },
-        {
-          $unwind: {
-            path: "$subCategory2",
-            preserveNullAndEmptyArrays: true,
-          },
-        },
-        {
-          $unwind: {
-            path: "$subCategory3",
-            preserveNullAndEmptyArrays: true,
-          },
-        },
-        {
-          $unwind: {
-            path: "$subCategory4",
             preserveNullAndEmptyArrays: true,
           },
         },
@@ -631,13 +543,9 @@ router.get(
           }
 
           const googleProductCategory = determineGoogleCategory(product.parentCategory?.name, product.category?.name)
-          
-          // Build complete category hierarchy including all subcategory levels
-          let productType = product.parentCategory?.name || "Uncategorized"
-          if (product.category?.name) productType += ` > ${product.category.name}`
-          if (product.subCategory2?.name) productType += ` > ${product.subCategory2.name}`
-          if (product.subCategory3?.name) productType += ` > ${product.subCategory3.name}`
-          if (product.subCategory4?.name) productType += ` > ${product.subCategory4.name}`
+          const productType =
+            (product.parentCategory?.name || "Uncategorized") +
+            (product.category?.name ? ` > ${product.category.name}` : "")
 
           xml += `    <item>
       <g:id>${escapeXml(product._id.toString())}</g:id>
@@ -796,7 +704,6 @@ router.get(
 )
 
 export default router
-
 
 
 
