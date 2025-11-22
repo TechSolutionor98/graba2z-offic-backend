@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "nodemon server.js",
+    "update-sitemap": "node scripts/update-sitemap.js"
   },
   "dependencies": {
     "@getbrevo/brevo": "^2.2.0",
