@@ -2,6 +2,7 @@ import express from "express"
 import asyncHandler from "express-async-handler"
 import Category from "../models/categoryModel.js"
 import SubCategory from "../models/subCategoryModel.js"
+import Product from "../models/productModel.js"
 import { protect, admin } from "../middleware/authMiddleware.js"
 
 const router = express.Router()
@@ -237,6 +238,145 @@ router.put(
     } else {
       res.status(404)
       throw new Error("Category not found")
+    }
+  }),
+)
+
+// @desc    Get deletion info for a category (product count and child subcategories)
+// @route   GET /api/categories/:id/deletion-info
+// @access  Private/Admin
+router.get(
+  "/:id/deletion-info",
+  protect,
+  admin,
+  asyncHandler(async (req, res) => {
+    const category = await Category.findById(req.params.id)
+
+    if (!category) {
+      res.status(404)
+      throw new Error("Category not found")
+    }
+
+    // Count direct subcategories (Level 1)
+    const level1Subs = await SubCategory.find({ 
+      category: req.params.id,
+      isDeleted: { $ne: true }
+    })
+    
+    const level1SubIds = level1Subs.map(sub => sub._id)
+    
+    // Count Level 2 subcategories (children of Level 1)
+    const level2Subs = await SubCategory.find({
+      parentSubCategory: { $in: level1SubIds },
+      isDeleted: { $ne: true }
+    })
+    
+    const level2SubIds = level2Subs.map(sub => sub._id)
+    
+    // Count Level 3 subcategories (children of Level 2)
+    const level3Subs = await SubCategory.find({
+      parentSubCategory: { $in: level2SubIds },
+      isDeleted: { $ne: true }
+    })
+    
+    const totalChildCount = level1Subs.length + level2Subs.length + level3Subs.length
+    
+    // Get all subcategory IDs for product query
+    const allSubIds = [...level1SubIds, ...level2SubIds, ...level3Subs.map(sub => sub._id)]
+    
+    // Count products in category and all its subcategories
+    const productCount = await Product.countDocuments({
+      $or: [
+        { parentCategory: req.params.id },
+        { category: { $in: allSubIds } }
+      ]
+    })
+
+    res.json({
+      categoryId: req.params.id,
+      categoryName: category.name,
+      childCount: totalChildCount,
+      level1Count: level1Subs.length,
+      level2Count: level2Subs.length,
+      level3Count: level3Subs.length,
+      productCount
+    })
+  }),
+)
+
+// @desc    Delete a category with cascading (products and subcategories)
+// @route   DELETE /api/categories/:id/cascade
+// @access  Private/Admin
+router.delete(
+  "/:id/cascade",
+  protect,
+  admin,
+  asyncHandler(async (req, res) => {
+    const { moveProducts } = req.query // "true" if we should move products instead of deleting
+    
+    const category = await Category.findById(req.params.id)
+
+    if (!category) {
+      res.status(404)
+      throw new Error("Category not found")
+    }
+
+    // Get all subcategories at all levels
+    const level1Subs = await SubCategory.find({ 
+      category: req.params.id,
+      isDeleted: { $ne: true }
+    })
+    
+    const level1SubIds = level1Subs.map(sub => sub._id)
+    
+    const level2Subs = await SubCategory.find({
+      parentSubCategory: { $in: level1SubIds },
+      isDeleted: { $ne: true }
+    })
+    
+    const level2SubIds = level2Subs.map(sub => sub._id)
+    
+    const level3Subs = await SubCategory.find({
+      parentSubCategory: { $in: level2SubIds },
+      isDeleted: { $ne: true }
+    })
+    
+    const allSubIds = [...level1SubIds, ...level2SubIds, ...level3Subs.map(sub => sub._id)]
+
+    if (moveProducts === "true") {
+      // Move products flow - return subcategory IDs that need handling
+      // Frontend will show move modal
+      res.json({
+        message: "Products need to be moved",
+        requiresMove: true,
+        categoryId: req.params.id,
+        subcategoryIds: allSubIds
+      })
+    } else {
+      // Permanently delete everything
+      // Delete all products in this category and subcategories
+      await Product.deleteMany({
+        $or: [
+          { parentCategory: req.params.id },
+          { category: { $in: allSubIds } }
+        ]
+      })
+
+      // Delete all subcategories
+      await SubCategory.deleteMany({
+        _id: { $in: allSubIds }
+      })
+
+      // Delete the category
+      await Category.findByIdAndDelete(req.params.id)
+
+      res.json({ 
+        message: "Category, subcategories, and products permanently deleted",
+        deletedCount: {
+          subcategories: allSubIds.length,
+          // productCount would need to be tracked before deletion if needed
+        }
+      })
     }
   }),
 )

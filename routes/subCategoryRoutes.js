@@ -478,6 +478,7 @@ import express from "express"
 import asyncHandler from "express-async-handler"
 import SubCategory from "../models/subCategoryModel.js"
 import Category from "../models/categoryModel.js"
+import Product from "../models/productModel.js"
 import { protect, admin } from "../middleware/authMiddleware.js"
 
 const router = express.Router()
@@ -959,6 +960,125 @@ router.delete(
     } else {
       res.status(404)
       throw new Error("Subcategory not found in trash")
+    }
+  }),
+)
+
+// @desc    Get deletion info for a subcategory (product count and child subcategories)
+// @route   GET /api/subcategories/:id/deletion-info
+// @access  Private/Admin
+router.get(
+  "/:id/deletion-info",
+  protect,
+  admin,
+  asyncHandler(async (req, res) => {
+    const subcategory = await SubCategory.findById(req.params.id)
+
+    if (!subcategory) {
+      res.status(404)
+      throw new Error("Subcategory not found")
+    }
+
+    // Count direct child subcategories
+    const directChildren = await SubCategory.find({ 
+      parentSubCategory: req.params.id,
+      isDeleted: { $ne: true }
+    })
+    
+    const directChildIds = directChildren.map(sub => sub._id)
+    
+    // Count grandchildren (Level 3)
+    const grandChildren = await SubCategory.find({
+      parentSubCategory: { $in: directChildIds },
+      isDeleted: { $ne: true }
+    })
+    
+    const grandChildIds = grandChildren.map(sub => sub._id)
+    
+    const totalChildCount = directChildren.length + grandChildren.length
+    
+    // Get all child IDs for product query
+    const allChildIds = [...directChildIds, ...grandChildIds]
+    
+    // Count products in this subcategory and all its children
+    const productCount = await Product.countDocuments({
+      category: { $in: [req.params.id, ...allChildIds] }
+    })
+
+    res.json({
+      subcategoryId: req.params.id,
+      subcategoryName: subcategory.name,
+      level: subcategory.level || 1,
+      childCount: totalChildCount,
+      directChildCount: directChildren.length,
+      grandChildCount: grandChildren.length,
+      productCount
+    })
+  }),
+)
+
+// @desc    Delete a subcategory with cascading (products and child subcategories)
+// @route   DELETE /api/subcategories/:id/cascade
+// @access  Private/Admin
+router.delete(
+  "/:id/cascade",
+  protect,
+  admin,
+  asyncHandler(async (req, res) => {
+    const { moveProducts } = req.query // "true" if we should move products instead of deleting
+    
+    const subcategory = await SubCategory.findById(req.params.id)
+
+    if (!subcategory) {
+      res.status(404)
+      throw new Error("Subcategory not found")
+    }
+
+    // Get all child subcategories at all levels
+    const directChildren = await SubCategory.find({ 
+      parentSubCategory: req.params.id,
+      isDeleted: { $ne: true }
+    })
+    
+    const directChildIds = directChildren.map(sub => sub._id)
+    
+    const grandChildren = await SubCategory.find({
+      parentSubCategory: { $in: directChildIds },
+      isDeleted: { $ne: true }
+    })
+    
+    const allChildIds = [...directChildIds, ...grandChildren.map(sub => sub._id)]
+
+    if (moveProducts === "true") {
+      // Move products flow - return subcategory IDs that need handling
+      // Frontend will show move modal
+      res.json({
+        message: "Products need to be moved",
+        requiresMove: true,
+        subcategoryId: req.params.id,
+        childSubcategoryIds: allChildIds
+      })
+    } else {
+      // Permanently delete everything
+      // Delete all products in this subcategory and its children
+      await Product.deleteMany({
+        category: { $in: [req.params.id, ...allChildIds] }
+      })
+
+      // Delete all child subcategories
+      await SubCategory.deleteMany({
+        _id: { $in: allChildIds }
+      })
+
+      // Delete the subcategory itself
+      await SubCategory.findByIdAndDelete(req.params.id)
+
+      res.json({ 
+        message: "Subcategory, child subcategories, and products permanently deleted",
+        deletedCount: {
+          subcategories: allChildIds.length
+        }
+      })
     }
   }),
 )
