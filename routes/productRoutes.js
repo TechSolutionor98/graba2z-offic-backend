@@ -1621,6 +1621,14 @@ router.post(
       const taxId = row.tax ? taxMap.get(String(row.tax).trim().toLowerCase()) : undefined
       const unitId = row.unit ? unitMap.get(String(row.unit).trim().toLowerCase()) : undefined
 
+      // Auto-calculate discount percentage from price and offerPrice
+      const price = Number.parseFloat(row.price) || 0
+      const offerPrice = Number.parseFloat(row.offerPrice) || 0
+      let discount = 0
+      if (price > 0 && offerPrice > 0 && offerPrice < price) {
+        discount = Math.round(((price - offerPrice) / price) * 100)
+      }
+
       previewProducts.push({
         name: row.name || "",
         slug: row.slug || generateSlug(row.name || ""),
@@ -1633,9 +1641,9 @@ router.post(
         subCategory4: level4Id,
         brand: brandId,
         buyingPrice: Number.parseFloat(row.buyingPrice) || 0,
-        price: Number.parseFloat(row.price) || 0,
-        offerPrice: Number.parseFloat(row.offerPrice) || 0,
-        discount: Number.parseFloat(row.discount) || 0,
+        price,
+        offerPrice,
+        discount,
         tax: taxId,
         stockStatus,
         showStockOut: row.showStockOut === "true" || row.showStockOut === true,
@@ -1768,6 +1776,14 @@ router.post(
         const taxId = prod.tax?._id || prod.tax
         const unitId = prod.unit?._id || prod.unit
 
+        // Auto-calculate discount percentage from price and offerPrice
+        const price = prod.price || 0
+        const offerPrice = prod.offerPrice || 0
+        let discount = 0
+        if (price > 0 && offerPrice > 0 && offerPrice < price) {
+          discount = Math.round(((price - offerPrice) / price) * 100)
+        }
+
         const productData = {
           name: prod.name || "",
           slug: prod.slug || generateSlug(prod.name || ""),
@@ -1781,9 +1797,9 @@ router.post(
           subCategory4: subCategory4Id,
           brand: brandId,
           buyingPrice: prod.buyingPrice || 0,
-          price: prod.price || 0,
-          offerPrice: prod.offerPrice || 0,
-          discount: prod.discount || 0,
+          price,
+          offerPrice,
+          discount,
           tax: taxId,
           stockStatus,
           showStockOut: prod.showStockOut !== undefined ? Boolean(prod.showStockOut) : true,
