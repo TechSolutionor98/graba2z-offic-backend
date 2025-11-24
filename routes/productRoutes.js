@@ -1250,14 +1250,22 @@ router.post(
         return existing._id
       }
 
-      // Prepare duplicates check
+      // Prepare duplicates check for preview (to show which will be updated)
+      const skus = mappedRows.map((r) => r.sku).filter(Boolean)
       const names = mappedRows.map((r) => r.name).filter(Boolean)
-      const slugs = mappedRows.map((r) => r.slug).filter(Boolean)
-      const existingProducts = await Product.find({ $or: [{ name: { $in: names } }, { slug: { $in: slugs } }] }).select(
-        "name slug",
-      )
-      const existingNames = new Set(existingProducts.map((p) => p.name))
-      const existingSlugs = new Set(existingProducts.map((p) => p.slug))
+      const existingProducts = await Product.find({ 
+        $or: [
+          { sku: { $in: skus } }, 
+          { name: { $in: names } }
+        ] 
+      }).select("name slug sku")
+      
+      const existingBySku = new Map()
+      const existingByName = new Map()
+      existingProducts.forEach((p) => {
+        if (p.sku) existingBySku.set(p.sku, p)
+        if (p.name) existingByName.set(p.name, p)
+      })
 
       // Build preview
       const previewProducts = []
@@ -1276,9 +1284,16 @@ router.post(
           continue
         }
 
-        if ((row.name && existingNames.has(row.name)) || (row.slug && existingSlugs.has(row.slug))) {
-          invalidRows.push({ row: i + 2, reason: "Duplicate product name or slug", data: row })
-          continue
+        // Check if this product exists (will be updated instead of created)
+        let willUpdate = false
+        let existingProduct = null
+        
+        if (row.sku && existingBySku.has(row.sku)) {
+          willUpdate = true
+          existingProduct = existingBySku.get(row.sku)
+        } else if (existingByName.has(row.name)) {
+          willUpdate = true
+          existingProduct = existingByName.get(row.name)
         }
 
         const parentCategoryId = parentCategoryMap.get(parentName.trim().toLowerCase())
@@ -1329,6 +1344,8 @@ router.post(
           countInStock: Number.parseInt(row.countInStock) || 0,
           isActive: true,
           featured: false,
+          willUpdate: willUpdate, // Flag to indicate this will update existing product
+          existingProductId: existingProduct?._id, // ID of existing product
         })
       }
 
@@ -1489,7 +1506,7 @@ router.post(
     const level3Cache = new Map()
     const level4Cache = new Map()
 
-    // Existing product name/slug/sku/barcode to avoid duplicates
+    // Fetch existing products to detect updates vs duplicates
     const names = csvData.map((r) => r.name).filter(Boolean)
     const slugs = csvData.map((r) => r.slug).filter(Boolean)
     const skus = csvData.map((r) => getField(r, ["sku"])).filter(Boolean)
@@ -1502,10 +1519,19 @@ router.post(
         ...(barcodes.length > 0 ? [{ barcode: { $in: barcodes } }] : [])
       ] 
     }).select("name slug sku barcode")
-    const existingNames = new Set(existingProducts.map((p) => p.name))
-    const existingSlugs = new Set(existingProducts.map((p) => p.slug))
-    const existingSKUs = new Set(existingProducts.map((p) => p.sku).filter(Boolean))
-    const existingBarcodes = new Set(existingProducts.map((p) => p.barcode).filter(Boolean))
+    
+    // Create maps for existing products by SKU and name for update detection
+    const existingBySKU = new Map()
+    const existingByName = new Map()
+    existingProducts.forEach((p) => {
+      if (p.sku) existingBySKU.set(p.sku, p)
+      existingByName.set(p.name, p)
+    })
+    
+    // Track what we've seen in THIS batch to prevent duplicates within the file
+    const seenSKUs = new Set()
+    const seenNames = new Set()
+    const seenBarcodes = new Set()
 
     const allowedStockStatus = ["Available Product", "Out of Stock", "PreOrder"]
     const previewProducts = []
@@ -1543,23 +1569,42 @@ router.post(
         invalidRows.push({ row: i + 2, reason: "Missing required fields (name, parent_category)", data: row })
         continue
       }
-      if ((row.name && existingNames.has(row.name)) || (row.slug && existingSlugs.has(row.slug))) {
-        invalidRows.push({ row: i + 2, reason: "Duplicate product name or slug", data: row })
-        continue
-      }
+      
       const rowSKU = getField(row, ["sku"])
       const rowBarcode = getField(row, ["barcode"])
-      if (rowSKU && existingSKUs.has(rowSKU)) {
-        invalidRows.push({ row: i + 2, reason: `Duplicate SKU: ${rowSKU}`, data: row })
-        continue
+      
+      // Check if this is an UPDATE (existing product by SKU or name)
+      let willUpdate = false
+      let existingProduct = null
+      
+      if (rowSKU && existingBySKU.has(rowSKU)) {
+        existingProduct = existingBySKU.get(rowSKU)
+        willUpdate = true
+      } else if (existingByName.has(row.name)) {
+        existingProduct = existingByName.get(row.name)
+        willUpdate = true
       }
-      if (rowBarcode && existingBarcodes.has(rowBarcode)) {
-        invalidRows.push({ row: i + 2, reason: `Duplicate Barcode: ${rowBarcode}`, data: row })
-        continue
+      
+      // Check for duplicates WITHIN this batch (not updates)
+      if (!willUpdate) {
+        if (seenNames.has(row.name)) {
+          invalidRows.push({ row: i + 2, reason: "Duplicate product name in this file", data: row })
+          continue
+        }
+        if (rowSKU && seenSKUs.has(rowSKU)) {
+          invalidRows.push({ row: i + 2, reason: `Duplicate SKU in this file: ${rowSKU}`, data: row })
+          continue
+        }
+        if (rowBarcode && seenBarcodes.has(rowBarcode)) {
+          invalidRows.push({ row: i + 2, reason: `Duplicate Barcode in this file: ${rowBarcode}`, data: row })
+          continue
+        }
       }
-      // Track SKUs and barcodes within this batch to prevent duplicates in same file
-      if (rowSKU) existingSKUs.add(rowSKU)
-      if (rowBarcode) existingBarcodes.add(rowBarcode)
+      
+      // Track what we've seen in this batch
+      seenNames.add(row.name)
+      if (rowSKU) seenSKUs.add(rowSKU)
+      if (rowBarcode) seenBarcodes.add(rowBarcode)
       const parentCategoryId = parentCategoryMap.get(parentName.trim().toLowerCase())
       const level1Name = getField(row, ["category", "subcategory", "sub_category", "category1", "category_level_1"])
       const level2Name = getField(row, ["sub_category_2", "subcategory2", "subCategory2", "category2", "category_level_2"])
@@ -1612,6 +1657,7 @@ router.post(
         countInStock: Number.parseInt(row.countInStock) || 0,
         isActive: true,
         featured: false,
+        willUpdate, // Flag to indicate this will update an existing product
       })
     }
 
@@ -1658,7 +1704,7 @@ router.post(
   }),
 )
 
-// @desc    Bulk save products to database
+// @desc    Bulk save products to database (CREATE or UPDATE)
 // @route   POST /api/products/bulk-save
 // @access  Private/Admin
 router.post(
@@ -1674,6 +1720,8 @@ router.post(
     const results = []
     let success = 0
     let failed = 0
+    let created = 0
+    let updated = 0
     const allowedStockStatus = ["Available Product", "Out of Stock", "PreOrder"]
 
     for (const [i, prod] of products.entries()) {
@@ -1686,35 +1734,6 @@ router.post(
           continue
         }
 
-        // Check for duplicate by name, slug, SKU, or barcode
-        const duplicateQuery = [
-          { name: prod.name }, 
-          { slug: prod.slug }
-        ]
-        
-        // Only check SKU/barcode if they have values
-        if (prod.sku && prod.sku.trim() !== "") {
-          duplicateQuery.push({ sku: prod.sku.trim() })
-        }
-        if (prod.barcode && prod.barcode.trim() !== "") {
-          duplicateQuery.push({ barcode: prod.barcode.trim() })
-        }
-        
-        const existing = await Product.findOne({ $or: duplicateQuery })
-
-        if (existing) {
-          let reason = "Duplicate product"
-          if (existing.name === prod.name) reason = "Duplicate product name"
-          else if (existing.slug === prod.slug) reason = "Duplicate product slug"
-          else if (existing.sku === prod.sku) reason = `Duplicate SKU: ${prod.sku}`
-          else if (existing.barcode === prod.barcode) reason = `Duplicate Barcode: ${prod.barcode}`
-          
-          console.log(`Product ${i} (${prod.name}): Failed - ${reason}`)
-          results.push({ index: i, status: "failed", reason, product: prod })
-          failed++
-          continue
-        }
-
         // Validate required fields
         if (!prod.name || !prod.parentCategory) {
           console.log(`Product ${i}: Failed - Missing required fields (name: ${prod.name}, parentCategory: ${prod.parentCategory})`)
@@ -1723,21 +1742,33 @@ router.post(
           continue
         }
 
+        // Check if product exists by SKU (primary identifier) or name
+        let existing = null
+        
+        if (prod.sku && prod.sku.trim() !== "") {
+          existing = await Product.findOne({ sku: prod.sku.trim() })
+        }
+        
+        // If no SKU match, try by name
+        if (!existing) {
+          existing = await Product.findOne({ name: prod.name })
+        }
+
         // Use defaults for missing fields
         let stockStatus = prod.stockStatus || "Available Product"
         if (!allowedStockStatus.includes(stockStatus)) stockStatus = "Available Product"
 
         // Extract IDs from populated objects or use direct IDs
         const parentCategoryId = prod.parentCategory?._id || prod.parentCategory
-  const categoryId = prod.category?._id || prod.category // level 1
-  const subCategory2Id = prod.subCategory2?._id || prod.subCategory2
-  const subCategory3Id = prod.subCategory3?._id || prod.subCategory3
-  const subCategory4Id = prod.subCategory4?._id || prod.subCategory4
+        const categoryId = prod.category?._id || prod.category // level 1
+        const subCategory2Id = prod.subCategory2?._id || prod.subCategory2
+        const subCategory3Id = prod.subCategory3?._id || prod.subCategory3
+        const subCategory4Id = prod.subCategory4?._id || prod.subCategory4
         const brandId = prod.brand?._id || prod.brand
         const taxId = prod.tax?._id || prod.tax
         const unitId = prod.unit?._id || prod.unit
 
-        const product = new Product({
+        const productData = {
           name: prod.name || "",
           slug: prod.slug || generateSlug(prod.name || ""),
           sku: (prod.sku && prod.sku.trim() !== "") ? prod.sku.trim() : undefined,
@@ -1766,16 +1797,31 @@ router.post(
           description: prod.description || "",
           shortDescription: prod.shortDescription || "",
           specifications: prod.specifications || [],
-          countInStock: prod.countInStock || 0,
+          countInStock: prod.countInStock !== undefined ? prod.countInStock : 0,
           isActive: prod.isActive !== undefined ? Boolean(prod.isActive) : true,
           featured: prod.featured !== undefined ? Boolean(prod.featured) : false,
-          createdBy: req.user._id,
-        })
+        }
 
-        await product.save()
-        console.log(`Product ${i} (${prod.name}): SUCCESS`)
-        results.push({ index: i, status: "success", product: product })
-        success++
+        let product
+
+        if (existing) {
+          // UPDATE existing product
+          Object.assign(existing, productData)
+          product = await existing.save()
+          console.log(`Product ${i} (${prod.name}): UPDATED`)
+          results.push({ index: i, status: "success", action: "updated", product: product })
+          updated++
+          success++
+        } else {
+          // CREATE new product
+          productData.createdBy = req.user._id
+          product = new Product(productData)
+          await product.save()
+          console.log(`Product ${i} (${prod.name}): CREATED`)
+          results.push({ index: i, status: "success", action: "created", product: product })
+          created++
+          success++
+        }
       } catch (error) {
         console.log(`Product ${i} (${prod.name}): FAILED - ${error.message}`)
         results.push({ index: i, status: "failed", reason: error.message, product: prod })
@@ -1785,6 +1831,7 @@ router.post(
 
     console.log(`\n=== BULK SAVE SUMMARY ===`)
     console.log(`Total: ${products.length}, Success: ${success}, Failed: ${failed}`)
+    console.log(`Created: ${created}, Updated: ${updated}`)
     console.log(`========================\n`)
 
     // Populate category, subcategory, and brand in the results
@@ -1814,10 +1861,12 @@ router.post(
     )
 
     res.json({
-      message: `Bulk save complete`,
+      message: `Bulk save complete: ${created} created, ${updated} updated, ${failed} failed`,
       total: products.length,
       success,
       failed,
+      created,
+      updated,
       results: populatedResults,
       cacheHint: { productsUpdated: true, timestamp: Date.now() },
     })
