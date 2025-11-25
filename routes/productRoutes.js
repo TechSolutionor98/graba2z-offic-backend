@@ -120,12 +120,15 @@ function escapeRegex(string) {
 // @access  Private/Admin
 router.get("/admin", protect, admin, async (req, res) => {
   try {
-    const { search, category, subcategory, parentCategory, brand, isActive, limit = 20, page = 1 } = req.query
+    const { search, category, subcategory, subCategory2, subCategory3, subCategory4, parentCategory, brand, isActive, limit = 20, page = 1 } = req.query
     const query = {}
     const orConditions = []
 
     if (category) query.category = category
     if (subcategory) query.subCategory = subcategory
+    if (subCategory2) query.subCategory2 = subCategory2
+    if (subCategory3) query.subCategory3 = subCategory3
+    if (subCategory4) query.subCategory4 = subCategory4
     if (parentCategory) query.parentCategory = parentCategory
     if (brand) query.brand = brand
 
@@ -177,12 +180,15 @@ router.get("/admin", protect, admin, async (req, res) => {
 // @access  Private/Admin
 router.get("/admin/count", protect, admin, async (req, res) => {
   try {
-    const { search, category, subcategory, parentCategory, brand } = req.query
+    const { search, category, subcategory, subCategory2, subCategory3, subCategory4, parentCategory, brand } = req.query
     const query = {}
     const orConditions = []
 
     if (category) query.category = category
     if (subcategory) query.subCategory = subcategory
+    if (subCategory2) query.subCategory2 = subCategory2
+    if (subCategory3) query.subCategory3 = subCategory3
+    if (subCategory4) query.subCategory4 = subCategory4
     if (parentCategory) query.parentCategory = parentCategory
     if (brand) query.brand = brand
 
@@ -213,6 +219,41 @@ router.get("/admin/count", protect, admin, async (req, res) => {
     res.status(500).json({ message: "Server error" })
   }
 })
+
+// @desc    Get products by specific IDs (for exporting selected products)
+// @route   POST /api/products/by-ids
+// @access  Private/Admin
+router.post("/by-ids", protect, admin, asyncHandler(async (req, res) => {
+  try {
+    const { ids } = req.body
+    
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ message: "Product IDs array is required" })
+    }
+
+    // Validate ObjectIds
+    const validIds = ids.filter(id => mongoose.Types.ObjectId.isValid(id))
+    
+    if (validIds.length === 0) {
+      return res.status(400).json({ message: "No valid product IDs provided" })
+    }
+
+    // Fetch products by IDs
+    const products = await Product.find({ _id: { $in: validIds } })
+      .populate("brand category subCategory parentCategory subCategory2 subCategory3 subCategory4")
+      .sort({ createdAt: -1 })
+
+    res.json({ 
+      products,
+      totalCount: products.length,
+      requestedCount: ids.length,
+      foundCount: products.length
+    })
+  } catch (error) {
+    console.error("Error fetching products by IDs:", error)
+    res.status(500).json({ message: "Server error" })
+  }
+}))
 
 // @desc    Fetch all products
 // @route   GET /api/products
@@ -286,10 +327,11 @@ router.get(
 
     let productsQuery = Product.find(query)
       .select(
-  "name slug sku price offerPrice discount image countInStock stockStatus brand category parentCategory subCategory2 subCategory3 subCategory4 featured tags createdAt rating numReviews",
+        "name slug sku price offerPrice discount image countInStock stockStatus brand category subCategory parentCategory subCategory2 subCategory3 subCategory4 featured tags createdAt rating numReviews",
       )
       .populate("brand", "name slug")
       .populate("category", "name slug")
+      .populate("subCategory", "name slug") // Populate legacy subCategory field
       .populate("parentCategory", "name slug")
       .populate("subCategory2", "name slug") // Populate Level 2 subcategories
       .populate("subCategory3", "name slug") // Populate Level 3 subcategories
@@ -560,7 +602,11 @@ router.get(
   "/slug/:slug",
   asyncHandler(async (req, res) => {
     const product = await Product.findOne({ slug: req.params.slug, isActive: true })
+      .populate("parentCategory", "name slug")
       .populate("category", "name slug")
+      .populate("subCategory2", "name slug")
+      .populate("subCategory3", "name slug")
+      .populate("subCategory4", "name slug")
       .populate("brand", "name")
 
     if (product) {
