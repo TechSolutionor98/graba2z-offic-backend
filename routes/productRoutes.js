@@ -1889,6 +1889,342 @@ router.post(
   }),
 )
 
+// @desc    Bulk import products with ObjectId tracking (improved version)
+// @route   POST /api/products/bulk-import-with-id
+// @access  Private/Admin
+router.post(
+  "/bulk-import-with-id",
+  protect,
+  admin,
+  excelUpload.single("file"),
+  asyncHandler(async (req, res) => {
+    console.log("--- BULK IMPORT WITH OBJECTID START ---")
+    
+    if (!req.file) {
+      return res.status(400).json({ message: "No file uploaded" })
+    }
+    
+    try {
+      // Read Excel from memory buffer
+      const workbook = XLSX.read(req.file.buffer, { type: "buffer" })
+      const sheetName = workbook.SheetNames[0]
+      const sheet = workbook.Sheets[sheetName]
+      const rows = XLSX.utils.sheet_to_json(sheet)
+      console.log("Excel rows loaded:", rows.length)
+
+      const results = []
+      let created = 0
+      let updated = 0
+      let failed = 0
+      const errors = []
+
+      // Track ObjectIds in this batch to detect duplicates
+      const seenObjectIds = new Map()
+      const duplicateObjectIds = new Set()
+
+      // First pass: Detect duplicate ObjectIds within the Excel file
+      for (const [i, row] of rows.entries()) {
+        const rowNum = i + 2 // Excel row number (accounting for header)
+        const objectId = row._id || row.id || row.ID || row['_id']
+        
+        if (objectId && objectId.trim() !== '') {
+          const cleanId = objectId.trim()
+          
+          // Check if we've seen this ObjectId before in this file
+          if (seenObjectIds.has(cleanId)) {
+            duplicateObjectIds.add(cleanId)
+            errors.push({
+              row: rowNum,
+              productName: row.name || 'Unknown',
+              objectId: cleanId,
+              error: `Duplicate ObjectId found in Excel file. First occurrence at row ${seenObjectIds.get(cleanId)}`,
+            })
+          } else {
+            seenObjectIds.set(cleanId, rowNum)
+          }
+        }
+      }
+
+      // If we found any duplicate ObjectIds, return error
+      if (duplicateObjectIds.size > 0) {
+        return res.status(400).json({
+          message: `Found ${duplicateObjectIds.size} duplicate ObjectId(s) in the Excel file. Please fix these duplicates before importing.`,
+          duplicates: Array.from(duplicateObjectIds),
+          errors,
+          total: rows.length,
+          failed: errors.length,
+        })
+      }
+
+      // Helper to resolve category/brand by name only (no ID support)
+      const resolveCategoryOrBrand = async (Model, nameValue, createIfMissing = true, userId = null) => {
+        if (!nameValue) return null
+        
+        // Try by name
+        if (nameValue && nameValue.trim() !== '') {
+          const found = await Model.findOne({ name: nameValue.trim() })
+          if (found) return found._id
+          
+          // Create new if requested
+          if (createIfMissing) {
+            const slug = generateSlug(nameValue.trim())
+            const newDoc = await Model.create({
+              name: nameValue.trim(),
+              slug,
+              isActive: true,
+              createdBy: userId,
+            })
+            return newDoc._id
+          }
+        }
+        
+        return null
+      }
+
+      // Helper to resolve subcategory by name (with level support)
+      const resolveSubCategory = async (nameValue, parentCategoryId, parentSubId, level, userId = null) => {
+        if (!nameValue) return null
+        
+        // Try by name and parent
+        if (nameValue && nameValue.trim() !== '') {
+          const query = { name: nameValue.trim() }
+          if (parentCategoryId) query.category = parentCategoryId
+          
+          const found = await SubCategory.findOne(query)
+          if (found) return found._id
+          
+          // Create new subcategory
+          const slug = generateSlug(nameValue.trim())
+          const newSub = await SubCategory.create({
+            name: nameValue.trim(),
+            slug,
+            category: parentCategoryId,
+            parentSubCategory: parentSubId || null,
+            level,
+            isActive: true,
+            createdBy: userId,
+          })
+          return newSub._id
+        }
+        
+        return null
+      }
+
+      // Second pass: Process products
+      for (const [i, row] of rows.entries()) {
+        const rowNum = i + 2
+        
+        try {
+          // Skip empty rows
+          if (Object.values(row).every((v) => !v || String(v).trim() === '')) {
+            continue
+          }
+
+          const objectId = row._id || row.id || row.ID || row['_id']
+          const productName = row.name
+          
+          if (!productName || productName.trim() === '') {
+            errors.push({
+              row: rowNum,
+              productName: 'Unknown',
+              error: 'Product name is required',
+            })
+            failed++
+            continue
+          }
+
+          let product = null
+          let isUpdate = false
+
+          // If ObjectId is provided, try to find existing product
+          if (objectId && objectId.trim() !== '' && mongoose.Types.ObjectId.isValid(objectId.trim())) {
+            product = await Product.findById(objectId.trim())
+            if (product) {
+              isUpdate = true
+            } else {
+              // ObjectId provided but product not found - treat as error
+              errors.push({
+                row: rowNum,
+                productName,
+                objectId: objectId.trim(),
+                error: 'Product with provided ObjectId not found in database',
+              })
+              failed++
+              continue
+            }
+          }
+
+          // Resolve parent category (by name only)
+          const parentCategoryId = await resolveCategoryOrBrand(
+            Category,
+            row.parent_category,
+            true,
+            req.user._id
+          )
+
+          if (!parentCategoryId) {
+            errors.push({
+              row: rowNum,
+              productName,
+              error: 'Parent category is required',
+            })
+            failed++
+            continue
+          }
+
+          // Resolve brand (by name only)
+          const brandId = await resolveCategoryOrBrand(
+            Brand,
+            row.brand,
+            true,
+            req.user._id
+          )
+
+          // Resolve category levels (by name only)
+          const level1Id = await resolveSubCategory(
+            row.category_level_1,
+            parentCategoryId,
+            null,
+            1,
+            req.user._id
+          )
+
+          const level2Id = await resolveSubCategory(
+            row.category_level_2,
+            parentCategoryId,
+            level1Id,
+            2,
+            req.user._id
+          )
+
+          const level3Id = await resolveSubCategory(
+            row.category_level_3,
+            parentCategoryId,
+            level2Id || level1Id,
+            3,
+            req.user._id
+          )
+
+          const level4Id = await resolveSubCategory(
+            row.category_level_4,
+            parentCategoryId,
+            level3Id || level2Id || level1Id,
+            4,
+            req.user._id
+          )
+
+          // Prepare product data
+          const productData = {
+            name: productName.trim(),
+            slug: row.slug || generateSlug(productName.trim()),
+            sku: row.sku && row.sku.trim() !== '' ? row.sku.trim() : undefined,
+            barcode: row.barcode && row.barcode.trim() !== '' ? row.barcode.trim() : undefined,
+            parentCategory: parentCategoryId,
+            category: level1Id,
+            subCategory: level1Id, // for backward compatibility
+            subCategory2: level2Id,
+            subCategory3: level3Id,
+            subCategory4: level4Id,
+            brand: brandId,
+            buyingPrice: parseFloat(row.buyingPrice) || 0,
+            price: parseFloat(row.price) || 0,
+            offerPrice: parseFloat(row.offerPrice) || 0,
+            discount: parseFloat(row.discount) || 0,
+            stockStatus: row.stockStatus || 'Available Product',
+            countInStock: parseInt(row.countInStock) || 0,
+            showStockOut: row.showStockOut === 'true' || row.showStockOut === true,
+            canPurchase: row.canPurchase !== 'false' && row.canPurchase !== false,
+            refundable: row.refundable !== 'false' && row.refundable !== false,
+            maxPurchaseQty: parseInt(row.maxPurchaseQty) || 10,
+            lowStockWarning: parseInt(row.lowStockWarning) || 5,
+            weight: parseFloat(row.weight) || 0,
+            tags: row.tags ? String(row.tags).split(',').map(t => t.trim()).filter(Boolean) : [],
+            description: row.description || '',
+            shortDescription: row.shortDescription || '',
+            specifications: row.specifications || '',
+            details: row.details || '',
+            isActive: true,
+          }
+
+          if (isUpdate) {
+            // UPDATE existing product
+            Object.assign(product, productData)
+            await product.save()
+            
+            results.push({
+              row: rowNum,
+              action: 'updated',
+              productId: product._id,
+              productName: product.name,
+              sku: product.sku,
+            })
+            updated++
+          } else {
+            // CREATE new product (no ObjectId provided)
+            productData.createdBy = req.user._id
+            
+            // Check for duplicate SKU/barcode/slug before creating
+            if (productData.sku) {
+              const existingBySku = await Product.findOne({ sku: productData.sku })
+              if (existingBySku) {
+                errors.push({
+                  row: rowNum,
+                  productName,
+                  error: `Product with SKU '${productData.sku}' already exists`,
+                })
+                failed++
+                continue
+              }
+            }
+
+            const newProduct = await Product.create(productData)
+            
+            results.push({
+              row: rowNum,
+              action: 'created',
+              productId: newProduct._id,
+              productName: newProduct.name,
+              sku: newProduct.sku,
+            })
+            created++
+          }
+        } catch (error) {
+          console.error(`Error processing row ${rowNum}:`, error)
+          errors.push({
+            row: rowNum,
+            productName: row.name || 'Unknown',
+            error: error.message,
+          })
+          failed++
+        }
+      }
+
+      console.log(`\n=== BULK IMPORT SUMMARY ===`)
+      console.log(`Total rows: ${rows.length}`)
+      console.log(`Created: ${created}`)
+      console.log(`Updated: ${updated}`)
+      console.log(`Failed: ${failed}`)
+      console.log(`==========================\n`)
+
+      res.json({
+        message: `Bulk import complete: ${created} created, ${updated} updated, ${failed} failed`,
+        total: rows.length,
+        created,
+        updated,
+        failed,
+        results,
+        errors,
+      })
+    } catch (error) {
+      console.error("Bulk import error:", error)
+      res.status(500).json({
+        message: "Bulk import failed",
+        error: error.message,
+      })
+    }
+  }),
+)
+
 // @desc    Bulk create products
 // @route   POST /api/products/bulk
 // @access  Private/Admin
