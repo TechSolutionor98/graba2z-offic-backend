@@ -44,6 +44,7 @@ import reviewRoutes from "./routes/reviewRoutes.js"
 import adminReviewRoutes from "./routes/adminReviewRoutes.js"
 import priceAdjustmentRoutes from "./routes/priceAdjustmentRoutes.js"
 import redirectRoutes from "./routes/redirectRoutes.js"
+import bulkPurchaseRoutes from "./routes/bulkPurchaseRoutes.js"
 
 dotenv.config()
 
@@ -112,6 +113,7 @@ app.use("/api/blog-ratings", blogRatingRoutes)
 app.use("/api/settings", settingsRoutes)
 app.use("/api/wishlist", wishlistRoutes)
 app.use("/api/request-callback", requestCallbackRoutes)
+app.use("/api/bulk-purchase", bulkPurchaseRoutes)
 app.use("/api/payment", paymentRoutes)
 app.use("/api/admin", adminRoutes)
 app.use("/api/email-templates", emailTemplateRoutes)
