@@ -25,7 +25,6 @@ const excelUpload = multer({ storage: multer.memoryStorage() })
 const excelToBackendKey = {
   name: "name",
   slug: "slug",
-  SKU: "sku",
   sku: "sku",
   // Category hierarchy
   category: "category", // Level 1
@@ -34,30 +33,33 @@ const excelToBackendKey = {
   category1: "category", // alias for level 1
   category_level_1: "category", // alias for level 1
   parent_category: "parent_category",
-  parentCategory: "parent_category",
+  parentcategory: "parent_category",
   // Deeper levels
   category_level_2: "subCategory2",
   category2: "subCategory2",
   sub_category_2: "subCategory2",
   subcategory2: "subCategory2",
-  subCategory2: "subCategory2",
+  subcategory2: "subCategory2",
   category_level_3: "subCategory3",
   category3: "subCategory3",
   sub_category_3: "subCategory3",
   subcategory3: "subCategory3",
-  subCategory3: "subCategory3",
+  subcategory3: "subCategory3",
   category_level_4: "subCategory4",
   category4: "subCategory4",
   sub_category_4: "subCategory4",
   subcategory4: "subCategory4",
-  subCategory4: "subCategory4",
+  subcategory4: "subCategory4",
   barcode: "barcode",
   buying_price: "buyingPrice",
   selling_price: "price",
   offer_price: "offerPrice",
+  price: "price",
+  offerprice: "offerPrice",
   tax: "tax",
   brand: "brand",
   status: "stockStatus",
+  stockstatus: "stockStatus",
   show_stock_out: "showStockOut",
   can_purchasable: "canPurchase",
   refundable: "refundable",
@@ -80,8 +82,9 @@ function remapRow(row) {
   const mapped = {}
   const specifications = []
   for (const key in row) {
-    const backendKey = excelToBackendKey[key.trim()] || key.trim()
-    if (excelToBackendKey[key.trim()]) {
+    const normalizedKey = key.trim().toLowerCase()
+    const backendKey = excelToBackendKey[normalizedKey] || key.trim()
+    if (excelToBackendKey[normalizedKey]) {
       mapped[backendKey] = row[key]
     } else {
       // If not a standard field, treat as specification
@@ -1163,11 +1166,21 @@ router.post(
 
       // Map headers to backend keys (includes 4-level category aliases)
       const mappedRows = rows.map(remapRow)
+      
+      // DEBUG: Check first row mapping
+      if (mappedRows.length > 0) {
+        console.log('First mapped row keys:', Object.keys(mappedRows[0]))
+        console.log('First mapped row brand value:', mappedRows[0].brand)
+        console.log('Original first row keys:', Object.keys(rows[0]))
+      }
 
-      // Helper for flexible retrieval from mapped rows
+      // Helper for flexible retrieval from mapped rows (cleans newlines and extra spaces)
       const getField = (row, keys) => {
         for (const k of keys) {
-          if (row[k] !== undefined && row[k] !== null && String(row[k]).trim() !== "") return String(row[k]).trim()
+          if (row[k] !== undefined && row[k] !== null) {
+            const cleaned = String(row[k]).replace(/\s+/g, ' ').trim()
+            if (cleaned !== "") return cleaned
+          }
         }
         return undefined
       }
@@ -1252,10 +1265,23 @@ router.post(
           if (rowWithParent) {
             parentCategoryId = parentCategoryMap.get(rowWithParent.parent_category.trim().toLowerCase())
           }
-          const slug = generateSlug(name)
-          const bySlug = await SubCategory.findOne({ slug })
-          if (bySlug) level1Map.set(key, bySlug._id)
-          else {
+          // First try to find by name (case-insensitive)
+          let existing = await SubCategory.findOne({ 
+            name: { $regex: new RegExp(`^${name.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
+            level: 1 
+          })
+          
+          // If not found by name, try by slug
+          if (!existing) {
+            const slug = generateSlug(name)
+            existing = await SubCategory.findOne({ slug, level: 1 })
+          }
+          
+          // If still not found, create new
+          if (existing) {
+            level1Map.set(key, existing._id)
+          } else {
+            const slug = generateSlug(name)
             const created = await SubCategory.create({
               name: name.trim(),
               slug,
@@ -1276,13 +1302,40 @@ router.post(
 
       // Helper to ensure deeper subcategories (levels 2-4)
       const ensureSubCategory = async (name, parentCategoryId, parentSubId, level) => {
-        if (!name) return undefined
+        if (!name) return { id: undefined, isNew: false }
         const key = `${parentCategoryId || ''}:${parentSubId || ''}:${level}:${name.trim().toLowerCase()}`
         const cache = level === 2 ? level2Cache : level === 3 ? level3Cache : level4Cache
         if (cache.has(key)) return cache.get(key)
-        const slug = generateSlug(name)
-        let existing = await SubCategory.findOne({ slug, category: parentCategoryId })
+        
+        let isNew = false
+        // First try to find by name (case-insensitive), level, and parent
+        let existing = await SubCategory.findOne({ 
+          name: { $regex: new RegExp(`^${name.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
+          level,
+          category: parentCategoryId
+        })
+        
+        // If not found by name, try by slug with same level and parent
         if (!existing) {
+          const slug = generateSlug(name)
+          existing = await SubCategory.findOne({ slug, level, category: parentCategoryId })
+        }
+        
+        // If still not found, create new with unique slug
+        if (!existing) {
+          isNew = true
+          let slug = generateSlug(name)
+          // Check if slug exists at any level - if so, make it unique by appending level
+          const slugExists = await SubCategory.findOne({ slug })
+          if (slugExists) {
+            slug = `${slug}-${level}`
+            // If even that exists, append parent category id
+            const stillExists = await SubCategory.findOne({ slug })
+            if (stillExists) {
+              slug = `${generateSlug(name)}-${level}-${parentCategoryId.toString().slice(-4)}`
+            }
+          }
+          
           existing = await SubCategory.create({
             name: name.trim(),
             slug,
@@ -1292,8 +1345,9 @@ router.post(
             createdBy: req.user?._id,
           })
         }
-        cache.set(key, existing._id)
-        return existing._id
+        const result = { id: existing._id, isNew, name: existing.name, slug: existing.slug }
+        cache.set(key, result)
+        return result
       }
 
       // Prepare duplicates check for preview (to show which will be updated)
@@ -1348,13 +1402,17 @@ router.post(
         const level3Name = getField(row, ["subCategory3"]) // normalized
         const level4Name = getField(row, ["subCategory4"]) // normalized
         const level1Id = level1Name ? level1Map.get(level1Name.trim().toLowerCase()) : undefined
-        const level2Id = await ensureSubCategory(level2Name, parentCategoryId, level1Id, 2)
-        const level3Id = await ensureSubCategory(level3Name, parentCategoryId, level2Id || level1Id, 3)
-        const level4Id = await ensureSubCategory(level4Name, parentCategoryId, level3Id || level2Id || level1Id, 4)
+        const level2Data = await ensureSubCategory(level2Name, parentCategoryId, level1Id, 2)
+        const level3Data = await ensureSubCategory(level3Name, parentCategoryId, level2Data.id || level1Id, 3)
+        const level4Data = await ensureSubCategory(level4Name, parentCategoryId, level3Data.id || level2Data.id || level1Id, 4)
 
         let stockStatus = row.stockStatus || "Available Product"
         if (!allowedStockStatus.includes(stockStatus)) stockStatus = "Available Product"
+        
+        console.log(`Row brand value: "${row.brand}", type: ${typeof row.brand}`)
         const brandId = row.brand ? brandMap.get(String(row.brand).trim().toLowerCase()) : undefined
+        console.log(`Brand ID resolved: ${brandId}, brandMap has: ${Array.from(brandMap.entries()).map(([k,v]) => `${k}:${v}`).join(', ')}`)
+        
         const taxId = row.tax ? taxMap.get(String(row.tax).trim().toLowerCase()) : undefined
         const unitId = row.unit ? unitMap.get(String(row.unit).trim().toLowerCase()) : undefined
 
@@ -1365,9 +1423,14 @@ router.post(
           barcode: row.barcode || "",
           parentCategory: parentCategoryId,
           category: level1Id,
-          subCategory2: level2Id,
-          subCategory3: level3Id,
-          subCategory4: level4Id,
+          subCategory2: level2Data?.id,
+          subCategory3: level3Data?.id,
+          subCategory4: level4Data?.id,
+          categoryStatus: {
+            level2: level2Data?.isNew ? 'new' : (level2Data?.id ? 'existing' : null),
+            level3: level3Data?.isNew ? 'new' : (level3Data?.id ? 'existing' : null),
+            level4: level4Data?.isNew ? 'new' : (level4Data?.id ? 'existing' : null),
+          },
           brand: brandId,
           buyingPrice: Number.parseFloat(row.buyingPrice) || 0,
           price: Number.parseFloat(row.price) || 0,
@@ -1410,15 +1473,24 @@ router.post(
           }
           if (prod.subCategory2) {
             const s2 = await populateSub(prod.subCategory2)
-            if (s2) populated.subCategory2 = { _id: s2._id, name: s2.name, slug: s2.slug }
+            if (s2) {
+              const status = prod.categoryStatus?.level2 === 'new' ? ' 🆕' : prod.categoryStatus?.level2 === 'existing' ? ' ✅' : ''
+              populated.subCategory2 = { _id: s2._id, name: s2.name + status, slug: s2.slug }
+            }
           }
           if (prod.subCategory3) {
             const s3 = await populateSub(prod.subCategory3)
-            if (s3) populated.subCategory3 = { _id: s3._id, name: s3.name, slug: s3.slug }
+            if (s3) {
+              const status = prod.categoryStatus?.level3 === 'new' ? ' 🆕' : prod.categoryStatus?.level3 === 'existing' ? ' ✅' : ''
+              populated.subCategory3 = { _id: s3._id, name: s3.name + status, slug: s3.slug }
+            }
           }
           if (prod.subCategory4) {
             const s4 = await populateSub(prod.subCategory4)
-            if (s4) populated.subCategory4 = { _id: s4._id, name: s4.name, slug: s4.slug }
+            if (s4) {
+              const status = prod.categoryStatus?.level4 === 'new' ? ' 🆕' : prod.categoryStatus?.level4 === 'existing' ? ' ✅' : ''
+              populated.subCategory4 = { _id: s4._id, name: s4.name + status, slug: s4.slug }
+            }
           }
           if (prod.brand) {
             const b = await Brand.findById(prod.brand).select("name slug")
@@ -1456,10 +1528,13 @@ router.post(
       return res.status(400).json({ message: "No CSV data provided" })
     }
 
-    // Helper for flexible column names
+    // Helper for flexible column names (cleans newlines and extra spaces)
     const getField = (row, keys) => {
       for (const k of keys) {
-        if (row[k] !== undefined && row[k] !== null && String(row[k]).trim() !== "") return String(row[k]).trim()
+        if (row[k] !== undefined && row[k] !== null) {
+          const cleaned = String(row[k]).replace(/\s+/g, ' ').trim()
+          if (cleaned !== "") return cleaned
+        }
       }
       return undefined
     }
@@ -1529,11 +1604,23 @@ router.post(
           const parentName = getField(rowWithParent, ["parent_category", "parentCategory"])?.trim().toLowerCase()
           if (parentName) parentCategoryId = parentCategoryMap.get(parentName)
         }
-        const slug = generateSlug(name)
-        const existingBySlug = await SubCategory.findOne({ slug })
-        if (existingBySlug) {
-          level1Map.set(key, existingBySlug._id)
+        // First try to find by name (case-insensitive)
+        let existing = await SubCategory.findOne({ 
+          name: { $regex: new RegExp(`^${name.trim().replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}$`, 'i') },
+          level: 1 
+        })
+        
+        // If not found by name, try by slug
+        if (!existing) {
+          const slug = generateSlug(name)
+          existing = await SubCategory.findOne({ slug, level: 1 })
+        }
+        
+        // If still not found, create new
+        if (existing) {
+          level1Map.set(key, existing._id)
         } else {
+          const slug = generateSlug(name)
           const created = await SubCategory.create({
             name: name.trim(),
             slug,
@@ -1585,13 +1672,40 @@ router.post(
 
     // Helper to ensure a subcategory level (2-4)
     const ensureSubCategory = async (name, parentCategoryId, parentSubId, level) => {
-      if (!name) return undefined
+      if (!name) return { id: undefined, isNew: false }
       const key = `${parentCategoryId || ''}:${parentSubId || ''}:${level}:${name.trim().toLowerCase()}`
       const cache = level === 2 ? level2Cache : level === 3 ? level3Cache : level4Cache
       if (cache.has(key)) return cache.get(key)
-      const slug = generateSlug(name)
-      let existing = await SubCategory.findOne({ slug, category: parentCategoryId })
+      
+      let isNew = false
+      // First try to find by name (case-insensitive), level, and parent
+      let existing = await SubCategory.findOne({ 
+        name: { $regex: new RegExp(`^${name.trim().replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}$`, 'i') },
+        level,
+        category: parentCategoryId
+      })
+      
+      // If not found by name, try by slug with same level and parent
       if (!existing) {
+        const slug = generateSlug(name)
+        existing = await SubCategory.findOne({ slug, level, category: parentCategoryId })
+      }
+      
+      // If still not found, create new with unique slug
+      if (!existing) {
+        isNew = true
+        let slug = generateSlug(name)
+        // Check if slug exists at any level - if so, make it unique by appending level
+        const slugExists = await SubCategory.findOne({ slug })
+        if (slugExists) {
+          slug = `${slug}-${level}`
+          // If even that exists, append parent category id
+          const stillExists = await SubCategory.findOne({ slug })
+          if (stillExists) {
+            slug = `${generateSlug(name)}-${level}-${parentCategoryId.toString().slice(-4)}`
+          }
+        }
+        
         existing = await SubCategory.create({
           name: name.trim(),
           slug,
@@ -1601,8 +1715,9 @@ router.post(
           createdBy: req.user?._id,
         })
       }
-      cache.set(key, existing._id)
-      return existing._id
+      const result = { id: existing._id, isNew, name: existing.name, slug: existing.slug }
+      cache.set(key, result)
+      return result
     }
 
     for (const [i, row] of csvData.entries()) {
@@ -1657,9 +1772,9 @@ router.post(
       const level3Name = getField(row, ["sub_category_3", "subcategory3", "subCategory3", "category3", "category_level_3"])
       const level4Name = getField(row, ["sub_category_4", "subcategory4", "subCategory4", "category4", "category_level_4"])
       const level1Id = level1Name ? level1Map.get(level1Name.trim().toLowerCase()) : undefined
-      const level2Id = await ensureSubCategory(level2Name, parentCategoryId, level1Id, 2)
-      const level3Id = await ensureSubCategory(level3Name, parentCategoryId, level2Id || level1Id, 3)
-      const level4Id = await ensureSubCategory(level4Name, parentCategoryId, level3Id || level2Id || level1Id, 4)
+      const level2Data = await ensureSubCategory(level2Name, parentCategoryId, level1Id, 2)
+      const level3Data = await ensureSubCategory(level3Name, parentCategoryId, level2Data.id || level1Id, 3)
+      const level4Data = await ensureSubCategory(level4Name, parentCategoryId, level3Data.id || level2Data.id || level1Id, 4)
 
       let stockStatus = row.stockStatus || "Available Product"
       if (!allowedStockStatus.includes(stockStatus)) stockStatus = "Available Product"
@@ -1682,9 +1797,14 @@ router.post(
         barcode: row.barcode || "",
         parentCategory: parentCategoryId,
         category: level1Id,
-        subCategory2: level2Id,
-        subCategory3: level3Id,
-        subCategory4: level4Id,
+        subCategory2: level2Data?.id,
+        subCategory3: level3Data?.id,
+        subCategory4: level4Data?.id,
+        categoryStatus: {
+          level2: level2Data?.isNew ? 'new' : (level2Data?.id ? 'existing' : null),
+          level3: level3Data?.isNew ? 'new' : (level3Data?.id ? 'existing' : null),
+          level4: level4Data?.isNew ? 'new' : (level4Data?.id ? 'existing' : null),
+        },
         brand: brandId,
         buyingPrice: Number.parseFloat(row.buyingPrice) || 0,
         price,
@@ -1730,15 +1850,24 @@ router.post(
         }
         if (prod.subCategory2) {
           const s2 = await populateSub(prod.subCategory2)
-          if (s2) populated.subCategory2 = { _id: s2._id, name: s2.name, slug: s2.slug }
+          if (s2) {
+            const status = prod.categoryStatus?.level2 === 'new' ? ' 🆕' : prod.categoryStatus?.level2 === 'existing' ? ' ✅' : ''
+            populated.subCategory2 = { _id: s2._id, name: s2.name + status, slug: s2.slug }
+          }
         }
         if (prod.subCategory3) {
           const s3 = await populateSub(prod.subCategory3)
-          if (s3) populated.subCategory3 = { _id: s3._id, name: s3.name, slug: s3.slug }
+          if (s3) {
+            const status = prod.categoryStatus?.level3 === 'new' ? ' 🆕' : prod.categoryStatus?.level3 === 'existing' ? ' ✅' : ''
+            populated.subCategory3 = { _id: s3._id, name: s3.name + status, slug: s3.slug }
+          }
         }
         if (prod.subCategory4) {
           const s4 = await populateSub(prod.subCategory4)
-          if (s4) populated.subCategory4 = { _id: s4._id, name: s4.name, slug: s4.slug }
+          if (s4) {
+            const status = prod.categoryStatus?.level4 === 'new' ? ' 🆕' : prod.categoryStatus?.level4 === 'existing' ? ' ✅' : ''
+            populated.subCategory4 = { _id: s4._id, name: s4.name + status, slug: s4.slug }
+          }
         }
         if (prod.brand) {
           const b = await Brand.findById(prod.brand).select("name slug")
@@ -1777,6 +1906,43 @@ router.post(
     let created = 0
     let updated = 0
     const allowedStockStatus = ["Available Product", "Out of Stock", "PreOrder"]
+
+    // Collect all unique brand names to create missing ones
+    const brandNames = new Set()
+    products.forEach(prod => {
+      if (prod.brand) {
+        if (typeof prod.brand === 'string') {
+          const cleanName = prod.brand.replace(/\s+/g, ' ').trim()
+          if (cleanName) brandNames.add(cleanName)
+        } else if (prod.brand?.name) {
+          const cleanName = prod.brand.name.replace(/\s+/g, ' ').trim()
+          if (cleanName) brandNames.add(cleanName)
+        }
+      }
+    })
+
+    console.log('Brand names to process:', Array.from(brandNames))
+
+    // Fetch existing brands and create missing ones
+    const existingBrands = await Brand.find({ 
+      name: { $in: Array.from(brandNames).map(n => new RegExp(`^${n}$`, 'i')) } 
+    })
+    const brandMap = new Map()
+    existingBrands.forEach(b => {
+      brandMap.set(b.name.trim().toLowerCase(), b._id)
+      console.log(`Existing brand: ${b.name} -> ${b._id}`)
+    })
+
+    for (const name of brandNames) {
+      const key = name.trim().toLowerCase()
+      if (!brandMap.has(key)) {
+        console.log(`Creating new brand: ${name}`)
+        const slug = generateSlug(name)
+        const newBrand = await Brand.create({ name: name.trim(), slug, createdBy: req.user._id })
+        brandMap.set(key, newBrand._id)
+        console.log(`Created brand: ${newBrand.name} -> ${newBrand._id}`)
+      }
+    }
 
     for (const [i, prod] of products.entries()) {
       try {
@@ -1818,7 +1984,34 @@ router.post(
         const subCategory2Id = prod.subCategory2?._id || prod.subCategory2
         const subCategory3Id = prod.subCategory3?._id || prod.subCategory3
         const subCategory4Id = prod.subCategory4?._id || prod.subCategory4
-        const brandId = prod.brand?._id || prod.brand
+        
+        // Resolve brand - from map if string, or extract ID if object
+        let brandId = null
+        
+        if (mongoose.Types.ObjectId.isValid(prod.brand)) {
+          // Brand is already an ObjectId
+          brandId = prod.brand
+          console.log(`Product ${i} - Brand is already ObjectId: ${brandId}`)
+        } else if (prod.brand?._id && mongoose.Types.ObjectId.isValid(prod.brand._id)) {
+          // Brand is an object with _id (from preview)
+          brandId = prod.brand._id
+          console.log(`Product ${i} - Brand extracted from object: ${brandId}`)
+        } else if (typeof prod.brand === 'string') {
+          // Brand is a string name, look up in brandMap
+          const cleanName = prod.brand.replace(/\s+/g, ' ').trim()
+          brandId = brandMap.get(cleanName.toLowerCase())
+          console.log(`Product ${i} - Resolving brand string "${prod.brand}" -> cleaned "${cleanName}" -> ID: ${brandId}`)
+        } else if (prod.brand?.name) {
+          // Brand is an object with name property
+          const cleanName = prod.brand.name.replace(/\s+/g, ' ').trim()
+          brandId = brandMap.get(cleanName.toLowerCase()) || prod.brand._id
+          console.log(`Product ${i} - Resolving brand object "${prod.brand.name}" -> cleaned "${cleanName}" -> ID: ${brandId}`)
+        }
+        
+        if (!brandId) {
+          console.log(`Product ${i} - WARNING: No brandId resolved from:`, prod.brand)
+        }
+        
         const taxId = prod.tax?._id || prod.tax
         const unitId = prod.unit?._id || prod.unit
 
