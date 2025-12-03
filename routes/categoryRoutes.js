@@ -15,8 +15,85 @@ router.get(
   protect,
   admin,
   asyncHandler(async (req, res) => {
-    const categories = await Category.find({ isDeleted: { $ne: true } }).sort({ sortOrder: 1, name: 1 })
-    res.json(categories)
+    // Fetch all categories and subcategories
+    const [categories, subCategories] = await Promise.all([
+      Category.find({ isDeleted: { $ne: true } }).sort({ sortOrder: 1, name: 1 }).lean(),
+      SubCategory.find({ isDeleted: { $ne: true } })
+        .populate('category', 'name')
+        .populate('parentSubCategory', 'name')
+        .sort({ sortOrder: 1, name: 1 })
+        .lean(),
+    ])
+
+    // Build a map of all items for level calculation
+    const allItems = []
+    
+    // Add all parent categories (Level 0)
+    categories.forEach(cat => {
+      allItems.push({
+        _id: cat._id,
+        name: cat.name,
+        slug: cat.slug,
+        isActive: cat.isActive,
+        sortOrder: cat.sortOrder,
+        level: 0,
+        displayName: cat.name,
+        type: 'category'
+      })
+    })
+
+    // Build subcategory map for level calculation
+    const subMap = new Map()
+    subCategories.forEach(sub => {
+      subMap.set(String(sub._id), sub)
+    })
+
+    // Calculate levels for subcategories recursively
+    const getSubCategoryLevel = (sub, visited = new Set()) => {
+      const subId = String(sub._id)
+      if (visited.has(subId)) return 1 // Prevent infinite loops
+      visited.add(subId)
+
+      if (!sub.parentSubCategory) {
+        return 1 // Direct child of category
+      }
+
+      const parentSub = subMap.get(String(sub.parentSubCategory._id || sub.parentSubCategory))
+      if (parentSub) {
+        return getSubCategoryLevel(parentSub, visited) + 1
+      }
+      return 1
+    }
+
+    // Add all subcategories with proper indentation
+    subCategories.forEach(sub => {
+      const level = getSubCategoryLevel(sub)
+      const indent = '— '.repeat(level)
+      const parentName = sub.category?.name || 'Unknown'
+      
+      allItems.push({
+        _id: sub._id,
+        name: sub.name,
+        slug: sub.slug,
+        isActive: sub.isActive,
+        sortOrder: sub.sortOrder,
+        level: level,
+        displayName: `${indent}${sub.name} (under ${parentName})`,
+        type: 'subcategory',
+        category: sub.category,
+        parentSubCategory: sub.parentSubCategory
+      })
+    })
+
+    // Sort by category first, then by level and sort order
+    allItems.sort((a, b) => {
+      if (a.type === 'category' && b.type === 'subcategory') return -1
+      if (a.type === 'subcategory' && b.type === 'category') return 1
+      if (a.level !== b.level) return a.level - b.level
+      return (a.sortOrder || 0) - (b.sortOrder || 0)
+    })
+
+    res.json(allItems)
   }),
 )
 
