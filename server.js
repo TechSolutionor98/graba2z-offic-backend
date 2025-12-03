@@ -25,6 +25,12 @@ import taxRoutes from "./routes/taxRoutes.js"
 import deliveryChargeRoutes from "./routes/deliveryChargeRoutes.js"
 import couponRoutes from "./routes/couponRoutes.js"
 import bannerRoutes from "./routes/bannerRoutes.js"
+import bannerCardRoutes from "./routes/bannerCardRoutes.js"
+import homeSectionRoutes from "./routes/homeSectionRoutes.js"
+import offerPageRoutes from "./routes/offerPageRoutes.js"
+import offerProductRoutes from "./routes/offerProductRoutes.js"
+import offerBrandRoutes from "./routes/offerBrandRoutes.js"
+import offerCategoryRoutes from "./routes/offerCategoryRoutes.js"
 import blogRoutes from "./routes/blogRoutes.js"
 import blogCategoryRoutes from "./routes/blogCategoryRoutes.js"
 import blogTopicRoutes from "./routes/blogTopicRoutes.js"
@@ -107,6 +113,12 @@ app.use("/api/tax", taxRoutes)
 app.use("/api/delivery-charges", deliveryChargeRoutes)
 app.use("/api/coupons", couponRoutes)
 app.use("/api/banners", bannerRoutes)
+app.use("/api/banner-cards", bannerCardRoutes)
+app.use("/api/home-sections", homeSectionRoutes)
+app.use("/api/offer-pages", offerPageRoutes)
+app.use("/api/offer-products", offerProductRoutes)
+app.use("/api/offer-brands", offerBrandRoutes)
+app.use("/api/offer-categories", offerCategoryRoutes)
 app.use("/api/blogs", blogRoutes)
 app.use("/api/blog-categories", blogCategoryRoutes)
 app.use("/api/blog-topics", blogTopicRoutes)
