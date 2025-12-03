@@ -164,6 +164,10 @@ router.get("/admin", protect, admin, async (req, res) => {
 
     let productsQuery = Product.find(query)
       .populate("brand category subCategory parentCategory subCategory2 subCategory3 subCategory4")
+      .populate({
+        path: "variations.product",
+        select: "name slug image price offerPrice sku"
+      })
       .sort({ createdAt: -1 })
 
     // Pagination
@@ -266,7 +270,7 @@ router.get(
   asyncHandler(async (req, res) => {
   const { category, subcategory, parentCategory, featured, search, brand, limit } = req.query
 
-    const andConditions = [{ isActive: true }]
+    const andConditions = [{ isActive: true }, { hideFromShop: { $ne: true } }]
 
     // Category filter
     if (category && category !== "all" && category.match(/^[0-9a-fA-F]{24}$/)) {
@@ -361,7 +365,7 @@ router.get(
   asyncHandler(async (req, res) => {
   const { category, subcategory, parentCategory, featured, search, page = 1, limit = 20, brand } = req.query
 
-    const andConditions = [{ isActive: true }]
+    const andConditions = [{ isActive: true }, { hideFromShop: { $ne: true } }]
 
     if (category && category !== "all" && category.match(/^[0-9a-fA-F]{24}$/)) {
       andConditions.push({ category })
@@ -450,9 +454,12 @@ router.post(
       return res.status(400).json({ message: "SKUs array is required" })
     }
 
+    // Allow fetching products by SKU regardless of hideFromShop status
+    // Hidden products should be accessible via SKU lookup
     const products = await Product.find({
       sku: { $in: skus },
       isActive: true,
+      // Note: We don't filter by hideFromShop here because SKU lookup should work for all products
     })
       .populate("category", "name slug")
       .populate("subCategory", "name slug")
@@ -604,13 +611,25 @@ router.get(
 router.get(
   "/slug/:slug",
   asyncHandler(async (req, res) => {
-    const product = await Product.findOne({ slug: req.params.slug, isActive: true })
+    // Allow access to active products (both visible and hidden from shop)
+    // This ensures hidden products are accessible via direct link and variations
+    const product = await Product.findOne({ 
+      slug: req.params.slug, 
+      isActive: true 
+      // Note: We don't filter by hideFromShop here because hidden products should be accessible via direct link
+    })
       .populate("parentCategory", "name slug")
       .populate("category", "name slug")
       .populate("subCategory2", "name slug")
       .populate("subCategory3", "name slug")
       .populate("subCategory4", "name slug")
       .populate("brand", "name")
+      .populate({
+        path: "variations.product",
+        select: "name slug image price offerPrice sku isActive hideFromShop",
+        // Populate all variation products regardless of hideFromShop status
+        // This ensures hidden variations are visible in the variations section
+      })
 
     if (product) {
       res.json(product)
@@ -785,6 +804,67 @@ router.post(
     })
 
     const createdProduct = await product.save()
+    
+    // Bidirectional variation sync: Update all related products
+    if (productData.variations && Array.isArray(productData.variations)) {
+      const reverseText = productData.reverseVariationText || ""
+      const variationIds = productData.variations
+        .filter(v => v && v.product && v.product !== createdProduct._id.toString())
+        .map(v => v.product)
+      
+      console.log(`[SYNC] Product ${createdProduct._id} adding variations:`, variationIds)
+      console.log(`[SYNC] Reverse text:`, reverseText)
+      
+      // For each variation in this product
+      for (const variationId of variationIds) {
+        const variationProduct = await Product.findById(variationId)
+        if (variationProduct) {
+          let modified = false
+          
+          // Add current product to the variation's variations list if not already there
+          const existingVariationIndex = variationProduct.variations.findIndex(
+            v => (v.product || v).toString() === createdProduct._id.toString()
+          )
+          if (existingVariationIndex === -1) {
+            console.log(`[SYNC] Adding product ${createdProduct._id} to ${variationProduct._id}'s variations`)
+            variationProduct.variations.push({ 
+              product: createdProduct._id, 
+              variationText: reverseText 
+            })
+            variationProduct.markModified('variations')
+            modified = true
+          } else if (variationProduct.variations[existingVariationIndex].variationText !== reverseText) {
+            // Update existing variation text
+            console.log(`[SYNC] Updating text for product ${createdProduct._id} in ${variationProduct._id}'s variations`)
+            variationProduct.variations[existingVariationIndex].variationText = reverseText
+            variationProduct.markModified('variations')
+            modified = true
+          }
+          
+          // Also sync other variations bidirectionally
+          const otherVariationIds = variationIds.filter(id => id !== variationId)
+          for (const otherId of otherVariationIds) {
+            const hasOther = variationProduct.variations.some(
+              v => (v.product || v).toString() === otherId
+            )
+            if (!hasOther) {
+              console.log(`[SYNC] Adding cross-variation ${otherId} to ${variationProduct._id}`)
+              variationProduct.variations.push({ product: otherId, variationText: "" })
+              variationProduct.markModified('variations')
+              modified = true
+            }
+          }
+          
+          if (modified) {
+            await variationProduct.save()
+            console.log(`[SYNC] Saved ${variationProduct._id} with ${variationProduct.variations.length} variations`)
+          }
+        }
+      }
+    }
+    
+
+    
     const populatedProduct = await Product.findById(createdProduct._id)
       .populate("parentCategory", "name slug")
       .populate("category", "name slug")
@@ -792,6 +872,10 @@ router.post(
       .populate("subCategory3", "name slug")
       .populate("subCategory4", "name slug")
       .populate("brand", "name")
+      .populate({
+        path: "variations.product",
+        select: "name slug image price offerPrice sku"
+      })
     res.status(201).json(populatedProduct)
   }),
 )
@@ -907,6 +991,84 @@ router.put(
   // product.slug already set above if slug was provided
 
       const updatedProduct = await product.save()
+      
+      // Bidirectional variation sync: Update all related products
+      if (updateData.variations && Array.isArray(updateData.variations)) {
+        const reverseText = updateData.reverseVariationText || ""
+        const variationIds = updateData.variations
+          .filter(v => v && v.product && v.product !== product._id.toString())
+          .map(v => v.product)
+        
+        console.log(`[UPDATE SYNC] Product ${product._id} updating variations:`, variationIds)
+        console.log(`[UPDATE SYNC] Reverse text:`, reverseText)
+        
+        // For each variation in this product
+        for (const variationId of variationIds) {
+          const variationProduct = await Product.findById(variationId)
+          if (variationProduct) {
+            let modified = false
+            
+            // Add current product to the variation's variations list if not already there
+            const existingVariationIndex = variationProduct.variations.findIndex(
+              v => (v.product || v).toString() === product._id.toString()
+            )
+            if (existingVariationIndex === -1) {
+              console.log(`[UPDATE SYNC] Adding product ${product._id} to ${variationProduct._id}'s variations`)
+              variationProduct.variations.push({ 
+                product: product._id, 
+                variationText: reverseText 
+              })
+              variationProduct.markModified('variations')
+              modified = true
+            } else if (variationProduct.variations[existingVariationIndex].variationText !== reverseText) {
+              // Update existing variation text
+              console.log(`[UPDATE SYNC] Updating text for product ${product._id} in ${variationProduct._id}'s variations`)
+              variationProduct.variations[existingVariationIndex].variationText = reverseText
+              variationProduct.markModified('variations')
+              modified = true
+            }
+            
+            // Also sync other variations bidirectionally
+            const otherVariationIds = variationIds.filter(id => id !== variationId)
+            for (const otherId of otherVariationIds) {
+              const hasOther = variationProduct.variations.some(
+                v => (v.product || v).toString() === otherId
+              )
+              if (!hasOther) {
+                console.log(`[UPDATE SYNC] Adding cross-variation ${otherId} to ${variationProduct._id}`)
+                variationProduct.variations.push({ product: otherId, variationText: "" })
+                variationProduct.markModified('variations')
+                modified = true
+              }
+            }
+            
+            if (modified) {
+              await variationProduct.save()
+              console.log(`[UPDATE SYNC] Saved ${variationProduct._id} with ${variationProduct.variations.length} variations`)
+            }
+          }
+        }
+        
+        // Remove current product from variations of products no longer in the list
+        const allProducts = await Product.find({ 
+          "variations.product": product._id,
+          _id: { $ne: product._id }
+        })
+        console.log(`[UPDATE SYNC] Found ${allProducts.length} products with current product in variations`)
+        for (const relatedProduct of allProducts) {
+          if (!variationIds.includes(relatedProduct._id.toString())) {
+            console.log(`[UPDATE SYNC] Removing product ${product._id} from ${relatedProduct._id}'s variations`)
+            relatedProduct.variations = relatedProduct.variations.filter(
+              v => (v.product || v).toString() !== product._id.toString()
+            )
+            relatedProduct.markModified('variations')
+            await relatedProduct.save()
+          }
+        }
+      }
+      
+
+      
       const populatedProduct = await Product.findById(updatedProduct._id)
         .populate("parentCategory", "name slug")
         .populate("category", "name slug")
@@ -914,6 +1076,10 @@ router.put(
         .populate("subCategory3", "name slug")
         .populate("subCategory4", "name slug")
         .populate("brand", "name")
+        .populate({
+          path: "variations.product",
+          select: "name slug image price offerPrice sku"
+        })
       res.json(populatedProduct)
     } else {
       res.status(404)
@@ -1081,6 +1247,7 @@ router.post(
       refundable: product.refundable,
       featured: false, // Don't duplicate featured status
       specifications: product.specifications,
+      colorVariations: product.colorVariations || [],
       createdBy: req.user._id,
     })
 
@@ -1127,6 +1294,7 @@ router.get(
   asyncHandler(async (req, res) => {
     const products = await Product.find({
       isActive: true,
+      hideFromShop: { $ne: true },
       $or: [
         { category: req.params.categoryId },
         { subCategory: req.params.categoryId },

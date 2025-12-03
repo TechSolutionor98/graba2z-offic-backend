@@ -18,8 +18,27 @@ const orderSchema = mongoose.Schema(
         price: { type: Number, required: true },
         product: {
           type: mongoose.Schema.Types.ObjectId,
-          required: true,
+          required: false, // Optional for protection items
           ref: "Product",
+        },
+        // Color variation data
+        selectedColorIndex: { type: Number, default: null },
+        selectedColorData: {
+          color: { type: String },
+          image: { type: String },
+          price: { type: Number },
+          offerPrice: { type: Number },
+          sku: { type: String },
+        },
+        // Buyer protection fields
+        isProtection: { type: Boolean, default: false },
+        protectionFor: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Product",
+        },
+        protectionData: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "BuyerProtection",
         },
       },
     ],
