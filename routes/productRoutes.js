@@ -15,6 +15,7 @@ import Warranty from "../models/warrantyModel.js"
 import Size from "../models/sizeModel.js"
 import Volume from "../models/volumeModel.js"
 import mongoose from "mongoose"
+import { deleteLocalFile, isCloudinaryUrl } from "../config/multer.js"
 
 const router = express.Router()
 
@@ -1266,6 +1267,39 @@ router.post(
   }),
 )
 
+// Helper function to extract media URLs from HTML description (TipTap content)
+const extractMediaUrlsFromHtml = (html) => {
+  const urls = []
+  if (!html) return urls
+
+  // Match image src attributes
+  const imgRegex = /<img[^>]+src=["']([^"']+)["']/gi
+  let match
+  while ((match = imgRegex.exec(html)) !== null) {
+    if (match[1] && match[1].includes('/uploads/')) {
+      urls.push(match[1])
+    }
+  }
+
+  // Match video src attributes
+  const videoRegex = /<video[^>]+src=["']([^"']+)["']/gi
+  while ((match = videoRegex.exec(html)) !== null) {
+    if (match[1] && match[1].includes('/uploads/')) {
+      urls.push(match[1])
+    }
+  }
+
+  // Match source src attributes (for video sources)
+  const sourceRegex = /<source[^>]+src=["']([^"']+)["']/gi
+  while ((match = sourceRegex.exec(html)) !== null) {
+    if (match[1] && match[1].includes('/uploads/')) {
+      urls.push(match[1])
+    }
+  }
+
+  return urls
+}
+
 // @desc    Delete a product
 // @route   DELETE /api/products/:id
 // @access  Private/Admin
@@ -1277,6 +1311,135 @@ router.delete(
     const product = await Product.findById(req.params.id)
 
     if (product) {
+      // Delete main product image
+      if (product.image && !isCloudinaryUrl(product.image)) {
+        try {
+          await deleteLocalFile(product.image)
+        } catch (err) {
+          console.error("Error deleting product image:", err)
+        }
+      }
+
+      // Delete gallery images
+      if (product.galleryImages && product.galleryImages.length > 0) {
+        for (const img of product.galleryImages) {
+          if (img && !isCloudinaryUrl(img)) {
+            try {
+              await deleteLocalFile(img)
+            } catch (err) {
+              console.error("Error deleting gallery image:", err)
+            }
+          }
+        }
+      }
+
+      // Delete main video
+      if (product.video && !isCloudinaryUrl(product.video)) {
+        try {
+          await deleteLocalFile(product.video)
+        } catch (err) {
+          console.error("Error deleting product video:", err)
+        }
+      }
+
+      // Delete video gallery
+      if (product.videoGallery && product.videoGallery.length > 0) {
+        for (const vid of product.videoGallery) {
+          if (vid && !isCloudinaryUrl(vid)) {
+            try {
+              await deleteLocalFile(vid)
+            } catch (err) {
+              console.error("Error deleting gallery video:", err)
+            }
+          }
+        }
+      }
+
+      // Delete color variation images
+      if (product.colorVariations && product.colorVariations.length > 0) {
+        for (const colorVar of product.colorVariations) {
+          if (colorVar.image && !isCloudinaryUrl(colorVar.image)) {
+            try {
+              await deleteLocalFile(colorVar.image)
+            } catch (err) {
+              console.error("Error deleting color variation image:", err)
+            }
+          }
+          if (colorVar.galleryImages && colorVar.galleryImages.length > 0) {
+            for (const img of colorVar.galleryImages) {
+              if (img && !isCloudinaryUrl(img)) {
+                try {
+                  await deleteLocalFile(img)
+                } catch (err) {
+                  console.error("Error deleting color variation gallery image:", err)
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // Delete variant images
+      if (product.variants && product.variants.length > 0) {
+        for (const variant of product.variants) {
+          if (variant.image && !isCloudinaryUrl(variant.image)) {
+            try {
+              await deleteLocalFile(variant.image)
+            } catch (err) {
+              console.error("Error deleting variant image:", err)
+            }
+          }
+          if (variant.galleryImages && variant.galleryImages.length > 0) {
+            for (const img of variant.galleryImages) {
+              if (img && !isCloudinaryUrl(img)) {
+                try {
+                  await deleteLocalFile(img)
+                } catch (err) {
+                  console.error("Error deleting variant gallery image:", err)
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // Delete media files from description (TipTap content)
+      if (product.description) {
+        const descriptionMediaUrls = extractMediaUrlsFromHtml(product.description)
+        for (const url of descriptionMediaUrls) {
+          if (!isCloudinaryUrl(url)) {
+            try {
+              // Extract the path from full URL if needed
+              let filePath = url
+              if (url.includes('/uploads/')) {
+                filePath = '/uploads/' + url.split('/uploads/')[1]
+              }
+              await deleteLocalFile(filePath)
+            } catch (err) {
+              console.error("Error deleting description media:", err)
+            }
+          }
+        }
+      }
+
+      // Delete media files from shortDescription (if it has TipTap content)
+      if (product.shortDescription) {
+        const shortDescMediaUrls = extractMediaUrlsFromHtml(product.shortDescription)
+        for (const url of shortDescMediaUrls) {
+          if (!isCloudinaryUrl(url)) {
+            try {
+              let filePath = url
+              if (url.includes('/uploads/')) {
+                filePath = '/uploads/' + url.split('/uploads/')[1]
+              }
+              await deleteLocalFile(filePath)
+            } catch (err) {
+              console.error("Error deleting short description media:", err)
+            }
+          }
+        }
+      }
+
       await product.deleteOne()
       res.json({ message: "Product removed" })
     } else {

@@ -2,6 +2,7 @@ import express from "express"
 import asyncHandler from "express-async-handler"
 import Brand from "../models/brandModel.js"
 import { protect, admin } from "../middleware/authMiddleware.js"
+import { deleteLocalFile, isCloudinaryUrl } from "../config/multer.js"
 
 const router = express.Router()
 
@@ -110,6 +111,15 @@ router.delete(
     const brand = await Brand.findById(req.params.id)
 
     if (brand) {
+      // Delete brand logo
+      if (brand.logo && !isCloudinaryUrl(brand.logo)) {
+        try {
+          await deleteLocalFile(brand.logo)
+        } catch (err) {
+          console.error("Error deleting brand logo:", err)
+        }
+      }
+
       await brand.deleteOne()
       res.json({ message: "Brand removed" })
     } else {

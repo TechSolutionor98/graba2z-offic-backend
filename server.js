@@ -1,9 +1,15 @@
 import express from "express"
 import cors from "cors"
 import dotenv from "dotenv"
+import path from "path"
+import { fileURLToPath } from "url"
 import connectDB from "./config/db.js"
 import config from "./config/config.js"
 import { notFound, errorHandler } from "./middleware/errorMiddleware.js"
+
+// Get __dirname equivalent in ES modules
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
 import googleMerchantRoutes from "./routes/googleMerchantRoutes.js"
 import sitemapRoutes from './routes/sitemapRoutes.js'
@@ -81,13 +87,16 @@ app.options("*", (req, res) => {
 });
 
 // Serve static files from uploads directory
-app.use('/uploads', express.static('uploads'));
+const uploadsPath = path.join(__dirname, 'uploads');
+app.use('/uploads', express.static(uploadsPath));
 
 // Add logging for static file requests
 app.use('/uploads', (req, res, next) => {
   console.log('📁 Static file request:', req.path);
   next();
 });
+
+console.log('📂 Serving static files from:', uploadsPath);
 
 // Apply webhook middleware before body parser for webhook routes
 app.use("/api/payment/tamara/webhook", captureRawBody, webhookRateLimit, authenticateWebhook)

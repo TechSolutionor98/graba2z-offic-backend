@@ -1,6 +1,7 @@
 import express from 'express';
 import { protect, admin } from '../middleware/authMiddleware.js';
 import OfferPage from '../models/offerPageModel.js';
+import { deleteLocalFile, isCloudinaryUrl } from '../config/multer.js';
 
 const router = express.Router();
 
@@ -92,6 +93,28 @@ router.delete('/:id', protect, admin, async (req, res) => {
     const offerPage = await OfferPage.findById(req.params.id);
     
     if (offerPage) {
+      // Delete hero image
+      if (offerPage.heroImage && !isCloudinaryUrl(offerPage.heroImage)) {
+        try {
+          await deleteLocalFile(offerPage.heroImage);
+        } catch (err) {
+          console.error("Error deleting hero image:", err);
+        }
+      }
+
+      // Delete card images
+      if (offerPage.cardImages && offerPage.cardImages.length > 0) {
+        for (const card of offerPage.cardImages) {
+          if (card.image && !isCloudinaryUrl(card.image)) {
+            try {
+              await deleteLocalFile(card.image);
+            } catch (err) {
+              console.error("Error deleting card image:", err);
+            }
+          }
+        }
+      }
+
       await offerPage.deleteOne();
       res.json({ message: 'Offer page deleted' });
     } else {

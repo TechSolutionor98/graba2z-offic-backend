@@ -4,8 +4,173 @@ import Category from "../models/categoryModel.js"
 import SubCategory from "../models/subCategoryModel.js"
 import Product from "../models/productModel.js"
 import { protect, admin } from "../middleware/authMiddleware.js"
+import { deleteLocalFile, isCloudinaryUrl } from "../config/multer.js"
 
 const router = express.Router()
+
+// Helper function to extract media URLs from HTML description (TipTap content)
+const extractMediaUrlsFromHtml = (html) => {
+  const urls = []
+  if (!html) return urls
+
+  // Match image src attributes
+  const imgRegex = /<img[^>]+src=["']([^"']+)["']/gi
+  let match
+  while ((match = imgRegex.exec(html)) !== null) {
+    if (match[1] && match[1].includes('/uploads/')) {
+      urls.push(match[1])
+    }
+  }
+
+  // Match video src attributes
+  const videoRegex = /<video[^>]+src=["']([^"']+)["']/gi
+  while ((match = videoRegex.exec(html)) !== null) {
+    if (match[1] && match[1].includes('/uploads/')) {
+      urls.push(match[1])
+    }
+  }
+
+  // Match source src attributes (for video sources)
+  const sourceRegex = /<source[^>]+src=["']([^"']+)["']/gi
+  while ((match = sourceRegex.exec(html)) !== null) {
+    if (match[1] && match[1].includes('/uploads/')) {
+      urls.push(match[1])
+    }
+  }
+
+  return urls
+}
+
+// Helper function to delete all media files for a product
+const deleteProductMediaFiles = async (product) => {
+  // Delete main product image
+  if (product.image && !isCloudinaryUrl(product.image)) {
+    try {
+      await deleteLocalFile(product.image)
+    } catch (err) {
+      console.error("Error deleting product image:", err)
+    }
+  }
+
+  // Delete gallery images
+  if (product.galleryImages && product.galleryImages.length > 0) {
+    for (const img of product.galleryImages) {
+      if (img && !isCloudinaryUrl(img)) {
+        try {
+          await deleteLocalFile(img)
+        } catch (err) {
+          console.error("Error deleting gallery image:", err)
+        }
+      }
+    }
+  }
+
+  // Delete main video
+  if (product.video && !isCloudinaryUrl(product.video)) {
+    try {
+      await deleteLocalFile(product.video)
+    } catch (err) {
+      console.error("Error deleting product video:", err)
+    }
+  }
+
+  // Delete video gallery
+  if (product.videoGallery && product.videoGallery.length > 0) {
+    for (const vid of product.videoGallery) {
+      if (vid && !isCloudinaryUrl(vid)) {
+        try {
+          await deleteLocalFile(vid)
+        } catch (err) {
+          console.error("Error deleting gallery video:", err)
+        }
+      }
+    }
+  }
+
+  // Delete color variation images
+  if (product.colorVariations && product.colorVariations.length > 0) {
+    for (const colorVar of product.colorVariations) {
+      if (colorVar.image && !isCloudinaryUrl(colorVar.image)) {
+        try {
+          await deleteLocalFile(colorVar.image)
+        } catch (err) {
+          console.error("Error deleting color variation image:", err)
+        }
+      }
+      if (colorVar.galleryImages && colorVar.galleryImages.length > 0) {
+        for (const img of colorVar.galleryImages) {
+          if (img && !isCloudinaryUrl(img)) {
+            try {
+              await deleteLocalFile(img)
+            } catch (err) {
+              console.error("Error deleting color variation gallery image:", err)
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Delete variant images
+  if (product.variants && product.variants.length > 0) {
+    for (const variant of product.variants) {
+      if (variant.image && !isCloudinaryUrl(variant.image)) {
+        try {
+          await deleteLocalFile(variant.image)
+        } catch (err) {
+          console.error("Error deleting variant image:", err)
+        }
+      }
+      if (variant.galleryImages && variant.galleryImages.length > 0) {
+        for (const img of variant.galleryImages) {
+          if (img && !isCloudinaryUrl(img)) {
+            try {
+              await deleteLocalFile(img)
+            } catch (err) {
+              console.error("Error deleting variant gallery image:", err)
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Delete media files from description (TipTap content)
+  if (product.description) {
+    const descriptionMediaUrls = extractMediaUrlsFromHtml(product.description)
+    for (const url of descriptionMediaUrls) {
+      if (!isCloudinaryUrl(url)) {
+        try {
+          let filePath = url
+          if (url.includes('/uploads/')) {
+            filePath = '/uploads/' + url.split('/uploads/')[1]
+          }
+          await deleteLocalFile(filePath)
+        } catch (err) {
+          console.error("Error deleting description media:", err)
+        }
+      }
+    }
+  }
+
+  // Delete media files from shortDescription
+  if (product.shortDescription) {
+    const shortDescMediaUrls = extractMediaUrlsFromHtml(product.shortDescription)
+    for (const url of shortDescMediaUrls) {
+      if (!isCloudinaryUrl(url)) {
+        try {
+          let filePath = url
+          if (url.includes('/uploads/')) {
+            filePath = '/uploads/' + url.split('/uploads/')[1]
+          }
+          await deleteLocalFile(filePath)
+        } catch (err) {
+          console.error("Error deleting short description media:", err)
+        }
+      }
+    }
+  }
+}
 
 // @desc    Fetch all categories (Admin only - includes inactive)
 // @route   GET /api/categories/admin
@@ -431,6 +596,19 @@ router.delete(
       })
     } else {
       // Permanently delete everything
+      // First, find and delete media files for all products
+      const productsToDelete = await Product.find({
+        $or: [
+          { parentCategory: req.params.id },
+          { category: { $in: allSubIds } }
+        ]
+      })
+
+      // Delete media files for all products
+      for (const product of productsToDelete) {
+        await deleteProductMediaFiles(product)
+      }
+
       // Delete all products in this category and subcategories
       await Product.deleteMany({
         $or: [
@@ -439,10 +617,31 @@ router.delete(
         ]
       })
 
+      // Delete subcategory images
+      const allSubcategories = [...level1Subs, ...level2Subs, ...level3Subs]
+      for (const sub of allSubcategories) {
+        if (sub.image && !isCloudinaryUrl(sub.image)) {
+          try {
+            await deleteLocalFile(sub.image)
+          } catch (err) {
+            console.error("Error deleting subcategory image:", err)
+          }
+        }
+      }
+
       // Delete all subcategories
       await SubCategory.deleteMany({
         _id: { $in: allSubIds }
       })
+
+      // Delete category image
+      if (category.image && !isCloudinaryUrl(category.image)) {
+        try {
+          await deleteLocalFile(category.image)
+        } catch (err) {
+          console.error("Error deleting category image:", err)
+        }
+      }
 
       // Delete the category
       await Category.findByIdAndDelete(req.params.id)
@@ -451,7 +650,7 @@ router.delete(
         message: "Category, subcategories, and products permanently deleted",
         deletedCount: {
           subcategories: allSubIds.length,
-          // productCount would need to be tracked before deletion if needed
+          products: productsToDelete.length
         }
       })
     }
@@ -516,6 +715,15 @@ router.delete(
     const category = await Category.findById(req.params.id)
 
     if (category) {
+      // Delete category image
+      if (category.image && !isCloudinaryUrl(category.image)) {
+        try {
+          await deleteLocalFile(category.image)
+        } catch (err) {
+          console.error("Error deleting category image:", err)
+        }
+      }
+
       // Permanently delete from database
       await Category.findByIdAndDelete(req.params.id)
       res.json({ message: "Category permanently deleted" })

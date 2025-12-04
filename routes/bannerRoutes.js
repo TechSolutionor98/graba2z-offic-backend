@@ -3,7 +3,7 @@ import asyncHandler from "express-async-handler"
 import Banner from "../models/bannerModel.js"
 import Category from "../models/categoryModel.js"
 import { protect, admin } from "../middleware/authMiddleware.js"
-import { uploadBanner } from "../utils/cloudinary.js"
+import { uploadBanner, deleteLocalFile, isCloudinaryUrl } from "../config/multer.js"
 
 const router = express.Router()
 
@@ -159,6 +159,15 @@ router.delete(
     const banner = await Banner.findById(req.params.id)
 
     if (banner) {
+      // Delete banner image from server
+      if (banner.image && !isCloudinaryUrl(banner.image)) {
+        try {
+          await deleteLocalFile(banner.image)
+        } catch (err) {
+          console.error("Error deleting banner image:", err)
+        }
+      }
+
       await banner.deleteOne()
       res.json({ message: "Banner removed" })
     } else {

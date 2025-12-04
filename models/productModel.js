@@ -100,6 +100,14 @@ const productSchema = mongoose.Schema(
         type: String,
       },
     ],
+    video: {
+      type: String,
+    },
+    videoGallery: [
+      {
+        type: String,
+      },
+    ],
     countInStock: {
       type: Number,
       required: true,

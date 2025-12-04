@@ -1,6 +1,7 @@
 import express from 'express';
 import HomeSection from '../models/homeSectionModel.js';
 import { protect, admin } from '../middleware/authMiddleware.js';
+import { deleteLocalFile, isCloudinaryUrl } from '../config/multer.js';
 
 const router = express.Router();
 
@@ -161,6 +162,55 @@ router.put('/:id', protect, admin, async (req, res) => {
   }
 });
 
+// Helper function to extract and delete images from settings object
+const deleteSettingsImages = async (settings) => {
+  if (!settings) return;
+
+  // Check for backgroundImage
+  if (settings.backgroundImage && !isCloudinaryUrl(settings.backgroundImage)) {
+    try {
+      await deleteLocalFile(settings.backgroundImage);
+    } catch (err) {
+      console.error("Error deleting background image:", err);
+    }
+  }
+
+  // Check for sideImage
+  if (settings.sideImage && !isCloudinaryUrl(settings.sideImage)) {
+    try {
+      await deleteLocalFile(settings.sideImage);
+    } catch (err) {
+      console.error("Error deleting side image:", err);
+    }
+  }
+
+  // Check for cards array with images
+  if (settings.cards && Array.isArray(settings.cards)) {
+    for (const card of settings.cards) {
+      if (card.image && !isCloudinaryUrl(card.image)) {
+        try {
+          await deleteLocalFile(card.image);
+        } catch (err) {
+          console.error("Error deleting card image:", err);
+        }
+      }
+    }
+  }
+
+  // Check for banners array with images
+  if (settings.banners && Array.isArray(settings.banners)) {
+    for (const banner of settings.banners) {
+      if (banner.image && !isCloudinaryUrl(banner.image)) {
+        try {
+          await deleteLocalFile(banner.image);
+        } catch (err) {
+          console.error("Error deleting banner image:", err);
+        }
+      }
+    }
+  }
+};
+
 // @desc    Delete a home section
 // @route   DELETE /api/home-sections/:id
 // @access  Private/Admin
@@ -169,6 +219,9 @@ router.delete('/:id', protect, admin, async (req, res) => {
     const section = await HomeSection.findById(req.params.id);
 
     if (section) {
+      // Delete images from settings
+      await deleteSettingsImages(section.settings);
+
       await section.deleteOne();
       res.json({ message: 'Section removed' });
     } else {
