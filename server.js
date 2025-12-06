@@ -58,6 +58,7 @@ import priceAdjustmentRoutes from "./routes/priceAdjustmentRoutes.js"
 import redirectRoutes from "./routes/redirectRoutes.js"
 import bulkPurchaseRoutes from "./routes/bulkPurchaseRoutes.js"
 import buyerProtectionRoutes from "./routes/buyerProtectionRoutes.js"
+import cacheRoutes from "./routes/cacheRoutes.js"
 
 dotenv.config()
 
@@ -145,6 +146,7 @@ app.use("/api/newsletter", newsletterRoutes)
 app.use("/api/price-adjustment", priceAdjustmentRoutes)
 app.use("/api/redirects", redirectRoutes)
 app.use("/api/buyer-protection", buyerProtectionRoutes)
+app.use("/api/cache", cacheRoutes)
 // @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
 

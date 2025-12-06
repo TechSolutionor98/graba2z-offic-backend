@@ -1249,6 +1249,7 @@ router.post(
       featured: false, // Don't duplicate featured status
       specifications: product.specifications,
       colorVariations: product.colorVariations || [],
+      dosVariations: product.dosVariations || [],
       createdBy: req.user._id,
     })
 

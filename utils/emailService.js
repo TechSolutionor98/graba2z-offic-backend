@@ -828,7 +828,11 @@ const getEmailTemplate = (type, data) => {
       const shippingPrice = Number(data.shippingPrice || 0)
       const taxPrice = Number(data.taxPrice || 0)
       const discountAmount = Number(data.discountAmount || 0)
-      const grandTotal = Number(data.totalPrice || (itemsSubtotal + shippingPrice + taxPrice - discountAmount))
+      // Calculate grandTotal from items to ensure accuracy (handles variations correctly)
+      const calculatedTotal = itemsSubtotal + shippingPrice + taxPrice - discountAmount
+      const storedTotal = Number(data.totalPrice || 0)
+      // Use calculated total if higher (indicates stored value might be wrong due to variations)
+      const grandTotal = calculatedTotal > storedTotal ? calculatedTotal : storedTotal
       const paymentMethod = data.paymentMethod || 'Cash on Delivery'
       const paymentStatus = data.isPaid ? 'Paid' : 'Unpaid'
       const paidAtDisplay = data.isPaid && data.paidAt ? new Date(data.paidAt).toLocaleDateString() : ''
@@ -877,11 +881,13 @@ const getEmailTemplate = (type, data) => {
                 const name = (it.product && (it.product.name || it.product.title)) || it.name || 'Item'
                 const rawImg = (it.product && it.product.image) || it.image
                 const imgSrc = toAbsoluteUrl(rawImg)
+                const colorInfo = it.selectedColorData && it.selectedColorData.colorName ? `<br><span style="font-size:12px;color:#7c3aed;">Color: ${it.selectedColorData.colorName}</span>` : ''
+                const dosInfo = it.selectedDosData && it.selectedDosData.dosType ? `<br><span style="font-size:12px;color:#2563eb;">OS: ${it.selectedDosData.dosType}</span>` : ''
                 return `<tr>
                   <td class="img-cell" data-label="Image" style="width:56px;">
                     <img src="${imgSrc}" alt="${name}" width="56" height="56" style="display:block;width:56px;height:56px;max-width:56px;max-height:56px;object-fit:cover;border-radius:8px;background:#fff;border:1px solid #ddd;" />
                   </td>
-                  <td data-label="Item">${name}</td>
+                  <td data-label="Item">${name}${colorInfo}${dosInfo}</td>
                   <td data-label="Qty">${Number(it.quantity)||1}</td>
                   <td data-label="Price" class="text-right">${(Number(it.price)||0).toFixed(2)}</td>
                 </tr>`

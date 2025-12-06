@@ -252,6 +252,43 @@ const productSchema = mongoose.Schema(
       type: String,
       default: "",
     },
+    dosVariations: [
+      {
+        dosType: {
+          type: String,
+          default: "",
+        },
+        image: {
+          type: String,
+          default: "",
+        },
+        galleryImages: [
+          {
+            type: String,
+          },
+        ],
+        buyingPrice: {
+          type: Number,
+          default: 0,
+        },
+        price: {
+          type: Number,
+          default: 0,
+        },
+        offerPrice: {
+          type: Number,
+          default: 0,
+        },
+        sku: {
+          type: String,
+          default: "",
+        },
+        countInStock: {
+          type: Number,
+          default: 0,
+        },
+      },
+    ],
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",

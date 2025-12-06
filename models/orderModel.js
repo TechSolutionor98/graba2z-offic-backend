@@ -30,6 +30,15 @@ const orderSchema = mongoose.Schema(
           offerPrice: { type: Number },
           sku: { type: String },
         },
+        // DOS/Windows variation data
+        selectedDosIndex: { type: Number, default: null },
+        selectedDosData: {
+          dosType: { type: String },
+          image: { type: String },
+          price: { type: Number },
+          offerPrice: { type: Number },
+          sku: { type: String },
+        },
         // Buyer protection fields
         isProtection: { type: Boolean, default: false },
         protectionFor: {
