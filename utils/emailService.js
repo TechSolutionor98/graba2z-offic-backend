@@ -437,7 +437,7 @@ const getEmailTemplate = (type, data) => {
         .map(
           (item) => `
         <div class="product-item">
-          <img src="${item.product?.image || item.image || "/placeholder.svg?height=80&width=80"}" alt="${item.product?.name || item.name || "Product"}" class="product-image" />
+          <img src="${toAbsoluteUrl(item.product?.image || item.image)}" alt="${item.product?.name || item.name || "Product"}" class="product-image" />
           <div class="product-details">
             <div class="product-name">${item.product?.name || item.name || "Product"}</div>
             <div class="product-quantity">Quantity: ${item.quantity || 1}</div>
@@ -453,11 +453,15 @@ const getEmailTemplate = (type, data) => {
       const total = data.totalPrice || 0
       const vatAmount = (total * 0.05).toFixed(2) // Assuming 5% VAT
 
-      // Get customer info based on delivery type
+      // Get customer info - works for both guest and logged-in users
       const customerName = data.shippingAddress?.name || data.pickupDetails?.name || data.customerName || "Customer"
       const customerEmail = data.shippingAddress?.email || data.pickupDetails?.email || data.customerEmail || ""
       const customerPhone = data.shippingAddress?.phone || data.pickupDetails?.phone || ""
 
+      // Determine payment method display
+      const paymentMethodDisplay = data.paymentMethod || (data.paymentResult?.method) || "Cash on Delivery"
+
+      // Billing and Shipping addresses - handle both guest and logged-in users
       const billingAddress = data.shippingAddress || data.pickupDetails || {}
       const shippingAddress = data.deliveryType === "pickup" ? data.pickupDetails : data.shippingAddress
 
@@ -499,7 +503,7 @@ const getEmailTemplate = (type, data) => {
             .order-icon {
               width: 80px;
               height: 80px;
-              background-color: #2c3e50;
+              background-color: #8BC34A;
               border-radius: 50%;
               margin: 20px auto 0 auto;
               display: flex;
@@ -507,6 +511,7 @@ const getEmailTemplate = (type, data) => {
               justify-content: center;
               color: white;
               font-size: 30px;
+              line-height: 1;
             }
             .content {
               padding: 40px 30px 32px 30px;
@@ -641,7 +646,7 @@ const getEmailTemplate = (type, data) => {
             }
             .address-section {
               display: flex;
-              gap: 20px;
+              gap: 0;
               margin: 20px 0;
             }
             .address-block {
@@ -687,66 +692,22 @@ const getEmailTemplate = (type, data) => {
               <a href="https://www.graba2z.ae/" target="_blank">
                 <img src="https://res.cloudinary.com/dyfhsu5v6/image/upload/v1753105567/admin-logo_ruxcjj.png" alt="Graba2z Logo" />
               </a>
-              <div class="order-icon">🛒</div>
             </div>
             <div class="content">
-              <div class="order-number">Order #${data.orderNumber || data._id?.toString().slice(-6) || "N/A"}</div>
-              <div class="greeting">Hi ${customerName}, Thank you for your purchase.</div>
-              <div class="processing-text">Your order has been placed.</div>
-              <!-- ORDER_CONFIRMATION_MINIMAL: product list + buttons removed per request -->
-              <div class="info-section">
-                <div class="info-title">Payment Method</div>
-                <div class="info-content">${data.paymentMethod || "Cash on delivery"}</div>
+              <div class="status-section" style="background:#E8F5E9;border-radius:16px;padding:40px 30px 32px;margin:0 auto 30px;max-width:520px;text-align:center;">
+                <div class="order-number" style="margin-bottom:18px;">Order #${data.orderNumber || data._id?.toString().slice(-6) || "N/A"}</div>
+                <div class="greeting" style="margin-bottom:8px;">Hi ${customerName}, Thank you for your purchase.</div>
+                <div class="processing-text" style="margin-bottom:32px;">Your order has been placed.</div>
+                <div class="status-card" style="background:transparent;padding:0;margin:0;">
+                  <div class="status-icon" style="color:#2E7D32;font-size:44px;line-height:1;margin:0 auto 12px auto;">📦</div>
+                  <div class="status-label" style="color:#2E7D32;margin-top:4px;font-size:20px;font-weight:700;letter-spacing:0.2px;">Order Placed</div>
+                </div>
               </div>
-              <div class="info-section">
-                <div class="info-title">Shipment Method</div>
-                <div class="info-content">${data.deliveryType === "pickup" ? "Store Pickup" : "Home Delivery"}</div>
-              </div>
-              ${
-                data.customerNotes
-                  ? `
-              <div class="info-section">
-                <div class="info-title">Note</div>
-                <div class="info-content">${data.customerNotes}</div>
-              </div>
-              `
-                  : ""
-              }
-              <div class="order-summary">
-                <div class="summary-row">
-                  <span>Subtotal</span>
-                  <span>${subtotal.toFixed(2)}AED</span>
-                </div>
-                <div class="summary-row">
-                  <span>Shipping</span>
-                  <span>${shipping.toFixed(2)}AED</span>
-                </div>
-                <div class="summary-row total">
-                  <span>Total</span>
-                  <span>${total.toFixed(2)}AED</span>
-                </div>
-                <div class="vat-note">(includes ${vatAmount}AED VAT)</div>
-              </div>
-              <div class="address-section">
-                <div class="address-block">
-                  <div class="info-title">Billing Address</div>
-                  <div class="info-content">
-                    ${billingAddress.name || customerName}<br>
-                    ${billingAddress.address || "N/A"}<br>
-                    ${billingAddress.city || "N/A"}<br>
-                    ${billingAddress.phone || customerPhone}<br>
-                    ${billingAddress.email || customerEmail}
-                  </div>
-                </div>
-                <div class="address-block">
-                  <div class="info-title">${data.deliveryType === "pickup" ? "Pickup Location" : "Shipping Address"}</div>
-                  <div class="info-content">
-                    ${shippingAddress?.name || customerName}<br>
-                    ${shippingAddress?.address || shippingAddress?.location || "N/A"}<br>
-                    ${shippingAddress?.city || "N/A"}<br>
-                    ${shippingAddress?.phone || customerPhone}
-                  </div>
-                </div>
+              <div style="text-align:center;margin-top:16px;">
+                <a href="https://www.graba2z.ae/track-order" 
+                   style="display:inline-block;background:#84cc16;color:#ffffff;text-decoration:none;padding:14px 32px;font-size:14px;font-weight:600;border-radius:28px;letter-spacing:0.5px;font-family:'Segoe UI',Tahoma,Arial,sans-serif;">
+                  TRACK YOUR ORDER
+                </a>
               </div>
             </div>
             <div class="footer">
@@ -1418,13 +1379,19 @@ export const sendVerificationEmail = async (email, name, code) => {
 export const sendOrderPlacedEmail = async (order) => {
   try {
     const orderNumber = order._id.toString().slice(-6)
-    const customerName = order.shippingAddress?.name || order.pickupDetails?.name || "Customer"
+    
+    // Get customer name and email - works for both guest and logged-in users
+    const customerName = order.shippingAddress?.name || order.pickupDetails?.name || order.user?.name || "Customer"
     const customerEmail = order.shippingAddress?.email || order.pickupDetails?.email || order.user?.email
 
     if (!customerEmail) {
       console.error("No customer email found for order:", order._id)
       return { success: false, error: "No customer email" }
     }
+
+    // Log whether this is a guest or logged-in user order
+    const isGuestOrder = !order.user
+    console.log(`[sendOrderPlacedEmail] Sending confirmation email for ${isGuestOrder ? 'GUEST' : 'LOGGED-IN'} user order ${order._id} to ${customerEmail}`)
 
     const html = getEmailTemplate("orderConfirmation", {
       ...order.toObject(),
@@ -1434,6 +1401,7 @@ export const sendOrderPlacedEmail = async (order) => {
     })
 
     await sendEmail(customerEmail, `Order Confirmation #${orderNumber} - Graba2z`, html, "order")
+    console.log(`[sendOrderPlacedEmail] Confirmation email sent successfully for order ${order._id}`)
     return { success: true }
   } catch (error) {
     console.error("Failed to send order placed email:", error)
@@ -1444,14 +1412,33 @@ export const sendOrderPlacedEmail = async (order) => {
 // Send order status update email
 export const sendOrderStatusUpdateEmail = async (order) => {
   try {
+    // Normalize status for checking
+    const normalizedStatus = (order.status || '').toString().trim().toLowerCase()
+    
+    // IMPORTANT: Do NOT send email to customer if order status is "Deleted"
+    // This applies to both logged-in users and guest users
+    if (normalizedStatus === 'deleted') {
+      console.log(`[sendOrderStatusUpdateEmail] Skipping email for Deleted status order ${order._id}`)
+      return { success: true, skipped: true, reason: 'Deleted status - no customer notification' }
+    }
+
     const orderNumber = order._id.toString().slice(-6)
+    
+    // Get customer name - works for both guest and logged-in users
     const customerName = order.shippingAddress?.name || order.pickupDetails?.name || order.user?.name || "Customer"
+    
+    // Get customer email - works for both guest and logged-in users
+    // Priority: shippingAddress.email > pickupDetails.email > user.email
     const customerEmail = order.shippingAddress?.email || order.pickupDetails?.email || order.user?.email
 
     if (!customerEmail) {
       console.error("No customer email found for order:", order._id)
       return { success: false, error: "No customer email" }
     }
+
+    // Log whether this is a guest or logged-in user order
+    const isGuestOrder = !order.user
+    console.log(`[sendOrderStatusUpdateEmail] Sending email for ${isGuestOrder ? 'GUEST' : 'LOGGED-IN'} user order ${order._id} to ${customerEmail}`)
 
     const html = getEmailTemplate("orderStatusUpdate", {
       ...order.toObject(),
@@ -1477,6 +1464,7 @@ export const sendOrderStatusUpdateEmail = async (order) => {
       placed: "Order Placed",
       "order placed": "Order Placed",
       "new order": "Order Placed",
+      new: "Order Placed",
       confirmed: "Order Confirmed",
       "ready for shipment": "Order Ready for Shipment",
       "ready for shipping": "Order Ready for Shipment",
@@ -1490,11 +1478,12 @@ export const sendOrderStatusUpdateEmail = async (order) => {
       dispatched: "Order Shipped",
       "on the way": "Order On The Way",
       "out for delivery": "Order Out for Delivery",
+      returned: "Order Returned",
     }
 
-    const normalizedStatus = (order.status || '').toString().trim().toLowerCase()
     const subject = `${statusMessages[normalizedStatus] || "Order Update"} #${orderNumber} - Graba2z`
-  await sendEmail(customerEmail, subject, sanitizedHtml, "order")
+    await sendEmail(customerEmail, subject, sanitizedHtml, "order")
+    console.log(`[sendOrderStatusUpdateEmail] Email sent successfully for order ${order._id}`)
     return { success: true }
   } catch (error) {
     console.error("Failed to send order status update email:", error)
