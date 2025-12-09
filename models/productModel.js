@@ -211,6 +211,11 @@ const productSchema = mongoose.Schema(
       type: String,
       default: "",
     },
+    // The label for this product when shown in variation lists (e.g., "16GB RAM", "24GB RAM")
+    selfVariationText: {
+      type: String,
+      default: "",
+    },
     colorVariations: [
       {
         color: {

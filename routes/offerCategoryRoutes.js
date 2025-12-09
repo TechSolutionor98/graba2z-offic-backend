@@ -1,16 +1,47 @@
 import express from 'express';
 import { protect, admin } from '../middleware/authMiddleware.js';
 import OfferCategory from '../models/offerCategoryModel.js';
+import Category from '../models/categoryModel.js';
+import SubCategory from '../models/subCategoryModel.js';
 
 const router = express.Router();
+
+// Helper function to populate categories manually
+const populateCategory = async (offerCategory) => {
+  if (!offerCategory.category) return offerCategory;
+  
+  try {
+    // Try to find in Category collection first
+    let categoryData = await Category.findById(offerCategory.category).lean();
+    
+    // If not found, try SubCategory collection
+    if (!categoryData) {
+      categoryData = await SubCategory.findById(offerCategory.category).lean();
+    }
+    
+    return {
+      ...offerCategory.toObject ? offerCategory.toObject() : offerCategory,
+      category: categoryData
+    };
+  } catch (error) {
+    console.error('Error populating category:', error);
+    return offerCategory;
+  }
+};
 
 // Get all categories for a specific offer page
 router.get('/page/:slug', async (req, res) => {
   try {
     const offerCategories = await OfferCategory.find({ offerPageSlug: req.params.slug })
-      .populate('category')
-      .sort({ order: 1 });
-    res.json(offerCategories);
+      .sort({ order: 1 })
+      .lean();
+    
+    // Manually populate categories
+    const populated = await Promise.all(
+      offerCategories.map(oc => populateCategory({ ...oc, toObject: () => oc }))
+    );
+    
+    res.json(populated);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -20,9 +51,15 @@ router.get('/page/:slug', async (req, res) => {
 router.get('/', protect, admin, async (req, res) => {
   try {
     const offerCategories = await OfferCategory.find()
-      .populate('category')
-      .sort({ offerPageSlug: 1, order: 1 });
-    res.json(offerCategories);
+      .sort({ offerPageSlug: 1, order: 1 })
+      .lean();
+    
+    // Manually populate categories
+    const populated = await Promise.all(
+      offerCategories.map(oc => populateCategory({ ...oc, toObject: () => oc }))
+    );
+    
+    res.json(populated);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -31,9 +68,10 @@ router.get('/', protect, admin, async (req, res) => {
 // Get single offer category
 router.get('/:id', async (req, res) => {
   try {
-    const offerCategory = await OfferCategory.findById(req.params.id).populate('category');
+    const offerCategory = await OfferCategory.findById(req.params.id).lean();
     if (offerCategory) {
-      res.json(offerCategory);
+      const populated = await populateCategory({ ...offerCategory, toObject: () => offerCategory });
+      res.json(populated);
     } else {
       res.status(404).json({ message: 'Offer category not found' });
     }
@@ -47,8 +85,8 @@ router.post('/', protect, admin, async (req, res) => {
   try {
     const offerCategory = new OfferCategory(req.body);
     const createdOfferCategory = await offerCategory.save();
-    const populatedOfferCategory = await OfferCategory.findById(createdOfferCategory._id).populate('category');
-    res.status(201).json(populatedOfferCategory);
+    const populated = await populateCategory(createdOfferCategory);
+    res.status(201).json(populated);
   } catch (error) {
     res.status(400).json({ message: error.message });
   }
@@ -62,12 +100,13 @@ router.put('/:id', protect, admin, async (req, res) => {
     if (offerCategory) {
       offerCategory.offerPageSlug = req.body.offerPageSlug || offerCategory.offerPageSlug;
       offerCategory.category = req.body.category || offerCategory.category;
+      offerCategory.categoryType = req.body.categoryType || offerCategory.categoryType;
       offerCategory.isActive = req.body.isActive !== undefined ? req.body.isActive : offerCategory.isActive;
       offerCategory.order = req.body.order !== undefined ? req.body.order : offerCategory.order;
       
       const updatedOfferCategory = await offerCategory.save();
-      const populatedOfferCategory = await OfferCategory.findById(updatedOfferCategory._id).populate('category');
-      res.json(populatedOfferCategory);
+      const populated = await populateCategory(updatedOfferCategory);
+      res.json(populated);
     } else {
       res.status(404).json({ message: 'Offer category not found' });
     }

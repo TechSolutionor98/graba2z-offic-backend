@@ -143,6 +143,9 @@ router.put('/:id', protect, admin, async (req, res) => {
         }
       }
 
+      console.log('🟡 SERVER UPDATE: Received settings from client:', JSON.stringify(settings, null, 2));
+      console.log('🟡 SERVER UPDATE: Current section settings before update:', JSON.stringify(section.settings, null, 2));
+      
       section.name = name || section.name;
       section.slug = slug || section.slug;
       section.key = key || section.key;
@@ -152,7 +155,9 @@ router.put('/:id', protect, admin, async (req, res) => {
       section.sectionType = sectionType || section.sectionType;
       section.settings = settings !== undefined ? settings : section.settings;
 
+      console.log('🟡 SERVER UPDATE: Section settings after assignment:', JSON.stringify(section.settings, null, 2));
       const updatedSection = await section.save();
+      console.log('🟢 SERVER UPDATE: Saved section settings:', JSON.stringify(updatedSection.settings, null, 2));
       res.json(updatedSection);
     } else {
       res.status(404).json({ message: 'Section not found' });

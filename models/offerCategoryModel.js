@@ -9,8 +9,13 @@ const offerCategorySchema = new mongoose.Schema(
     },
     category: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'Category',
+      refPath: 'categoryType',
       required: true,
+    },
+    categoryType: {
+      type: String,
+      required: true,
+      enum: ['Category', 'SubCategory'],
     },
     isActive: {
       type: Boolean,

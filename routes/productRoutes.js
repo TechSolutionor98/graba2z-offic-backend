@@ -167,7 +167,7 @@ router.get("/admin", protect, admin, async (req, res) => {
       .populate("brand category subCategory parentCategory subCategory2 subCategory3 subCategory4")
       .populate({
         path: "variations.product",
-        select: "name slug image price offerPrice sku"
+        select: "name slug image price offerPrice sku selfVariationText reverseVariationText"
       })
       .sort({ createdAt: -1 })
 
@@ -627,7 +627,7 @@ router.get(
       .populate("brand", "name")
       .populate({
         path: "variations.product",
-        select: "name slug image price offerPrice sku isActive hideFromShop",
+        select: "name slug image price offerPrice sku isActive hideFromShop selfVariationText reverseVariationText",
         // Populate all variation products regardless of hideFromShop status
         // This ensures hidden variations are visible in the variations section
       })
@@ -808,13 +808,13 @@ router.post(
     
     // Bidirectional variation sync: Update all related products
     if (productData.variations && Array.isArray(productData.variations)) {
-      const reverseText = productData.reverseVariationText || ""
+      const selfText = productData.selfVariationText || productData.reverseVariationText || ""
       const variationIds = productData.variations
         .filter(v => v && v.product && v.product !== createdProduct._id.toString())
         .map(v => v.product)
       
       console.log(`[SYNC] Product ${createdProduct._id} adding variations:`, variationIds)
-      console.log(`[SYNC] Reverse text:`, reverseText)
+      console.log(`[SYNC] Self variation text:`, selfText)
       
       // For each variation in this product
       for (const variationId of variationIds) {
@@ -828,21 +828,16 @@ router.post(
           )
           if (existingVariationIndex === -1) {
             console.log(`[SYNC] Adding product ${createdProduct._id} to ${variationProduct._id}'s variations`)
+            // Note: We store empty variationText here because we'll use selfVariationText from the product itself
             variationProduct.variations.push({ 
               product: createdProduct._id, 
-              variationText: reverseText 
+              variationText: "" 
             })
-            variationProduct.markModified('variations')
-            modified = true
-          } else if (variationProduct.variations[existingVariationIndex].variationText !== reverseText) {
-            // Update existing variation text
-            console.log(`[SYNC] Updating text for product ${createdProduct._id} in ${variationProduct._id}'s variations`)
-            variationProduct.variations[existingVariationIndex].variationText = reverseText
             variationProduct.markModified('variations')
             modified = true
           }
           
-          // Also sync other variations bidirectionally
+          // Also sync other variations bidirectionally (full mesh connectivity)
           const otherVariationIds = variationIds.filter(id => id !== variationId)
           for (const otherId of otherVariationIds) {
             const hasOther = variationProduct.variations.some(
@@ -875,7 +870,7 @@ router.post(
       .populate("brand", "name")
       .populate({
         path: "variations.product",
-        select: "name slug image price offerPrice sku"
+        select: "name slug image price offerPrice sku selfVariationText reverseVariationText"
       })
     res.status(201).json(populatedProduct)
   }),
@@ -995,13 +990,13 @@ router.put(
       
       // Bidirectional variation sync: Update all related products
       if (updateData.variations && Array.isArray(updateData.variations)) {
-        const reverseText = updateData.reverseVariationText || ""
+        const selfText = updateData.selfVariationText || updateData.reverseVariationText || ""
         const variationIds = updateData.variations
           .filter(v => v && v.product && v.product !== product._id.toString())
           .map(v => v.product)
         
         console.log(`[UPDATE SYNC] Product ${product._id} updating variations:`, variationIds)
-        console.log(`[UPDATE SYNC] Reverse text:`, reverseText)
+        console.log(`[UPDATE SYNC] Self variation text:`, selfText)
         
         // For each variation in this product
         for (const variationId of variationIds) {
@@ -1015,21 +1010,16 @@ router.put(
             )
             if (existingVariationIndex === -1) {
               console.log(`[UPDATE SYNC] Adding product ${product._id} to ${variationProduct._id}'s variations`)
+              // Note: We store empty variationText here because we use selfVariationText from the product itself
               variationProduct.variations.push({ 
                 product: product._id, 
-                variationText: reverseText 
+                variationText: "" 
               })
-              variationProduct.markModified('variations')
-              modified = true
-            } else if (variationProduct.variations[existingVariationIndex].variationText !== reverseText) {
-              // Update existing variation text
-              console.log(`[UPDATE SYNC] Updating text for product ${product._id} in ${variationProduct._id}'s variations`)
-              variationProduct.variations[existingVariationIndex].variationText = reverseText
               variationProduct.markModified('variations')
               modified = true
             }
             
-            // Also sync other variations bidirectionally
+            // Also sync other variations bidirectionally (full mesh connectivity)
             const otherVariationIds = variationIds.filter(id => id !== variationId)
             for (const otherId of otherVariationIds) {
               const hasOther = variationProduct.variations.some(
@@ -1079,7 +1069,7 @@ router.put(
         .populate("brand", "name")
         .populate({
           path: "variations.product",
-          select: "name slug image price offerPrice sku"
+          select: "name slug image price offerPrice sku selfVariationText reverseVariationText"
         })
       res.json(populatedProduct)
     } else {
@@ -1211,7 +1201,19 @@ router.post(
       slugCounter++
     }
 
-    // Create duplicated product
+    // Collect all products in the original product's variation group
+    const variationGroupIds = new Set()
+    variationGroupIds.add(product._id.toString())
+    
+    // Add original product's variations
+    if (product.variations && product.variations.length > 0) {
+      product.variations.forEach(v => {
+        const varId = (v.product || v).toString()
+        variationGroupIds.add(varId)
+      })
+    }
+
+    // Create duplicated product with link to original and its variation group
     const duplicatedProduct = new Product({
       name: newName,
       slug: newSlug,
@@ -1250,10 +1252,40 @@ router.post(
       specifications: product.specifications,
       colorVariations: product.colorVariations || [],
       dosVariations: product.dosVariations || [],
+      // Link to original product and all its existing variations
+      variations: Array.from(variationGroupIds).map(id => ({
+        product: id,
+        variationText: "" // Will be updated when user edits the duplicated product
+      })),
+      selfVariationText: "", // User should set this when editing
+      reverseVariationText: "", // Backward compatibility
       createdBy: req.user._id,
     })
 
     const createdProduct = await duplicatedProduct.save()
+    
+    // Bidirectional sync: Add the duplicated product to all products in the variation group
+    console.log(`[DUPLICATE SYNC] Adding duplicated product ${createdProduct._id} to variation group:`, Array.from(variationGroupIds))
+    
+    for (const groupProductId of variationGroupIds) {
+      const groupProduct = await Product.findById(groupProductId)
+      if (groupProduct) {
+        // Check if duplicated product is already in variations
+        const alreadyExists = groupProduct.variations.some(
+          v => (v.product || v).toString() === createdProduct._id.toString()
+        )
+        
+        if (!alreadyExists) {
+          groupProduct.variations.push({
+            product: createdProduct._id,
+            variationText: "" // Will show duplicated product's selfVariationText
+          })
+          groupProduct.markModified('variations')
+          await groupProduct.save()
+          console.log(`[DUPLICATE SYNC] Added ${createdProduct._id} to ${groupProductId}'s variations`)
+        }
+      }
+    }
     
     // Populate references for response
     const populatedProduct = await Product.findById(createdProduct._id)
@@ -1263,6 +1295,10 @@ router.post(
       .populate("subCategory3", "name slug")
       .populate("subCategory4", "name slug")
       .populate("brand", "name")
+      .populate({
+        path: "variations.product",
+        select: "name slug image price offerPrice sku selfVariationText"
+      })
 
     res.status(201).json(populatedProduct)
   }),
