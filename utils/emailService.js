@@ -954,6 +954,14 @@ const getEmailTemplate = (type, data) => {
               <!-- STATUS_TEMPLATE_MINIMAL v2: only header + status badge retained -->
               <!-- If you still see tables, production hasn't redeployed this file. -->
               ${invoiceSection}
+              ${data.sellerMessage ? `
+              <div style="max-width:520px;margin:24px auto;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;padding:20px 24px;">
+                <div style="font-size:14px;font-weight:600;color:#166534;margin-bottom:8px;display:flex;align-items:center;">
+                  <span style="margin-right:8px;">📝</span> Message from Seller
+                </div>
+                <div style="font-size:14px;color:#15803d;line-height:1.6;white-space:pre-wrap;">${data.sellerMessage}</div>
+              </div>
+              ` : ''}
               <div style="text-align:center;margin-top:16px;">
                 <a href="https://www.graba2z.ae/track-order" 
                    style="display:inline-block;background:#84cc16;color:#ffffff;text-decoration:none;padding:14px 32px;font-size:14px;font-weight:600;border-radius:28px;letter-spacing:0.5px;font-family:'Segoe UI',Tahoma,Arial,sans-serif;">

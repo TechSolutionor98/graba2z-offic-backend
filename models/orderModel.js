@@ -159,6 +159,10 @@ const orderSchema = mongoose.Schema(
     sellerComments: {
       type: String,
     },
+    sellerMessage: {
+      type: String,
+      default: "",
+    },
   },
   {
     timestamps: true,

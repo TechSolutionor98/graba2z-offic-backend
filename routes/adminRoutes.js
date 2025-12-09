@@ -1306,11 +1306,18 @@ router.post(
   protect,
   admin,
   asyncHandler(async (req, res) => {
+    const { sellerMessage } = req.body
     const order = await Order.findById(req.params.id)
 
     if (!order) {
       res.status(404)
       throw new Error("Order not found")
+    }
+
+    // If seller message is provided, update the order first
+    if (sellerMessage !== undefined) {
+      order.sellerMessage = sellerMessage
+      await order.save()
     }
 
     const result = await sendOrderNotification(order)
