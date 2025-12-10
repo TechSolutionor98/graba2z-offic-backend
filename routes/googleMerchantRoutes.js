@@ -14,14 +14,28 @@ const escapeXml = (unsafe) => {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;")
+    .replace(/'/g, "&apos;")
     .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "") // Remove control characters
+    .replace(/[\uFFFE\uFFFF]/g, "") // Remove invalid Unicode
+    .replace(/[\u0000-\u001F]/g, "") // Remove more control chars
 }
 
 // Helper function to truncate title to Google's 150 character limit
 const truncateTitle = (title, maxLength = 150) => {
   if (!title) return ""
-  const cleanTitle = title.toString().trim()
+  // First clean the title of problematic characters
+  let cleanTitle = title
+    .toString()
+    .replace(/[""]/g, '"') // Normalize curly quotes to straight
+    .replace(/['']/g, "'") // Normalize curly apostrophes
+    .replace(/[\u2018\u2019\u201A\u201B]/g, "'") // More apostrophe variants
+    .replace(/[\u201C\u201D\u201E\u201F]/g, '"') // More quote variants
+    .replace(/"/g, " inch") // Replace " with inch for screen sizes
+    .replace(/'/g, "") // Remove remaining apostrophes
+    .replace(/[\x00-\x1F\x7F]/g, "") // Remove control characters
+    .replace(/\s+/g, " ") // Collapse multiple spaces
+    .trim()
+  
   if (cleanTitle.length <= maxLength) return cleanTitle
   // Try to cut at a word boundary
   const truncated = cleanTitle.substring(0, maxLength - 3)
@@ -39,19 +53,40 @@ const truncateDescription = (description, maxLength = 5000) => {
     .toString()
     .replace(/<[^>]*>/g, "") // Remove HTML tags
     .replace(/&nbsp;/g, " ") // Replace &nbsp;
+    .replace(/&amp;/g, "&") // Decode &amp;
+    .replace(/&lt;/g, "<") // Decode &lt;
+    .replace(/&gt;/g, ">") // Decode &gt;
+    .replace(/&quot;/g, '"') // Decode &quot;
+    .replace(/&#39;/g, "'") // Decode &#39;
+    .replace(/[""]/g, '"') // Normalize curly quotes
+    .replace(/['']/g, "'") // Normalize curly apostrophes
+    .replace(/\r\n|\r|\n/g, " ") // Replace newlines
+    .replace(/\t/g, " ") // Replace tabs
     .replace(/\s+/g, " ") // Replace multiple spaces
     .trim()
   if (cleanDesc.length <= maxLength) return cleanDesc
   return cleanDesc.substring(0, maxLength - 3) + '...'
 }
 
-// Helper function to clean text for CDATA
+// Helper function to clean text for CDATA - removes problematic characters
 const cleanForCDATA = (text) => {
   if (!text) return ""
   return text
     .toString()
-    .replace(/]]>/g, "]]&gt;") // Escape CDATA end sequence
+    .replace(/]]>/g, "] ]>") // Break up CDATA end sequence
     .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "") // Remove control characters
+    .replace(/[\uFFFE\uFFFF]/g, "") // Remove invalid Unicode
+    .replace(/\u0000/g, "") // Remove null chars
+    .replace(/[""]/g, '"') // Normalize curly quotes to straight quotes
+    .replace(/['']/g, "'") // Normalize curly apostrophes
+    .replace(/[\u2018\u2019\u201A\u201B]/g, "'") // More apostrophe variants
+    .replace(/[\u201C\u201D\u201E\u201F]/g, '"') // More quote variants
+    .replace(/\r\n/g, " ") // Replace Windows newlines
+    .replace(/\r/g, " ") // Replace Mac newlines  
+    .replace(/\n/g, " ") // Replace Unix newlines
+    .replace(/\t/g, " ") // Replace tabs
+    .replace(/\s+/g, " ") // Collapse multiple spaces
+    .trim()
 }
 
 // Helper function to determine availability
