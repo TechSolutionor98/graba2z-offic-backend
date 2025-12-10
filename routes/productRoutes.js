@@ -124,7 +124,7 @@ function escapeRegex(string) {
 // @access  Private/Admin
 router.get("/admin", protect, admin, async (req, res) => {
   try {
-    const { search, category, subcategory, subCategory2, subCategory3, subCategory4, parentCategory, brand, isActive, limit = 20, page = 1 } = req.query
+    const { search, category, subcategory, subCategory2, subCategory3, subCategory4, parentCategory, brand, isActive, onHold, limit = 20, page = 1 } = req.query
     const query = {}
     const orConditions = []
 
@@ -139,6 +139,11 @@ router.get("/admin", protect, admin, async (req, res) => {
     // Add isActive filter if provided
     if (isActive !== undefined && isActive !== null && isActive !== "") {
       query.isActive = isActive === "true" || isActive === true
+    }
+
+    // Add onHold filter if provided
+    if (onHold !== undefined && onHold !== null && onHold !== "") {
+      query.onHold = onHold === "true" || onHold === true
     }
 
     if (typeof search === "string" && search.trim() !== "") {
@@ -188,7 +193,7 @@ router.get("/admin", protect, admin, async (req, res) => {
 // @access  Private/Admin
 router.get("/admin/count", protect, admin, async (req, res) => {
   try {
-    const { search, category, subcategory, subCategory2, subCategory3, subCategory4, parentCategory, brand } = req.query
+    const { search, category, subcategory, subCategory2, subCategory3, subCategory4, parentCategory, brand, isActive, onHold } = req.query
     const query = {}
     const orConditions = []
 
@@ -199,6 +204,16 @@ router.get("/admin/count", protect, admin, async (req, res) => {
     if (subCategory4) query.subCategory4 = subCategory4
     if (parentCategory) query.parentCategory = parentCategory
     if (brand) query.brand = brand
+
+    // Add isActive filter if provided
+    if (isActive !== undefined && isActive !== null && isActive !== "") {
+      query.isActive = isActive === "true" || isActive === true
+    }
+
+    // Add onHold filter if provided
+    if (onHold !== undefined && onHold !== null && onHold !== "") {
+      query.onHold = onHold === "true" || onHold === true
+    }
 
     if (typeof search === "string" && search.trim() !== "") {
       const safeSearch = escapeRegex(search)

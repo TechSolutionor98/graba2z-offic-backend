@@ -146,6 +146,10 @@ const productSchema = mongoose.Schema(
       type: Boolean,
       default: true,
     },
+    onHold: {
+      type: Boolean,
+      default: false,
+    },
     canPurchase: {
       type: Boolean,
       default: true,

@@ -18,6 +18,33 @@ const escapeXml = (unsafe) => {
     .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "") // Remove control characters
 }
 
+// Helper function to truncate title to Google's 150 character limit
+const truncateTitle = (title, maxLength = 150) => {
+  if (!title) return ""
+  const cleanTitle = title.toString().trim()
+  if (cleanTitle.length <= maxLength) return cleanTitle
+  // Try to cut at a word boundary
+  const truncated = cleanTitle.substring(0, maxLength - 3)
+  const lastSpace = truncated.lastIndexOf(' ')
+  if (lastSpace > maxLength - 30) {
+    return truncated.substring(0, lastSpace) + '...'
+  }
+  return truncated + '...'
+}
+
+// Helper function to truncate description to Google's 5000 character limit
+const truncateDescription = (description, maxLength = 5000) => {
+  if (!description) return ""
+  const cleanDesc = description
+    .toString()
+    .replace(/<[^>]*>/g, "") // Remove HTML tags
+    .replace(/&nbsp;/g, " ") // Replace &nbsp;
+    .replace(/\s+/g, " ") // Replace multiple spaces
+    .trim()
+  if (cleanDesc.length <= maxLength) return cleanDesc
+  return cleanDesc.substring(0, maxLength - 3) + '...'
+}
+
 // Helper function to clean text for CDATA
 const cleanForCDATA = (text) => {
   if (!text) return ""
@@ -173,10 +200,23 @@ router.get(
       const page = Number.parseInt(req.query.page) || 1
       const limit = Number.parseInt(req.query.limit) || 0 // 0 means no limit
       const skip = limit > 0 ? (page - 1) * limit : 0
+      const includeZeroPrice = req.query.includeZeroPrice === 'true'
+      const includeOutOfStock = req.query.includeOutOfStock !== 'false' // Default true
 
-      // More flexible query - include products that don't have isActive field or where it's true
+      // Build query - include products that are active AND have valid data for Google
       const query = {
-        $or: [{ isActive: true }, { isActive: { $exists: false } }],
+        name: { $exists: true, $ne: '' },
+        image: { $exists: true, $ne: '' },
+      }
+
+      // Filter out zero-price products unless explicitly included
+      if (!includeZeroPrice) {
+        query.$and = [
+          { $or: [{ isActive: true }, { isActive: { $exists: false } }] },
+          { $or: [{ price: { $gt: 0 } }, { offerPrice: { $gt: 0 } }] }
+        ]
+      } else {
+        query.$or = [{ isActive: true }, { isActive: { $exists: false } }]
       }
 
       console.log("Fetching products with query:", JSON.stringify(query))
@@ -276,7 +316,7 @@ router.get(
 
       for (const product of products) {
         try {
-          // Only skip products without a name - allow zero prices
+          // Only skip products without a name
           if (!product.name || product.name.trim() === "") {
             console.log(`Skipping product ${product._id} - missing name`)
             skippedCount++
@@ -294,15 +334,15 @@ router.get(
           const availability = determineAvailability(product)
           availabilityStats[availability.replace(" ", "").replace("of", "Of")]++
 
-          // Handle pricing - allow zero prices but default to 0.01 for Google Merchant
+          // Handle pricing - set minimum 1 AED for zero-price products (Google requires valid price)
           let price = 0
           if (product.offerPrice && product.offerPrice > 0) {
             price = product.offerPrice
           } else if (product.price && product.price > 0) {
             price = product.price
           } else {
-            // For zero-priced items, set a minimal price for Google Merchant
-            price = 0.01
+            // For zero-priced items, set 1 AED minimum for Google Merchant
+            price = 1
           }
 
           const salePrice =
@@ -310,9 +350,12 @@ router.get(
               ? product.offerPrice
               : null
 
-          const cleanDescription = product.description
-            ? product.description.replace(/<[^>]*>/g, "").substring(0, 5000)
-            : product.shortDescription || product.name || "No description available"
+          const cleanDescription = truncateDescription(
+            product.description || product.shortDescription || product.name || "No description available"
+          )
+
+          // Truncate title to Google's 150 character limit
+          const truncatedTitle = truncateTitle(product.name)
 
           const googleProductCategory = determineGoogleCategory(product.parentCategory?.name, product.category?.name)
           const productType =
@@ -329,9 +372,15 @@ router.get(
             })
           }
 
+          // Check if product has valid identifiers (GTIN or brand+MPN)
+          const hasGtin = product.barcode && product.barcode.trim() !== ''
+          const hasMpn = product.sku && product.sku.trim() !== ''
+          const hasBrand = product.brand?.name && product.brand.name.toLowerCase() !== 'generic'
+          const identifierExists = hasGtin || (hasBrand && hasMpn)
+
           const productData = {
             id: product._id.toString(),
-            title: product.name,
+            title: truncatedTitle,
             description: cleanDescription,
             link: productUrl,
             image_link: imageUrl,
@@ -343,12 +392,20 @@ router.get(
             product_type: productType,
             item_group_id: product._id.toString(),
             brand: product.brand?.name || "Generic",
-            gtin: product.barcode || "",
-            mpn: product.sku || product._id.toString(),
+            gtin: hasGtin ? product.barcode : "",
+            mpn: hasMpn ? product.sku : product._id.toString(),
+            identifier_exists: identifierExists ? "yes" : "no",
             shipping_weight: product.weight ? `${product.weight} kg` : "",
+            shipping: {
+              country: "AE",
+              service: "Standard Shipping",
+              price: "0.00 AED"
+            },
             custom_labels: {
               custom_label_0: product.featured ? "Featured" : "",
               custom_label_1: product.tags && product.tags.length > 0 ? product.tags.slice(0, 3).join(", ") : "",
+              custom_label_2: product.parentCategory?.name || "",
+              custom_label_3: availability,
             },
             stock_quantity: product.countInStock || 0,
             stock_status: product.stockStatus || "Unknown",
@@ -403,9 +460,10 @@ router.get(
       const limit = Number.parseInt(req.query.limit) || 0 // 0 means no limit
       const skip = limit > 0 ? (page - 1) * limit : 0
 
-      // More flexible query - include products that don't have isActive field or where it's true
+      // Build query - include ALL active products
       const query = {
-        $or: [{ isActive: true }, { isActive: { $exists: false } }],
+        name: { $exists: true, $ne: '' },
+        $or: [{ isActive: true }, { isActive: { $exists: false } }]
       }
 
       console.log("Fetching products for XML with query:", JSON.stringify(query))
@@ -496,7 +554,7 @@ router.get(
 
       for (const product of products) {
         try {
-          // Only skip products without a name - allow zero prices
+          // Skip products without a name
           if (!product.name || product.name.trim() === "") {
             console.warn(`Skipping product ${product._id} - missing name`)
             continue
@@ -513,15 +571,15 @@ router.get(
           const availability = determineAvailability(product)
           availabilityStats[availability.replace(" ", "").replace("of", "Of")]++
 
-          // Handle pricing - allow zero prices but default to 0.01 for Google Merchant
+          // Handle pricing - set minimum 1 AED for zero-price products (Google requires valid price)
           let price = 0
           if (product.offerPrice && product.offerPrice > 0) {
             price = product.offerPrice
           } else if (product.price && product.price > 0) {
             price = product.price
           } else {
-            // For zero-priced items, set a minimal price for Google Merchant
-            price = 0.01
+            // For zero-priced items, set 1 AED minimum for Google Merchant
+            price = 1
           }
 
           const salePrice =
@@ -530,26 +588,27 @@ router.get(
               : null
 
           // Clean and limit description
-          let cleanDescription = ""
-          if (product.description) {
-            cleanDescription = product.description
-              .replace(/<[^>]*>/g, "") // Remove HTML tags
-              .replace(/&nbsp;/g, " ") // Replace &nbsp; with space
-              .replace(/\s+/g, " ") // Replace multiple spaces with single space
-              .trim()
-              .substring(0, 5000)
-          } else {
-            cleanDescription = product.shortDescription || product.name || "No description available"
-          }
+          const cleanDescription = truncateDescription(
+            product.description || product.shortDescription || product.name || "No description available"
+          )
+
+          // Truncate title to Google's 150 character limit
+          const truncatedTitle = truncateTitle(product.name)
 
           const googleProductCategory = determineGoogleCategory(product.parentCategory?.name, product.category?.name)
           const productType =
             (product.parentCategory?.name || "Uncategorized") +
             (product.category?.name ? ` > ${product.category.name}` : "")
 
+          // Check if product has valid identifiers (GTIN or brand+MPN)
+          const hasGtin = product.barcode && product.barcode.trim() !== ''
+          const hasMpn = product.sku && product.sku.trim() !== ''
+          const hasBrand = product.brand?.name && product.brand.name.toLowerCase() !== 'generic'
+          const identifierExists = hasGtin || (hasBrand && hasMpn)
+
           xml += `    <item>
       <g:id>${escapeXml(product._id.toString())}</g:id>
-      <g:title><![CDATA[${cleanForCDATA(product.name)}]]></g:title>
+      <g:title><![CDATA[${cleanForCDATA(truncatedTitle)}]]></g:title>
       <g:description><![CDATA[${cleanForCDATA(cleanDescription)}]]></g:description>
       <g:link>${productUrl}</g:link>
       <g:image_link>${imageUrl}</g:image_link>
@@ -585,10 +644,22 @@ router.get(
       <g:mpn><![CDATA[${cleanForCDATA(product._id.toString())}]]></g:mpn>`
           }
 
+          // Add identifier_exists - required by Google
+          xml += `
+      <g:identifier_exists>${identifierExists ? 'true' : 'false'}</g:identifier_exists>`
+
           xml += `
       <g:google_product_category><![CDATA[${googleProductCategory}]]></g:google_product_category>
       <g:product_type><![CDATA[${cleanForCDATA(productType)}]]></g:product_type>
       <g:item_group_id>${escapeXml(product._id.toString())}</g:item_group_id>`
+
+          // Add shipping information - required for UAE
+          xml += `
+      <g:shipping>
+        <g:country>AE</g:country>
+        <g:service>Standard Shipping</g:service>
+        <g:price>0.00 AED</g:price>
+      </g:shipping>`
 
           // Add additional images if available
           if (product.galleryImages && product.galleryImages.length > 0) {
