@@ -273,6 +273,24 @@ router.get(
   }),
 )
 
+// @desc    Fetch categories selected for Home slider
+// @route   GET /api/categories/slider
+// @access  Public
+router.get(
+  "/slider",
+  asyncHandler(async (req, res) => {
+    // Fetch both categories and subcategories with showInSlider: true
+    const [categories, subCategories] = await Promise.all([
+      Category.find({ showInSlider: true, isActive: true, isDeleted: { $ne: true } }).sort({ sortOrder: 1, name: 1 }).lean(),
+      SubCategory.find({ showInSlider: true, isActive: true, isDeleted: { $ne: true } }).sort({ sortOrder: 1, name: 1 }).lean(),
+    ])
+    
+    // Combine and return
+    const allSliderItems = [...categories, ...subCategories]
+    res.json(allSliderItems)
+  }),
+)
+
 // @desc    Fetch categories with nested subcategories up to 4 levels
 // @route   GET /api/categories/tree
 // @access  Public
@@ -447,7 +465,7 @@ router.put(
   protect,
   admin,
   asyncHandler(async (req, res) => {
-    const { name, description, seoContent, metaTitle, metaDescription, redirectUrl, image, slug, isActive } = req.body
+    const { name, description, seoContent, metaTitle, metaDescription, redirectUrl, image, slug, isActive, showInSlider } = req.body
 
     const category = await Category.findById(req.params.id)
 
@@ -474,6 +492,7 @@ router.put(
       category.image = image !== undefined ? image : category.image
       category.slug = slug || category.slug
       category.isActive = isActive !== undefined ? isActive : category.isActive
+      category.showInSlider = showInSlider !== undefined ? showInSlider : category.showInSlider
 
       const updatedCategory = await category.save()
       res.json(updatedCategory)

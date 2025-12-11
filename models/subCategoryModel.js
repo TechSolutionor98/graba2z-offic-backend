@@ -41,6 +41,11 @@ const subCategorySchema = mongoose.Schema(
     image: {
       type: String,
     },
+    // Whether this subcategory should appear in the Home page category slider
+    showInSlider: {
+      type: Boolean,
+      default: false,
+    },
     category: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Category",

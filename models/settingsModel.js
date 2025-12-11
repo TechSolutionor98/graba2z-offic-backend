@@ -79,6 +79,16 @@ const settingsSchema = mongoose.Schema(
         default: true,
       },
     },
+    categorySliderShape: {
+      type: String,
+      enum: ["circle", "square", "octagon"],
+      default: "circle",
+    },
+    categorySliderLayoutType: {
+      type: String,
+      enum: ["default", "compact", "modern", "minimal", "card", "banner", "circularCard"],
+      default: "default",
+    },
     updatedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",

@@ -96,6 +96,11 @@ const categorySchema = mongoose.Schema(
       type: String,
       default: "",
     },
+    // Whether this category should appear in the Home page category slider
+    showInSlider: {
+      type: Boolean,
+      default: false,
+    },
     isActive: {
       type: Boolean,
       default: true,

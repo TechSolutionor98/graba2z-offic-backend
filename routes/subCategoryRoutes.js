@@ -891,7 +891,7 @@ router.put(
   admin,
   asyncHandler(async (req, res) => {
     try {
-      const { name, description, seoContent, metaTitle, metaDescription, redirectUrl, category, parentSubCategory, level, image, slug, isActive } = req.body
+      const { name, description, seoContent, metaTitle, metaDescription, redirectUrl, category, parentSubCategory, level, image, slug, isActive, showInSlider } = req.body
 
       console.log('Updating subcategory with data:', req.body)
 
@@ -1002,6 +1002,7 @@ router.put(
       subcategory.image = image !== undefined ? image : subcategory.image
       subcategory.slug = newSlug
       subcategory.isActive = isActive !== undefined ? isActive : subcategory.isActive
+      subcategory.showInSlider = showInSlider !== undefined ? showInSlider : subcategory.showInSlider
 
       console.log('Saving updated subcategory:', subcategory)
       const updatedSubCategory = await subcategory.save()
