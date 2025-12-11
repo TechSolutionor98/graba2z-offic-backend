@@ -358,7 +358,9 @@ router.get(
             continue
           }
 
-          const productUrl = `https://www.grabatoz.ae/product/${product.slug || product._id}`
+          // Escape & in slug for valid URLs
+          const cleanSlug = (product.slug || product._id.toString()).replace(/&/g, '%26')
+          const productUrl = `https://www.grabatoz.ae/product/${cleanSlug}`
           const imageUrl = product.image
             ? product.image.startsWith("http")
               ? product.image
@@ -595,12 +597,17 @@ router.get(
             continue
           }
 
-          const productUrl = `https://www.grabatoz.ae/product/${product.slug || product._id}`
-          const imageUrl = product.image
+          // Escape & in slug for valid XML URLs
+          const cleanSlug = (product.slug || product._id.toString()).replace(/&/g, '%26')
+          const productUrl = `https://www.grabatoz.ae/product/${cleanSlug}`
+          
+          // Escape & in image URLs for valid XML
+          let imageUrl = product.image
             ? product.image.startsWith("http")
               ? product.image
               : `https://www.grabatoz.ae${product.image}`
             : "https://www.grabatoz.ae/placeholder.jpg"
+          imageUrl = imageUrl.replace(/&/g, '&amp;')
 
           // Use the improved availability logic
           const availability = determineAvailability(product)
@@ -700,7 +707,9 @@ router.get(
           if (product.galleryImages && product.galleryImages.length > 0) {
             product.galleryImages.slice(0, 10).forEach((img) => {
               if (img) {
-                const additionalImageUrl = img.startsWith("http") ? img : `https://www.grabatoz.ae${img}`
+                let additionalImageUrl = img.startsWith("http") ? img : `https://www.grabatoz.ae${img}`
+                // Escape & for valid XML
+                additionalImageUrl = additionalImageUrl.replace(/&/g, '&amp;')
                 xml += `
       <g:additional_image_link>${additionalImageUrl}</g:additional_image_link>`
               }
