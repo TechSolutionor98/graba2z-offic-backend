@@ -75,13 +75,29 @@ const orderSchema = mongoose.Schema(
       type: String,
       required: true,
       default: "Cash on Delivery",
-      enum: ["Cash on Delivery", "Credit Card", "Debit Card", "PayPal", "Bank Transfer"],
+      enum: ["Cash on Delivery", "Credit Card", "Debit Card", "PayPal", "Bank Transfer", "cod", "card", "tabby", "tamara"],
+    },
+    // Store the actual payment provider used (tabby, tamara, card, cod)
+    actualPaymentMethod: {
+      type: String,
+      enum: ["cod", "card", "tabby", "tamara", null],
+      default: null,
     },
     paymentResult: {
       id: String,
       status: String,
       update_time: String,
       email_address: String,
+      // Provider-specific fields
+      tamara_order_id: String,
+      tamara_checkout_id: String,
+      tabby_payment_id: String,
+      ngenius_order_ref: String,
+      event_type: String,
+      authorized_amount: Object,
+      capture_id: String,
+      captured_amount: Object,
+      webhook_data: Object,
     },
     itemsPrice: {
       type: Number,

@@ -1763,4 +1763,41 @@ router.get("/test-reviews", protect, admin, (req, res) => {
   })
 })
 
+// @desc    Get critical orders (unpaid card/tabby/tamara payments)
+// @route   GET /api/admin/orders/critical
+// @access  Private/Admin
+router.get(
+  "/orders/critical",
+  protect,
+  admin,
+  asyncHandler(async (req, res) => {
+    // Find orders where:
+    // 1. Payment method is card, tabby, or tamara (not COD)
+    // 2. Order is NOT paid
+    // These are orders where customer attempted to pay but transaction failed
+    const criticalOrders = await Order.find({
+      $and: [
+        { isPaid: false }, // Not paid
+        { status: { $ne: "Deleted" } }, // Not deleted
+        { status: { $ne: "Cancelled" } }, // Not cancelled (optional - you might want to include cancelled too)
+        {
+          $or: [
+            { actualPaymentMethod: { $in: ["card", "tabby", "tamara"] } },
+            { paymentMethod: { $in: ["card", "tabby", "tamara", "Credit Card", "Debit Card"] } },
+          ],
+        },
+      ],
+    })
+      .populate({ path: "user", select: "name email" })
+      .populate({
+        path: "orderItems.product",
+        select: "name image sku price offerPrice oldPrice discount",
+      })
+      .sort({ createdAt: -1 })
+
+    console.log(`[CRITICAL ORDERS] Found ${criticalOrders.length} critical orders`)
+    res.json(criticalOrders)
+  }),
+)
+
 export default router

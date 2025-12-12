@@ -27,6 +27,24 @@ const optionalProtect = asyncHandler(async (req, res, next) => {
   next()
 })
 
+// Helper function to get display name for payment method
+const getPaymentMethodDisplay = (actualPaymentMethod, paymentMethod) => {
+  const method = actualPaymentMethod || paymentMethod
+  switch (method?.toLowerCase()) {
+    case 'tabby':
+      return 'Tabby'
+    case 'tamara':
+      return 'Tamara'
+    case 'card':
+      return 'Pay by Card'
+    case 'cod':
+    case 'cash on delivery':
+      return 'Cash on Delivery'
+    default:
+      return paymentMethod || 'Cash on Delivery'
+  }
+}
+
 // @desc    Create new order
 // @route   POST /api/orders
 // @access  Public (supports both authenticated and guest checkout)
@@ -43,6 +61,8 @@ router.post(
       shippingPrice,
       totalPrice,
       customerNotes,
+      paymentMethod,
+      actualPaymentMethod,
     } = req.body
 
     if (!orderItems || orderItems.length === 0) {
@@ -90,7 +110,9 @@ router.post(
       shippingPrice,
       totalPrice,
       customerNotes,
-        status: "New",
+      paymentMethod: paymentMethod || "cod",
+      actualPaymentMethod: actualPaymentMethod || paymentMethod || "cod",
+      status: "New",
     })
 
     const createdOrder = await order.save()
