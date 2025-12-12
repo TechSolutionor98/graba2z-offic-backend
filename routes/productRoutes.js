@@ -604,6 +604,74 @@ router.put(
   }),
 )
 
+// @desc    Bulk update product status (active/inactive/onhold)
+// @route   PUT /api/products/bulk-status
+// @access  Private/Admin
+router.put(
+  "/bulk-status",
+  protect,
+  admin,
+  asyncHandler(async (req, res) => {
+    try {
+      console.log('Bulk status update request received:', req.body)
+      
+      const { productIds, isActive, onHold } = req.body
+
+      if (!productIds || !Array.isArray(productIds) || productIds.length === 0) {
+        res.status(400)
+        throw new Error("Product IDs are required")
+      }
+
+      // Prepare update object
+      const updateData = {}
+      
+      if (typeof isActive === 'boolean') {
+        updateData.isActive = isActive
+      }
+      
+      if (typeof onHold === 'boolean') {
+        updateData.onHold = onHold
+      }
+
+      if (Object.keys(updateData).length === 0) {
+        res.status(400)
+        throw new Error("At least one status field (isActive or onHold) is required")
+      }
+
+      console.log('Updating products with status:', updateData)
+      console.log('Product IDs count:', productIds.length)
+
+      // Update all products
+      const result = await Product.updateMany(
+        { _id: { $in: productIds } },
+        { $set: updateData }
+      )
+
+      console.log('Update result:', result)
+
+      // Determine status message
+      let statusMessage = ""
+      if (updateData.onHold === true) {
+        statusMessage = "hidden from shop"
+      } else if (updateData.isActive === true) {
+        statusMessage = "activated"
+      } else if (updateData.isActive === false) {
+        statusMessage = "deactivated"
+      }
+
+      res.json({
+        message: `Successfully ${statusMessage} ${result.modifiedCount} product(s)`,
+        modifiedCount: result.modifiedCount,
+        matchedCount: result.matchedCount,
+      })
+    } catch (error) {
+      console.error('Bulk status update error:', error)
+      res.status(500)
+      throw error
+    }
+  }),
+)
+
 // @desc    Fetch single product by ID
 // @route   GET /api/products/:id
 // @access  Public

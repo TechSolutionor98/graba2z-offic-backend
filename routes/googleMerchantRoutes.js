@@ -818,6 +818,343 @@ router.get(
   }),
 )
 
+// @desc    Generate Brand-specific XML Feed (e.g., Acer, Dell, HP)
+// @route   GET /api/google-merchant/brand/:brandName/feed.xml
+// @access  Public
+router.get(
+  "/brand/:brandName/feed.xml",
+  asyncHandler(async (req, res) => {
+    try {
+      const brandName = req.params.brandName
+      
+      // Parse pagination parameters
+      const page = Number.parseInt(req.query.page) || 1
+      const limit = Number.parseInt(req.query.limit) || 0 // 0 means no limit
+      const skip = limit > 0 ? (page - 1) * limit : 0
+
+      console.log(`Generating XML feed for brand: ${brandName}`)
+
+      // First, find the brand by name (case-insensitive)
+      const Brand = (await import("../models/brandModel.js")).default
+      const brand = await Brand.findOne({ 
+        name: { $regex: new RegExp(`^${brandName}$`, 'i') } 
+      })
+
+      if (!brand) {
+        res.status(404).send(`<?xml version="1.0" encoding="UTF-8"?>
+<error>
+  <message><![CDATA[Brand "${brandName}" not found]]></message>
+</error>`)
+        return
+      }
+
+      // Build query - include ALL active products for this brand
+      const query = {
+        name: { $exists: true, $ne: '' },
+        brand: brand._id,
+        $or: [{ isActive: true }, { isActive: { $exists: false } }]
+      }
+
+      console.log("Fetching products for brand XML with query:", JSON.stringify(query))
+
+      // Get total count first
+      const totalCount = await Product.countDocuments(query)
+      console.log(`Total ${brandName} products for XML: ${totalCount}`)
+
+      // Build the aggregation pipeline
+      const aggregationPipeline = [
+        { $match: query },
+        {
+          $lookup: {
+            from: "brands",
+            localField: "brand",
+            foreignField: "_id",
+            as: "brand",
+          },
+        },
+        {
+          $lookup: {
+            from: "categories",
+            localField: "category",
+            foreignField: "_id",
+            as: "category",
+          },
+        },
+        {
+          $lookup: {
+            from: "categories",
+            localField: "parentCategory",
+            foreignField: "_id",
+            as: "parentCategory",
+          },
+        },
+        {
+          $unwind: {
+            path: "$brand",
+            preserveNullAndEmptyArrays: true,
+          },
+        },
+        {
+          $unwind: {
+            path: "$category",
+            preserveNullAndEmptyArrays: true,
+          },
+        },
+        {
+          $unwind: {
+            path: "$parentCategory",
+            preserveNullAndEmptyArrays: true,
+          },
+        },
+      ]
+
+      // Add pagination only if limit is specified
+      if (limit > 0) {
+        aggregationPipeline.push({ $skip: skip })
+        aggregationPipeline.push({ $limit: limit })
+      }
+
+      const products = await Product.aggregate(aggregationPipeline)
+
+      console.log(`Found ${products.length} ${brandName} products for XML`)
+
+      res.set({
+        "Content-Type": "application/xml; charset=utf-8",
+        "Cache-Control": "public, max-age=3600",
+      })
+
+      let xml = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:g="http://base.google.com/ns/1.0">
+  <channel>
+    <title><![CDATA[GrabA2Z ${brand.name} Products]]></title>
+    <link>https://www.grabatoz.ae</link>
+    <description><![CDATA[GrabA2Z ${brand.name} Product Feed - Total: ${totalCount} products]]></description>
+    <language>en</language>
+    <lastBuildDate>${new Date().toUTCString()}</lastBuildDate>
+`
+
+      let processedCount = 0
+      const availabilityStats = {
+        inStock: 0,
+        outOfStock: 0,
+        preOrder: 0,
+      }
+
+      for (const product of products) {
+        try {
+          // Skip products without a name
+          if (!product.name || product.name.trim() === "") {
+            console.warn(`Skipping product ${product._id} - missing name`)
+            continue
+          }
+
+          // Escape & in slug for valid XML URLs
+          const cleanSlug = (product.slug || product._id.toString()).replace(/&/g, '%26')
+          const productUrl = `https://www.grabatoz.ae/product/${cleanSlug}`
+          
+          // Escape & in image URLs for valid XML
+          let imageUrl = product.image
+            ? product.image.startsWith("http")
+              ? product.image
+              : `https://www.grabatoz.ae${product.image}`
+            : "https://www.grabatoz.ae/placeholder.jpg"
+          imageUrl = imageUrl.replace(/&/g, '&amp;')
+
+          // Use the improved availability logic
+          const availability = determineAvailability(product)
+          if (availability === "in stock") availabilityStats.inStock++
+          else if (availability === "out of stock") availabilityStats.outOfStock++
+          else if (availability === "preorder") availabilityStats.preOrder++
+
+          // Handle pricing
+          let price = 0
+          if (product.offerPrice && product.offerPrice > 0) {
+            price = product.offerPrice
+          } else if (product.price && product.price > 0) {
+            price = product.price
+          } else {
+            price = 1
+          }
+
+          const salePrice =
+            product.offerPrice && product.offerPrice > 0 && product.price && product.offerPrice < product.price
+              ? product.offerPrice
+              : null
+
+          // Clean and limit description
+          const cleanDescription = truncateDescription(
+            product.description || product.shortDescription || product.name || "No description available"
+          )
+
+          // Truncate title
+          const truncatedTitle = truncateTitle(product.name)
+
+          const googleProductCategory = determineGoogleCategory(product.parentCategory?.name, product.category?.name)
+          const productType =
+            (product.parentCategory?.name || "Uncategorized") +
+            (product.category?.name ? ` > ${product.category.name}` : "")
+
+          // Check if product has valid identifiers
+          const hasGtin = product.barcode && product.barcode.trim() !== ''
+          const hasMpn = product.sku && product.sku.trim() !== ''
+          const hasBrand = product.brand?.name && product.brand.name.toLowerCase() !== 'generic'
+          const identifierExists = hasGtin || (hasBrand && hasMpn)
+
+          xml += `    <item>
+      <g:id>${escapeXml(product._id.toString())}</g:id>
+      <g:title><![CDATA[${cleanForCDATA(truncatedTitle)}]]></g:title>
+      <g:description><![CDATA[${cleanForCDATA(cleanDescription)}]]></g:description>
+      <g:link>${productUrl}</g:link>
+      <g:image_link>${imageUrl}</g:image_link>
+      <g:price>${price.toFixed(2)} AED</g:price>`
+
+          if (salePrice) {
+            xml += `
+      <g:sale_price>${salePrice.toFixed(2)} AED</g:sale_price>`
+          }
+
+          xml += `
+      <g:availability>${availability}</g:availability>
+      <g:condition>new</g:condition>`
+
+          if (product.brand?.name) {
+            xml += `
+      <g:brand><![CDATA[${cleanForCDATA(product.brand.name)}]]></g:brand>`
+          }
+
+          if (product.barcode) {
+            xml += `
+      <g:gtin>${escapeXml(product.barcode)}</g:gtin>`
+          }
+
+          if (product.sku) {
+            xml += `
+      <g:mpn><![CDATA[${cleanForCDATA(product.sku)}]]></g:mpn>`
+          } else {
+            xml += `
+      <g:mpn><![CDATA[${cleanForCDATA(product._id.toString())}]]></g:mpn>`
+          }
+
+          xml += `
+      <g:identifier_exists>${identifierExists ? 'true' : 'false'}</g:identifier_exists>`
+
+          xml += `
+      <g:google_product_category><![CDATA[${googleProductCategory}]]></g:google_product_category>
+      <g:product_type><![CDATA[${cleanForCDATA(productType)}]]></g:product_type>
+      <g:item_group_id>${escapeXml(product._id.toString())}</g:item_group_id>`
+
+          xml += `
+      <g:shipping>
+        <g:country>AE</g:country>
+        <g:service>Standard Shipping</g:service>
+        <g:price>0.00 AED</g:price>
+      </g:shipping>`
+
+          // Add additional images if available
+          if (product.galleryImages && product.galleryImages.length > 0) {
+            product.galleryImages.slice(0, 10).forEach((img) => {
+              if (img) {
+                let additionalImageUrl = img.startsWith("http") ? img : `https://www.grabatoz.ae${img}`
+                additionalImageUrl = additionalImageUrl.replace(/&/g, '&amp;')
+                xml += `
+      <g:additional_image_link>${additionalImageUrl}</g:additional_image_link>`
+              }
+            })
+          }
+
+          // Add weight if available
+          if (product.weight && product.weight > 0) {
+            xml += `
+      <g:shipping_weight>${product.weight} kg</g:shipping_weight>`
+          }
+
+          // Add custom labels
+          xml += `
+      <g:custom_label_0><![CDATA[${cleanForCDATA(brand.name)}]]></g:custom_label_0>`
+
+          if (product.featured) {
+            xml += `
+      <g:custom_label_1>Featured</g:custom_label_1>`
+          }
+
+          if (product.tags && product.tags.length > 0) {
+            const tagsString = product.tags.slice(0, 3).join(", ")
+            xml += `
+      <g:custom_label_2><![CDATA[${cleanForCDATA(tagsString)}]]></g:custom_label_2>`
+          }
+
+          xml += `
+    </item>
+`
+          processedCount++
+        } catch (productError) {
+          console.error(`Error processing ${brandName} product ${product._id} for XML:`, productError)
+          continue
+        }
+      }
+
+      xml += `  </channel>
+</rss>`
+
+      console.log(`${brandName} XML feed generated with ${processedCount} products out of ${totalCount} total`)
+      console.log(`${brandName} XML Availability stats:`, availabilityStats)
+      res.send(xml)
+    } catch (error) {
+      console.error(`Brand ${req.params.brandName} XML feed error:`, error)
+      res.status(500).send(`<?xml version="1.0" encoding="UTF-8"?>
+<error>
+  <message><![CDATA[Error generating ${req.params.brandName} product feed: ${error.message}]]></message>
+</error>`)
+    }
+  }),
+)
+
+// @desc    Get Brand product count
+// @route   GET /api/google-merchant/brand/:brandName/count
+// @access  Public
+router.get(
+  "/brand/:brandName/count",
+  asyncHandler(async (req, res) => {
+    try {
+      const brandName = req.params.brandName
+      
+      // Find the brand by name (case-insensitive)
+      const Brand = (await import("../models/brandModel.js")).default
+      const brand = await Brand.findOne({ 
+        name: { $regex: new RegExp(`^${brandName}$`, 'i') } 
+      })
+
+      if (!brand) {
+        res.status(404).json({ error: `Brand "${brandName}" not found` })
+        return
+      }
+
+      const query = {
+        brand: brand._id,
+        $or: [{ isActive: true }, { isActive: { $exists: false } }]
+      }
+
+      const totalCount = await Product.countDocuments(query)
+      const activeCount = await Product.countDocuments({ ...query, isActive: true })
+      const inStockCount = await Product.countDocuments({ ...query, stockStatus: "Available Product" })
+      const outOfStockCount = await Product.countDocuments({ ...query, stockStatus: "Out of Stock" })
+
+      res.json({
+        brand: brand.name,
+        brandId: brand._id,
+        totalProducts: totalCount,
+        activeProducts: activeCount,
+        inStock: inStockCount,
+        outOfStock: outOfStockCount,
+        feedUrl: `/api/google-merchant/brand/${brandName}/feed.xml`
+      })
+    } catch (error) {
+      console.error(`Brand ${req.params.brandName} count error:`, error)
+      res.status(500).json({ error: error.message })
+    }
+  }),
+)
+
 export default router
 
 

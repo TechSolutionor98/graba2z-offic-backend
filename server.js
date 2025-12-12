@@ -12,6 +12,7 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
 import googleMerchantRoutes from "./routes/googleMerchantRoutes.js"
+import acerProductsRoutes from "./routes/acerProductsRoutes.js"
 import sitemapRoutes from './routes/sitemapRoutes.js'
 
 // Routes
@@ -151,6 +152,7 @@ app.use("/api/cache", cacheRoutes)
 
 
 app.use("/api/google-merchant", googleMerchantRoutes)
+app.use("/acer-products", acerProductsRoutes)
 app.use('/api/app', appRoutes)
 app.use('/api/mobile', mobileApiRoutes)
 
