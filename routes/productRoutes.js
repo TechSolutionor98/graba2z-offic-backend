@@ -2071,7 +2071,17 @@ router.post(
         if (existing) {
           level1Map.set(key, existing._id)
         } else {
-          const slug = generateSlug(name)
+          let slug = generateSlug(name)
+          // Check if slug exists at any level - if so, make it unique by appending level
+          const slugExists = await SubCategory.findOne({ slug })
+          if (slugExists) {
+            slug = `${slug}-1`
+            // If even that exists, append timestamp
+            const stillExists = await SubCategory.findOne({ slug })
+            if (stillExists) {
+              slug = `${generateSlug(name)}-1-${Date.now().toString().slice(-4)}`
+            }
+          }
           const created = await SubCategory.create({
             name: name.trim(),
             slug,
