@@ -199,6 +199,7 @@ router.get(
         _id: cat._id,
         name: cat.name,
         slug: cat.slug,
+        image: cat.image,
         isActive: cat.isActive,
         sortOrder: cat.sortOrder,
         level: 0,
@@ -392,6 +393,25 @@ router.get(
     const trashedCategories = await Category.find({ isDeleted: true }).sort({ deletedAt: -1 })
     res.json(trashedCategories)
   })
+)
+
+// @desc    Fetch single category (Admin - includes inactive)
+// @route   GET /api/categories/:id/admin
+// @access  Private/Admin
+router.get(
+  "/:id/admin",
+  protect,
+  admin,
+  asyncHandler(async (req, res) => {
+    const category = await Category.findById(req.params.id)
+
+    if (category && !category.isDeleted) {
+      res.json(category)
+    } else {
+      res.status(404)
+      throw new Error("Category not found")
+    }
+  }),
 )
 
 // @desc    Fetch single category

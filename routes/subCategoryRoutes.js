@@ -715,6 +715,25 @@ router.get(
   })
 );
 
+// @desc    Get nested subcategories by parent subcategory ID (Admin - includes inactive)
+// @route   GET /api/subcategories/children/:parentId/admin
+// @access  Private/Admin
+router.get(
+  "/children/:parentId/admin",
+  protect,
+  admin,
+  asyncHandler(async (req, res) => {
+    const children = await SubCategory.find({
+      parentSubCategory: req.params.parentId,
+      isDeleted: { $ne: true },
+    })
+      .populate("category", "name slug")
+      .populate("parentSubCategory", "name slug")
+      .sort({ sortOrder: 1, name: 1 });
+    res.json(children);
+  })
+);
+
 // @desc    Get nested subcategories by parent subcategory ID
 // @route   GET /api/subcategories/children/:parentId
 // @access  Public
@@ -1303,6 +1322,25 @@ router.delete(
       res.status(404)
       throw new Error("Subcategory not found")
     }
+  }),
+)
+
+// @desc    Get subcategories by category (Admin - includes inactive)
+// @route   GET /api/subcategories/category/:categoryId/admin
+// @access  Private/Admin
+router.get(
+  "/category/:categoryId/admin",
+  protect,
+  admin,
+  asyncHandler(async (req, res) => {
+    const subcategories = await SubCategory.find({
+      category: req.params.categoryId,
+      isDeleted: { $ne: true },
+    })
+      .populate("category", "name")
+      .sort({ name: 1 })
+
+    res.json(subcategories)
   }),
 )
 
