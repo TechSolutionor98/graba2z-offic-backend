@@ -38,6 +38,9 @@ import offerPageRoutes from "./routes/offerPageRoutes.js"
 import offerProductRoutes from "./routes/offerProductRoutes.js"
 import offerBrandRoutes from "./routes/offerBrandRoutes.js"
 import offerCategoryRoutes from "./routes/offerCategoryRoutes.js"
+import gamingZonePageRoutes from "./routes/gamingZonePageRoutes.js"
+import gamingZoneCategoryRoutes from "./routes/gamingZoneCategoryRoutes.js"
+import gamingZoneBrandRoutes from "./routes/gamingZoneBrandRoutes.js"
 import blogRoutes from "./routes/blogRoutes.js"
 import blogCategoryRoutes from "./routes/blogCategoryRoutes.js"
 import blogTopicRoutes from "./routes/blogTopicRoutes.js"
@@ -131,6 +134,9 @@ app.use("/api/offer-pages", offerPageRoutes)
 app.use("/api/offer-products", offerProductRoutes)
 app.use("/api/offer-brands", offerBrandRoutes)
 app.use("/api/offer-categories", offerCategoryRoutes)
+app.use("/api/gaming-zone-pages", gamingZonePageRoutes)
+app.use("/api/gaming-zone-categories", gamingZoneCategoryRoutes)
+app.use("/api/gaming-zone-brands", gamingZoneBrandRoutes)
 app.use("/api/blogs", blogRoutes)
 app.use("/api/blog-categories", blogCategoryRoutes)
 app.use("/api/blog-topics", blogTopicRoutes)
