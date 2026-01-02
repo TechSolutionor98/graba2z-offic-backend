@@ -59,18 +59,27 @@ router.get('/slug/:slug', async (req, res) => {
 // Get products for a gaming zone page (auto-fetched based on selected categories)
 router.get('/slug/:slug/products', async (req, res) => {
   try {
+    console.log('\n🎮 Gaming Zone Products API called for:', req.params.slug);
+    
     // Get all categories for this gaming zone page
     const gamingZoneCategories = await GamingZoneCategory.find({ 
       gamingZonePageSlug: req.params.slug,
       isActive: true 
     });
 
+    console.log('📋 Gaming Zone Categories found:', gamingZoneCategories.length);
+    gamingZoneCategories.forEach(gc => {
+      console.log(`  - Category: ${gc.category}, Type: ${gc.categoryType}`);
+    });
+
     if (!gamingZoneCategories || gamingZoneCategories.length === 0) {
-      return res.json([]);
+      console.log('⚠️ No active categories found for this gaming zone');
+      return res.json({ products: [], currentPage: 1, totalPages: 0, totalProducts: 0 });
     }
 
     // Extract category IDs
     const categoryIds = gamingZoneCategories.map(gc => gc.category);
+    console.log('🎯 Category IDs to search:', categoryIds);
 
     // Build query to find all products that match the selected categories
     let productQuery = {
@@ -78,51 +87,23 @@ router.get('/slug/:slug/products', async (req, res) => {
       isActive: true
     };
 
-    // We need to check:
-    // 1. Products with parentCategory matching (for main categories)
-    // 2. Products with category matching (for subcategories level 1)
-    // 3. Products with subCategory2 matching (for subcategories level 2)
-    
-    const categoryTypeMap = {};
-    gamingZoneCategories.forEach(gc => {
-      categoryTypeMap[gc.category.toString()] = gc.categoryType;
-    });
-
-    // Separate category and subcategory IDs
-    const mainCategoryIds = [];
-    const subCategoryIds = [];
-    
-    for (const gc of gamingZoneCategories) {
-      if (gc.categoryType === 'Category') {
-        mainCategoryIds.push(gc.category);
-        
-        // Also get all subcategories under this main category
-        const subCats = await SubCategory.find({ parentCategory: gc.category });
-        subCategoryIds.push(...subCats.map(sc => sc._id));
-      } else if (gc.categoryType === 'SubCategory') {
-        subCategoryIds.push(gc.category);
-        
-        // Also get all sub-subcategories under this subcategory
-        const subSubCats = await SubCategory.find({ parentCategory: gc.category });
-        subCategoryIds.push(...subSubCats.map(sc => sc._id));
-      }
-    }
-
-    // Build the OR condition to match any of the category levels
+    // Build the OR condition to match ANY of the category levels
     const orConditions = [];
     
-    if (mainCategoryIds.length > 0) {
-      orConditions.push({ parentCategory: { $in: mainCategoryIds } });
-    }
-    
-    if (subCategoryIds.length > 0) {
-      orConditions.push({ category: { $in: subCategoryIds } });
-      orConditions.push({ subCategory2: { $in: subCategoryIds } });
-    }
+    // For each selected category, check if it matches ANY level in products
+    categoryIds.forEach(catId => {
+      orConditions.push({ parentCategory: catId });
+      orConditions.push({ category: catId });
+      orConditions.push({ subCategory2: catId });
+      orConditions.push({ subCategory3: catId });
+      orConditions.push({ subCategory4: catId });
+    });
 
     if (orConditions.length > 0) {
       productQuery.$or = orConditions;
     }
+
+    console.log('🔍 Product query:', JSON.stringify(productQuery, null, 2));
 
     // Fetch products with pagination support
     const page = parseInt(req.query.page) || 1;
@@ -134,12 +115,16 @@ router.get('/slug/:slug/products', async (req, res) => {
       .populate('parentCategory')
       .populate('category')
       .populate('subCategory2')
+      .populate('subCategory3')
+      .populate('subCategory4')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
       .lean();
 
     const totalProducts = await Product.countDocuments(productQuery);
+
+    console.log(`✅ Found ${totalProducts} products, returning page ${page} with ${products.length} products`);
 
     res.json({
       products,
@@ -148,7 +133,7 @@ router.get('/slug/:slug/products', async (req, res) => {
       totalProducts,
     });
   } catch (error) {
-    console.error('Error fetching gaming zone products:', error);
+    console.error('❌ Error fetching gaming zone products:', error);
     res.status(500).json({ message: error.message });
   }
 });
