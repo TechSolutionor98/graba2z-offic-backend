@@ -30,8 +30,27 @@ const bannerSchema = mongoose.Schema(
     position: {
       type: String,
       required: true,
-      enum: ["hero", "category", "promotional", "footer"],
+      enum: [
+        "hero",
+        "category",
+        "promotional",
+        "footer",
+        "home-top-triple",
+        "home-brand-single",
+        "home-brand-dual",
+        "home-category-banner",
+        "home-custom"
+      ],
       default: "hero",
+    },
+    section: {
+      type: String,
+      // Used to group banners by specific sections on home page
+      // e.g., "hp-section", "dell-section", "accessories-section", etc.
+    },
+    link: {
+      type: String,
+      // Direct link for the banner (alternative to buttonLink)
     },
     category: {
       type: mongoose.Schema.Types.ObjectId,
