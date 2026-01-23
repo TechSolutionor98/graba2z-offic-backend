@@ -98,7 +98,7 @@ const determineAvailability = (product) => {
   if (product.countInStock && product.countInStock > 0) {
     return "in stock"
   }
-  if (product.stockStatus === "Available Product") {
+  if (product.stockStatus === "In Stock") {
     return "in stock"
   }
   return "out of stock"
@@ -142,12 +142,12 @@ router.get(
     try {
       console.log("Generating Acer Products XML feed...")
 
-      // Find Acer brand (case-insensitive)
-      const acerBrand = await Brand.findOne({ 
+      // Find ALL Acer brands (case-insensitive) - handles variations like "Acer", "ACER", "acer"
+      const acerBrands = await Brand.find({ 
         name: { $regex: /^acer$/i } 
       })
 
-      if (!acerBrand) {
+      if (!acerBrands || acerBrands.length === 0) {
         res.status(404).send(`<?xml version="1.0" encoding="UTF-8"?>
 <error>
   <message><![CDATA[Acer brand not found in database]]></message>
@@ -155,10 +155,14 @@ router.get(
         return
       }
 
-      // Build query for active Acer products
+      // Get all Acer brand IDs
+      const acerBrandIds = acerBrands.map(b => b._id)
+      console.log(`Found ${acerBrands.length} Acer brand entries: ${acerBrands.map(b => b.name).join(', ')}`)
+
+      // Build query for active Acer products - use $in to match any Acer brand
       const query = {
         name: { $exists: true, $ne: '' },
-        brand: acerBrand._id,
+        brand: { $in: acerBrandIds },
         $or: [{ isActive: true }, { isActive: { $exists: false } }]
       }
 
@@ -179,7 +183,7 @@ router.get(
         },
         {
           $lookup: {
-            from: "categories",
+            from: "subcategories",
             localField: "category",
             foreignField: "_id",
             as: "category",
@@ -251,7 +255,7 @@ router.get(
           const productType = (product.parentCategory?.name || "Electronics") +
             (product.category?.name ? ` > ${product.category.name}` : "")
 
-          const hasGtin = product.barcode && product.barcode.trim() !== ''
+          const hasGtin = product.gtin && product.gtin.trim() !== ''
           const hasMpn = product.sku && product.sku.trim() !== ''
           const identifierExists = hasGtin || hasMpn
 
@@ -273,9 +277,9 @@ router.get(
       <g:condition>new</g:condition>
       <g:brand><![CDATA[Acer]]></g:brand>`
 
-          if (product.barcode) {
+          if (product.gtin) {
             xml += `
-      <g:gtin>${escapeXml(product.barcode)}</g:gtin>`
+      <g:gtin>${escapeXml(product.gtin)}</g:gtin>`
           }
 
           if (product.sku) {
@@ -362,15 +366,17 @@ router.get(
   "/feed.json",
   asyncHandler(async (req, res) => {
     try {
-      const acerBrand = await Brand.findOne({ name: { $regex: /^acer$/i } })
+      const acerBrands = await Brand.find({ name: { $regex: /^acer$/i } })
 
-      if (!acerBrand) {
+      if (!acerBrands || acerBrands.length === 0) {
         res.status(404).json({ error: "Acer brand not found" })
         return
       }
 
+      const acerBrandIds = acerBrands.map(b => b._id)
+
       const query = {
-        brand: acerBrand._id,
+        brand: { $in: acerBrandIds },
         $or: [{ isActive: true }, { isActive: { $exists: false } }]
       }
 
@@ -415,25 +421,28 @@ router.get(
   "/stats",
   asyncHandler(async (req, res) => {
     try {
-      const acerBrand = await Brand.findOne({ name: { $regex: /^acer$/i } })
+      const acerBrands = await Brand.find({ name: { $regex: /^acer$/i } })
 
-      if (!acerBrand) {
+      if (!acerBrands || acerBrands.length === 0) {
         res.status(404).json({ error: "Acer brand not found" })
         return
       }
 
-      const baseQuery = { brand: acerBrand._id }
+      const acerBrandIds = acerBrands.map(b => b._id)
+
+      const baseQuery = { brand: { $in: acerBrandIds } }
       
       const totalProducts = await Product.countDocuments(baseQuery)
       const activeProducts = await Product.countDocuments({ ...baseQuery, isActive: true })
-      const inStockProducts = await Product.countDocuments({ ...baseQuery, stockStatus: "Available Product" })
+      const inStockProducts = await Product.countDocuments({ ...baseQuery, stockStatus: "In Stock" })
       const outOfStockProducts = await Product.countDocuments({ ...baseQuery, stockStatus: "Out of Stock" })
       const preOrderProducts = await Product.countDocuments({ ...baseQuery, stockStatus: "PreOrder" })
       const featuredProducts = await Product.countDocuments({ ...baseQuery, featured: true })
 
       res.json({
         brand: "Acer",
-        brandId: acerBrand._id,
+        brandIds: acerBrandIds,
+        brandNames: acerBrands.map(b => b.name),
         stats: {
           total: totalProducts,
           active: activeProducts,

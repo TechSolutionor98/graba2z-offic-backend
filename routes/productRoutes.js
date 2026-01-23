@@ -1821,7 +1821,7 @@ router.post(
       // Build preview
       const previewProducts = []
       const invalidRows = []
-      const allowedStockStatus = ["Available Product", "Out of Stock", "PreOrder"]
+      const allowedStockStatus = ["In Stock", "Out of Stock", "PreOrder"]
 
       for (const [i, row] of mappedRows.entries()) {
         if (Object.values(row).every((v) => !v)) {
@@ -1857,8 +1857,8 @@ router.post(
         const level3Data = await ensureSubCategory(level3Name, parentCategoryId, level2Data.id || level1Id, 3)
         const level4Data = await ensureSubCategory(level4Name, parentCategoryId, level3Data.id || level2Data.id || level1Id, 4)
 
-        let stockStatus = row.stockStatus || "Available Product"
-        if (!allowedStockStatus.includes(stockStatus)) stockStatus = "Available Product"
+        let stockStatus = row.stockStatus || "In Stock"
+        if (!allowedStockStatus.includes(stockStatus)) stockStatus = "In Stock"
         
         console.log(`Row brand value: "${row.brand}", type: ${typeof row.brand}`)
         const brandId = row.brand ? brandMap.get(String(row.brand).trim().toLowerCase()) : undefined
@@ -2127,7 +2127,7 @@ router.post(
     const seenNames = new Set()
     const seenBarcodes = new Set()
 
-    const allowedStockStatus = ["Available Product", "Out of Stock", "PreOrder"]
+    const allowedStockStatus = ["In Stock", "Out of Stock", "PreOrder"]
     const previewProducts = []
     const invalidRows = []
 
@@ -2237,8 +2237,8 @@ router.post(
       const level3Data = await ensureSubCategory(level3Name, parentCategoryId, level2Data.id || level1Id, 3)
       const level4Data = await ensureSubCategory(level4Name, parentCategoryId, level3Data.id || level2Data.id || level1Id, 4)
 
-      let stockStatus = row.stockStatus || "Available Product"
-      if (!allowedStockStatus.includes(stockStatus)) stockStatus = "Available Product"
+      let stockStatus = row.stockStatus || "In Stock"
+      if (!allowedStockStatus.includes(stockStatus)) stockStatus = "In Stock"
       const brandId = row.brand ? brandMap.get(String(row.brand).trim().toLowerCase()) : undefined
       const taxId = row.tax ? taxMap.get(String(row.tax).trim().toLowerCase()) : undefined
       const unitId = row.unit ? unitMap.get(String(row.unit).trim().toLowerCase()) : undefined
@@ -2366,7 +2366,7 @@ router.post(
     let failed = 0
     let created = 0
     let updated = 0
-    const allowedStockStatus = ["Available Product", "Out of Stock", "PreOrder"]
+    const allowedStockStatus = ["In Stock", "Out of Stock", "PreOrder"]
 
     // Collect all unique brand names to create missing ones
     const brandNames = new Set()
@@ -2436,8 +2436,8 @@ router.post(
         }
 
         // Use defaults for missing fields
-        let stockStatus = prod.stockStatus || "Available Product"
-        if (!allowedStockStatus.includes(stockStatus)) stockStatus = "Available Product"
+        let stockStatus = prod.stockStatus || "In Stock"
+        if (!allowedStockStatus.includes(stockStatus)) stockStatus = "In Stock"
 
         // Extract IDs from populated objects or use direct IDs
         const parentCategoryId = prod.parentCategory?._id || prod.parentCategory
@@ -2830,7 +2830,7 @@ router.post(
             price: parseFloat(row.price) || 0,
             offerPrice: parseFloat(row.offerPrice) || 0,
             discount: parseFloat(row.discount) || 0,
-            stockStatus: row.stockStatus || 'Available Product',
+            stockStatus: row.stockStatus || 'In Stock',
             countInStock: parseInt(row.countInStock) || 0,
             showStockOut: row.showStockOut === 'true' || row.showStockOut === true,
             canPurchase: row.canPurchase !== 'false' && row.canPurchase !== false,
@@ -3164,7 +3164,7 @@ router.post(
           buyingPrice: Number(productData.buyingPrice) || 0,
           price: Number(productData.price) || 0,
           offerPrice: Number(productData.offerPrice) || 0,
-          stockStatus: String(productData.stockStatus || "Available Product").trim(),
+          stockStatus: String(productData.stockStatus || "In Stock").trim(),
           showStockOut: productData.showStockOut !== undefined ? Boolean(productData.showStockOut) : true,
           canPurchase: productData.canPurchase !== undefined ? Boolean(productData.canPurchase) : true,
           refundable: productData.refundable !== undefined ? Boolean(productData.refundable) : true,

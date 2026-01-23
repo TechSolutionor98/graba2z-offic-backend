@@ -22,11 +22,16 @@ const productSchema = mongoose.Schema(
       unique: true,
       sparse: true, // allows null/undefined values but ensures non-null values are unique
     },
+    gtin: {
+      type: String,
+      unique: true,
+      sparse: true, // GTIN number for Google Merchant feed
+    },
     stockStatus: {
       type: String,
       required: true,
-      default: "Available Product",
-      enum: ["Available Product", "Out of Stock", "PreOrder"],
+      default: "In Stock",
+      enum: ["In Stock", "Out of Stock", "PreOrder"],
     },
     brand: {
       type: mongoose.Schema.Types.ObjectId,

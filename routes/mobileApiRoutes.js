@@ -106,17 +106,17 @@ router.get("/products", async (req, res) => {
       const status = stockStatus.toLowerCase()
       
       if (status === 'instock' || status === 'in_stock') {
-        // Show products marked as "Available Product" with stock > 0
+        // Show products marked as "In Stock" with stock > 0
         andConditions.push({
-          stockStatus: "Available Product",
+          stockStatus: "In Stock",
           countInStock: { $gt: 0 }
         })
       } 
       else if (status === 'outofstock' || status === 'out_of_stock') {
-        // Show products that are not "Available Product" or have countInStock <= 0
+        // Show products that are not "In Stock" or have countInStock <= 0
         andConditions.push({
           $or: [
-            { stockStatus: { $ne: "Available Product" } },
+            { stockStatus: { $ne: "In Stock" } },
             { countInStock: { $lte: 0 } }
           ]
         })
@@ -124,7 +124,7 @@ router.get("/products", async (req, res) => {
       else if (status === 'lowstock' || status === 'low_stock') {
         // Show low stock items (count between 1-10) that are available
         andConditions.push({
-          stockStatus: "Available Product",
+          stockStatus: "In Stock",
           countInStock: { $gt: 0, $lte: 10 }
         })
       }

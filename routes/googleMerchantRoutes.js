@@ -100,13 +100,13 @@ const determineAvailability = (product) => {
     return "preorder"
   }
 
-  // If stockStatus is "Available Product" or any other value, check actual stock count
+  // If stockStatus is "In Stock" or any other value, check actual stock count
   if (product.countInStock && product.countInStock > 0) {
     return "in stock"
   }
 
   // If no stock count or zero stock, but stockStatus is not explicitly "Out of Stock"
-  if (product.stockStatus === "Available Product") {
+  if (product.stockStatus === "In Stock") {
     return "in stock" // Trust the stockStatus over countInStock
   }
 
@@ -178,7 +178,7 @@ router.get(
       const productsWithoutName = await Product.countDocuments({ $or: [{ name: { $exists: false } }, { name: "" }] })
 
       // Stock status analysis
-      const availableProducts = await Product.countDocuments({ stockStatus: "Available Product" })
+      const availableProducts = await Product.countDocuments({ stockStatus: "In Stock" })
       const outOfStockProducts = await Product.countDocuments({ stockStatus: "Out of Stock" })
       const preOrderProducts = await Product.countDocuments({ stockStatus: "PreOrder" })
       const productsWithStock = await Product.countDocuments({ countInStock: { $gt: 0 } })
@@ -274,7 +274,7 @@ router.get(
         },
         {
           $lookup: {
-            from: "categories",
+            from: "subcategories",
             localField: "category",
             foreignField: "_id",
             as: "category",
@@ -410,7 +410,7 @@ router.get(
           }
 
           // Check if product has valid identifiers (GTIN or brand+MPN)
-          const hasGtin = product.barcode && product.barcode.trim() !== ''
+          const hasGtin = product.gtin && product.gtin.trim() !== ''
           const hasMpn = product.sku && product.sku.trim() !== ''
           const hasBrand = product.brand?.name && product.brand.name.toLowerCase() !== 'generic'
           const identifierExists = hasGtin || (hasBrand && hasMpn)
@@ -429,7 +429,7 @@ router.get(
             product_type: productType,
             item_group_id: product._id.toString(),
             brand: product.brand?.name || "Generic",
-            gtin: hasGtin ? product.barcode : "",
+            gtin: hasGtin ? product.gtin : "",
             mpn: hasMpn ? product.sku : product._id.toString(),
             identifier_exists: identifierExists ? "yes" : "no",
             shipping_weight: product.weight ? `${product.weight} kg` : "",
@@ -523,7 +523,7 @@ router.get(
         },
         {
           $lookup: {
-            from: "categories",
+            from: "subcategories",
             localField: "category",
             foreignField: "_id",
             as: "category",
@@ -643,7 +643,7 @@ router.get(
             (product.category?.name ? ` > ${product.category.name}` : "")
 
           // Check if product has valid identifiers (GTIN or brand+MPN)
-          const hasGtin = product.barcode && product.barcode.trim() !== ''
+          const hasGtin = product.gtin && product.gtin.trim() !== ''
           const hasMpn = product.sku && product.sku.trim() !== ''
           const hasBrand = product.brand?.name && product.brand.name.toLowerCase() !== 'generic'
           const identifierExists = hasGtin || (hasBrand && hasMpn)
@@ -673,9 +673,9 @@ router.get(
       <g:brand><![CDATA[Generic]]></g:brand>`
           }
 
-          if (product.barcode) {
+          if (product.gtin) {
             xml += `
-      <g:gtin>${escapeXml(product.barcode)}</g:gtin>`
+      <g:gtin>${escapeXml(product.gtin)}</g:gtin>`
           }
 
           if (product.sku) {
@@ -874,7 +874,7 @@ router.get(
         },
         {
           $lookup: {
-            from: "categories",
+            from: "subcategories",
             localField: "category",
             foreignField: "_id",
             as: "category",
@@ -995,7 +995,7 @@ router.get(
             (product.category?.name ? ` > ${product.category.name}` : "")
 
           // Check if product has valid identifiers
-          const hasGtin = product.barcode && product.barcode.trim() !== ''
+          const hasGtin = product.gtin && product.gtin.trim() !== ''
           const hasMpn = product.sku && product.sku.trim() !== ''
           const hasBrand = product.brand?.name && product.brand.name.toLowerCase() !== 'generic'
           const identifierExists = hasGtin || (hasBrand && hasMpn)
@@ -1022,9 +1022,9 @@ router.get(
       <g:brand><![CDATA[${cleanForCDATA(product.brand.name)}]]></g:brand>`
           }
 
-          if (product.barcode) {
+          if (product.gtin) {
             xml += `
-      <g:gtin>${escapeXml(product.barcode)}</g:gtin>`
+      <g:gtin>${escapeXml(product.gtin)}</g:gtin>`
           }
 
           if (product.sku) {
@@ -1136,7 +1136,7 @@ router.get(
 
       const totalCount = await Product.countDocuments(query)
       const activeCount = await Product.countDocuments({ ...query, isActive: true })
-      const inStockCount = await Product.countDocuments({ ...query, stockStatus: "Available Product" })
+      const inStockCount = await Product.countDocuments({ ...query, stockStatus: "In Stock" })
       const outOfStockCount = await Product.countDocuments({ ...query, stockStatus: "Out of Stock" })
 
       res.json({
