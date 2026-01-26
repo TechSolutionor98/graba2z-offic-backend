@@ -45,6 +45,9 @@ import blogRoutes from "./routes/blogRoutes.js"
 import blogCategoryRoutes from "./routes/blogCategoryRoutes.js"
 import blogTopicRoutes from "./routes/blogTopicRoutes.js"
 import blogRatingRoutes from "./routes/blogRatingRoutes.js"
+import blogBrandRoutes from "./routes/blogBrandRoutes.js"
+import blogCommentRoutes from "./routes/blogCommentRoutes.js"
+import blogDashboardRoutes from "./routes/blogDashboardRoutes.js"
 import settingsRoutes from "./routes/settingsRoutes.js"
 import wishlistRoutes from "./routes/wishlistRoutes.js"
 import requestCallbackRoutes from "./routes/requestCallbackRoutes.js"
@@ -141,6 +144,9 @@ app.use("/api/blogs", blogRoutes)
 app.use("/api/blog-categories", blogCategoryRoutes)
 app.use("/api/blog-topics", blogTopicRoutes)
 app.use("/api/blog-ratings", blogRatingRoutes)
+app.use("/api/blog-brands", blogBrandRoutes)
+app.use("/api/blog-comments", blogCommentRoutes)
+app.use("/api/blog-dashboard", blogDashboardRoutes)
 app.use("/api/settings", settingsRoutes)
 app.use("/api/wishlist", wishlistRoutes)
 app.use("/api/request-callback", requestCallbackRoutes)

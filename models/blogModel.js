@@ -24,14 +24,34 @@ const blogSchema = new mongoose.Schema(
       enum: ["draft", "published", "archived"],
       default: "draft",
     },
+    featured: {
+      type: Boolean,
+      default: false,
+    },
+    trending: {
+      type: Boolean,
+      default: false,
+    },
     mainCategory: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "Category", // Changed from BlogCategory to Category
+      ref: "Category",
       required: true,
     },
-    subCategory: {
+    subCategory1: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "SubCategory", // Changed from BlogCategory to SubCategory
+      ref: "SubCategory",
+    },
+    subCategory2: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "SubCategory",
+    },
+    subCategory3: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "SubCategory",
+    },
+    subCategory4: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "SubCategory",
     },
     topic: {
       type: mongoose.Schema.Types.ObjectId,

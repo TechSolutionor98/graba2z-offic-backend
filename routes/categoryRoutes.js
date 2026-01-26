@@ -281,9 +281,11 @@ router.get(
   "/slider",
   asyncHandler(async (req, res) => {
     // Fetch both categories and subcategories with showInSlider: true
+    // NOTE: This endpoint does NOT check isActive status - it only checks showInSlider
+    // The slider selection is independent from the category header Active/Inactive status
     const [categories, subCategories] = await Promise.all([
-      Category.find({ showInSlider: true, isActive: true, isDeleted: { $ne: true } }).sort({ sortOrder: 1, name: 1 }).lean(),
-      SubCategory.find({ showInSlider: true, isActive: true, isDeleted: { $ne: true } }).sort({ sortOrder: 1, name: 1 }).lean(),
+      Category.find({ showInSlider: true, isDeleted: { $ne: true } }).sort({ sortOrder: 1, name: 1 }).lean(),
+      SubCategory.find({ showInSlider: true, isDeleted: { $ne: true } }).sort({ sortOrder: 1, name: 1 }).lean(),
     ])
     
     // Combine and return
