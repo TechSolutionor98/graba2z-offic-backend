@@ -20,7 +20,7 @@ export const protect = async (req, res, next) => {
       const decoded = jwt.verify(token, process.env.JWT_SECRET)
       console.log("✅ Token decoded successfully, user ID:", decoded.id)
 
-      // Find user
+      // Find user with admin permissions
       req.user = await User.findById(decoded.id).select("-password")
 
       if (!req.user) {
@@ -28,7 +28,7 @@ export const protect = async (req, res, next) => {
         return res.status(401).json({ message: "Not authorized, user not found" })
       }
 
-      console.log("✅ User authenticated:", req.user.email, "isAdmin:", req.user.isAdmin)
+      console.log("✅ User authenticated:", req.user.email, "isAdmin:", req.user.isAdmin, "isSuperAdmin:", req.user.isSuperAdmin)
       next()
     } else {
       console.log("❌ No authorization header found")
@@ -56,9 +56,9 @@ export const protect = async (req, res, next) => {
 export const admin = (req, res, next) => {
   try {
     console.log("👑 Admin check for user:", req.user?.email)
-    console.log("👑 User isAdmin:", req.user?.isAdmin)
+    console.log("👑 User isAdmin:", req.user?.isAdmin, "isSuperAdmin:", req.user?.isSuperAdmin)
 
-    if (req.user && req.user.isAdmin === true) {
+    if (req.user && (req.user.isAdmin === true || req.user.isSuperAdmin === true)) {
       console.log("✅ Admin access granted")
       next()
     } else {

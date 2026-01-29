@@ -1007,6 +1007,7 @@ import generateToken from "../utils/generateToken.js"
 import { protect, admin } from "../middleware/authMiddleware.js"
 import { sendOrderNotification, sendTrackingUpdateEmail } from "../utils/emailService.js"
 import Review from "../models/reviewModel.js"
+import { logActivity } from "../middleware/permissionMiddleware.js"
 
 const router = express.Router()
 
@@ -1020,12 +1021,23 @@ router.post(
 
     const user = await User.findOne({ email })
 
-    if (user && (await user.matchPassword(password)) && user.isAdmin) {
+    if (user && (await user.matchPassword(password)) && (user.isAdmin || user.isSuperAdmin)) {
+      // Log the login activity
+      await logActivity({
+        user: user,
+        action: "LOGIN",
+        module: "AUTH",
+        description: `Admin user logged in: ${user.email}`,
+        req,
+      })
+
       res.json({
         _id: user._id,
         name: user.name,
         email: user.email,
         isAdmin: user.isAdmin,
+        isSuperAdmin: user.isSuperAdmin,
+        permissions: user.adminPermissions || {},
         token: generateToken(user._id),
       })
     } else {
@@ -1051,6 +1063,8 @@ router.get(
         name: user.name,
         email: user.email,
         isAdmin: user.isAdmin,
+        isSuperAdmin: user.isSuperAdmin,
+        permissions: user.adminPermissions || {},
       })
     } else {
       res.status(404)
@@ -1209,6 +1223,9 @@ router.put(
       }
 
       const updatedOrder = await order.save()
+
+      // Log activity
+      await logActivity(req, "STATUS_CHANGE", "ORDERS", `Changed order ${order.trackingId || order._id} status from ${previousStatus} to ${normalized}`, order._id, order.trackingId || order._id)
 
       // Send notification email only if status has changed
       if (previousStatus !== normalized) {
@@ -1388,7 +1405,13 @@ router.delete(
         res.status(400)
         throw new Error("Cannot delete admin user")
       }
+      const userName = user.name
+      const userId = user._id
       await User.findByIdAndDelete(req.params.id)
+
+      // Log activity
+      await logActivity(req, "DELETE", "USERS", `Deleted user: ${userName} (${user.email})`, userId, userName)
+
       res.json({ message: "User removed" })
     } else {
       res.status(404)
@@ -1432,6 +1455,9 @@ router.put(
       user.isAdmin = Boolean(req.body.isAdmin)
 
       const updatedUser = await user.save()
+
+      // Log activity
+      await logActivity(req, "UPDATE", "USERS", `Updated user: ${updatedUser.name} (${updatedUser.email})`, updatedUser._id, updatedUser.name)
 
       res.json({
         _id: updatedUser._id,
@@ -1594,6 +1620,9 @@ router.put("/reviews/:id/approve", protect, admin, async (req, res) => {
 
     await review.save()
 
+    // Log activity
+    await logActivity(req, "APPROVE", "REVIEWS", `Approved review by ${review.name} for product`, review._id, review.name)
+
     res.json({
       success: true,
       message: "Review approved successfully",
@@ -1632,6 +1661,9 @@ router.put("/reviews/:id/reject", protect, admin, async (req, res) => {
 
     await review.save()
 
+    // Log activity
+    await logActivity(req, "REJECT", "REVIEWS", `Rejected review by ${review.name}`, review._id, review.name)
+
     res.json({
       success: true,
       message: "Review rejected successfully",
@@ -1663,7 +1695,12 @@ router.delete("/reviews/:id", protect, admin, async (req, res) => {
       })
     }
 
+    const reviewName = review.name
+    const reviewId = review._id
     await Review.findByIdAndDelete(req.params.id)
+
+    // Log activity
+    await logActivity(req, "DELETE", "REVIEWS", `Deleted review by ${reviewName}`, reviewId, reviewName)
 
     res.json({
       success: true,
@@ -1747,6 +1784,9 @@ router.post(
     const createdOrder = await order.save()
     await createdOrder.populate("user", "name email")
     await createdOrder.populate("orderItems.product", "name image sku")
+
+    // Log activity
+    await logActivity(req, "CREATE", "ORDERS", `Created order: ${createdOrder.trackingId || createdOrder._id}`, createdOrder._id, createdOrder.trackingId || createdOrder._id)
 
     res.status(201).json(createdOrder)
   }),

@@ -67,6 +67,8 @@ import bulkPurchaseRoutes from "./routes/bulkPurchaseRoutes.js"
 import buyerProtectionRoutes from "./routes/buyerProtectionRoutes.js"
 import cacheRoutes from "./routes/cacheRoutes.js"
 import customSliderItemRoutes from "./routes/customSliderItemRoutes.js"
+import superAdminRoutes from "./routes/superAdminRoutes.js"
+import reportsRoutes from "./routes/reportsRoutes.js"
 
 dotenv.config()
 
@@ -74,6 +76,9 @@ dotenv.config()
 connectDB()
 
 const app = express()
+
+// Trust proxy - required to get real IP address behind proxies (Vercel, Cloudflare, etc.)
+app.set('trust proxy', true)
 
 // CORS configuration
 app.use(cors({
@@ -153,6 +158,8 @@ app.use("/api/request-callback", requestCallbackRoutes)
 app.use("/api/bulk-purchase", bulkPurchaseRoutes)
 app.use("/api/payment", paymentRoutes)
 app.use("/api/admin", adminRoutes)
+app.use("/api/super-admin", superAdminRoutes)
+app.use("/api/reports", reportsRoutes)
 app.use("/api/email-templates", emailTemplateRoutes)
 app.use("/api/newsletter", newsletterRoutes)
 

@@ -4,6 +4,7 @@ import Settings from "../models/settingsModel.js"
 import User from "../models/userModel.js"
 import bcrypt from "bcryptjs"
 import { protect, admin } from "../middleware/authMiddleware.js"
+import { logActivity } from "../middleware/permissionMiddleware.js"
 
 const router = express.Router()
 
@@ -49,6 +50,9 @@ router.put(
     settings.updatedBy = req.user._id
     const updatedSettings = await settings.save()
 
+    // Log activity
+    await logActivity(req, "UPDATE", "SETTINGS", `Updated site settings`, updatedSettings._id, "Site Settings")
+
     res.json(updatedSettings)
   }),
 )
@@ -71,6 +75,9 @@ router.put(
       user.password = await bcrypt.hash(newPassword, salt)
 
       await user.save()
+
+      // Log activity
+      await logActivity(req, "UPDATE", "SETTINGS", `Changed admin password`, user._id, user.name)
 
       res.json({ message: "Password updated successfully" })
     } else {

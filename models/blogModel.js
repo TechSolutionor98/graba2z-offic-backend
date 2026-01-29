@@ -32,10 +32,14 @@ const blogSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    blogCategory: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "BlogCategory",
+    },
+    // Keep old fields for backward compatibility
     mainCategory: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Category",
-      required: true,
     },
     subCategory1: {
       type: mongoose.Schema.Types.ObjectId,
@@ -59,7 +63,7 @@ const blogSchema = new mongoose.Schema(
     },
     brand: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "Brand", // Added Brand reference
+      ref: "BlogBrand",
     },
     mainImage: {
       type: String,

@@ -1,6 +1,7 @@
 import express from 'express';
 import BannerCard from '../models/bannerCardModel.js';
 import { protect, admin } from '../middleware/authMiddleware.js';
+import { logActivity } from '../middleware/permissionMiddleware.js';
 
 const router = express.Router();
 
@@ -89,6 +90,10 @@ router.post('/', protect, admin, async (req, res) => {
     });
 
     const createdBannerCard = await bannerCard.save();
+
+    // Log activity
+    await logActivity(req, "CREATE", "BANNER_CARDS", `Created banner card: ${createdBannerCard.name}`, createdBannerCard._id, createdBannerCard.name);
+
     res.status(201).json(createdBannerCard);
   } catch (error) {
     res.status(400).json({ message: error.message });
@@ -136,6 +141,10 @@ router.put('/:id', protect, admin, async (req, res) => {
       bannerCard.bgColor = bgColor || bannerCard.bgColor;
 
       const updatedBannerCard = await bannerCard.save();
+
+      // Log activity
+      await logActivity(req, "UPDATE", "BANNER_CARDS", `Updated banner card: ${updatedBannerCard.name}`, updatedBannerCard._id, updatedBannerCard.name);
+
       res.json(updatedBannerCard);
     } else {
       res.status(404).json({ message: 'Banner card not found' });
@@ -153,7 +162,14 @@ router.delete('/:id', protect, admin, async (req, res) => {
     const bannerCard = await BannerCard.findById(req.params.id);
 
     if (bannerCard) {
+      const cardName = bannerCard.name;
+      const cardId = bannerCard._id;
+
       await bannerCard.deleteOne();
+
+      // Log activity
+      await logActivity(req, "DELETE", "BANNER_CARDS", `Deleted banner card: ${cardName}`, cardId, cardName);
+
       res.json({ message: 'Banner card removed' });
     } else {
       res.status(404).json({ message: 'Banner card not found' });

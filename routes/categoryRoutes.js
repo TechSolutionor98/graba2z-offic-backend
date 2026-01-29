@@ -4,6 +4,7 @@ import Category from "../models/categoryModel.js"
 import SubCategory from "../models/subCategoryModel.js"
 import Product from "../models/productModel.js"
 import { protect, admin } from "../middleware/authMiddleware.js"
+import { logActivity } from "../middleware/permissionMiddleware.js"
 import { deleteLocalFile, isCloudinaryUrl } from "../config/multer.js"
 
 const router = express.Router()
@@ -475,6 +476,21 @@ router.post(
     })
 
     const createdCategory = await category.save()
+    
+    // Log activity
+    if (req.user) {
+      await logActivity({
+        user: req.user,
+        action: "CREATE",
+        module: "CATEGORIES",
+        description: `Created category: ${createdCategory.name}`,
+        targetId: createdCategory._id.toString(),
+        targetName: createdCategory.name,
+        newData: { name, slug: categorySlug },
+        req,
+      })
+    }
+    
     res.status(201).json(createdCategory)
   }),
 )
@@ -516,7 +532,24 @@ router.put(
       category.isActive = isActive !== undefined ? isActive : category.isActive
       category.showInSlider = showInSlider !== undefined ? showInSlider : category.showInSlider
 
+      const previousName = category.name
       const updatedCategory = await category.save()
+      
+      // Log activity
+      if (req.user) {
+        await logActivity({
+          user: req.user,
+          action: "UPDATE",
+          module: "CATEGORIES",
+          description: `Updated category: ${updatedCategory.name}`,
+          targetId: updatedCategory._id.toString(),
+          targetName: updatedCategory.name,
+          previousData: { name: previousName },
+          newData: { name, isActive },
+          req,
+        })
+      }
+      
       res.json(updatedCategory)
     } else {
       res.status(404)
@@ -713,6 +746,19 @@ router.delete(
       category.isDeleted = true
       category.isActive = false
       await category.save()
+
+      // Log activity
+      if (req.user) {
+        await logActivity({
+          user: req.user,
+          action: "DELETE",
+          module: "CATEGORIES",
+          description: `Deleted category: ${category.name}`,
+          targetId: category._id.toString(),
+          targetName: category.name,
+          req,
+        })
+      }
 
       res.json({ message: "Category deleted successfully" })
     } else {

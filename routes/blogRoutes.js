@@ -2,6 +2,7 @@ import express from "express"
 import asyncHandler from "express-async-handler"
 import Blog from "../models/blogModel.js"
 import { protect, admin } from "../middleware/authMiddleware.js"
+import { logActivity } from "../middleware/permissionMiddleware.js"
 
 const router = express.Router()
 
@@ -15,13 +16,14 @@ router.get(
       status: "published", 
       featured: true 
     })
+      .populate("blogCategory", "name slug")
       .populate("mainCategory", "name slug")
       .populate("subCategory1", "name slug")
       .populate("subCategory2", "name slug")
       .populate("subCategory3", "name slug")
       .populate("subCategory4", "name slug")
       .populate("topic", "name slug color")
-      .populate("brand", "name slug")
+      .populate("brand", "name slug logo")
       .sort({ createdAt: -1 })
       .limit(10)
 
@@ -41,13 +43,14 @@ router.get(
       status: "published", 
       trending: true 
     })
+      .populate("blogCategory", "name slug")
       .populate("mainCategory", "name slug color")
       .populate("subCategory1", "name slug")
       .populate("subCategory2", "name slug")
       .populate("subCategory3", "name slug")
       .populate("subCategory4", "name slug")
       .populate("topic", "name slug color")
-      .populate("brand", "name slug")
+      .populate("brand", "name slug logo")
       .sort({ createdAt: -1 })
       .limit(parseInt(limit))
 
@@ -72,7 +75,7 @@ router.get(
 
     // Filter by category
     if (category && category !== "all") {
-      query.mainCategory = category
+      query.blogCategory = category
     }
 
     // Filter by topic
@@ -90,13 +93,14 @@ router.get(
     }
 
     const blogs = await Blog.find(query)
+      .populate("blogCategory", "name slug")
       .populate("mainCategory", "name slug")
       .populate("subCategory1", "name slug")
       .populate("subCategory2", "name slug")
       .populate("subCategory3", "name slug")
       .populate("subCategory4", "name slug")
       .populate("topic", "name slug color")
-      .populate("brand", "name slug")
+      .populate("brand", "name slug logo")
       .sort({ createdAt: -1 })
       .limit(limit * 1)
       .skip((page - 1) * limit)
@@ -127,13 +131,14 @@ router.get(
   "/:id",
   asyncHandler(async (req, res) => {
     const blog = await Blog.findById(req.params.id)
+      .populate("blogCategory", "name slug")
       .populate("mainCategory", "name slug")
       .populate("subCategory1", "name slug")
       .populate("subCategory2", "name slug")
       .populate("subCategory3", "name slug")
       .populate("subCategory4", "name slug")
       .populate("topic", "name slug color")
-      .populate("brand", "name slug")
+      .populate("brand", "name slug logo")
 
     if (!blog) {
       res.status(404)
@@ -155,13 +160,14 @@ router.get(
   "/slug/:slug",
   asyncHandler(async (req, res) => {
     const blog = await Blog.findOne({ slug: req.params.slug })
+      .populate("blogCategory", "name slug")
       .populate("mainCategory", "name slug")
       .populate("subCategory1", "name slug")
       .populate("subCategory2", "name slug")
       .populate("subCategory3", "name slug")
       .populate("subCategory4", "name slug")
       .populate("topic", "name slug color")
-      .populate("brand", "name slug")
+      .populate("brand", "name slug logo")
 
     if (!blog) {
       res.status(404)
@@ -191,6 +197,7 @@ router.post(
       status,
       featured,
       trending,
+      blogCategory,
       mainCategory,
       subCategory1,
       subCategory2,
@@ -222,7 +229,8 @@ router.post(
       status,
       featured: featured || false,
       trending: trending || false,
-      mainCategory,
+      blogCategory: blogCategory || mainCategory,
+      mainCategory: mainCategory || null,
       subCategory1: subCategory1 || null,
       subCategory2: subCategory2 || null,
       subCategory3: subCategory3 || null,
@@ -243,6 +251,7 @@ router.post(
 
     // Populate the created blog before returning
     const populatedBlog = await Blog.findById(createdBlog._id)
+      .populate("blogCategory", "name slug")
       .populate("mainCategory", "name slug")
       .populate("subCategory1", "name slug")
       .populate("subCategory2", "name slug")
@@ -250,6 +259,20 @@ router.post(
       .populate("subCategory4", "name slug")
       .populate("topic", "name slug color")
       .populate("brand", "name slug")
+
+    // Log activity
+    if (req.user) {
+      await logActivity({
+        user: req.user,
+        action: "CREATE",
+        module: "BLOGS",
+        description: `Created blog: ${title}`,
+        targetId: createdBlog._id.toString(),
+        targetName: title,
+        newData: { title, slug, status },
+        req,
+      })
+    }
 
     res.status(201).json(populatedBlog)
   }),
@@ -277,6 +300,7 @@ router.put(
       status,
       featured,
       trending,
+      blogCategory,
       mainCategory,
       subCategory1,
       subCategory2,
@@ -301,7 +325,8 @@ router.put(
     blog.status = status || blog.status
     blog.featured = featured !== undefined ? featured : blog.featured
     blog.trending = trending !== undefined ? trending : blog.trending
-    blog.mainCategory = mainCategory || blog.mainCategory
+    blog.blogCategory = blogCategory || (mainCategory && !blog.blogCategory ? mainCategory : blog.blogCategory)
+    blog.mainCategory = mainCategory !== undefined ? mainCategory : blog.mainCategory
     blog.subCategory1 = subCategory1 !== undefined ? subCategory1 : blog.subCategory1
     blog.subCategory2 = subCategory2 !== undefined ? subCategory2 : blog.subCategory2
     blog.subCategory3 = subCategory3 !== undefined ? subCategory3 : blog.subCategory3
@@ -321,13 +346,28 @@ router.put(
 
     // Populate the updated blog before returning
     const populatedBlog = await Blog.findById(updatedBlog._id)
+      .populate("blogCategory", "name slug")
       .populate("mainCategory", "name slug")
       .populate("subCategory1", "name slug")
       .populate("subCategory2", "name slug")
       .populate("subCategory3", "name slug")
       .populate("subCategory4", "name slug")
       .populate("topic", "name slug color")
-      .populate("brand", "name slug")
+      .populate("brand", "name slug logo")
+
+    // Log activity
+    if (req.user) {
+      await logActivity({
+        user: req.user,
+        action: "UPDATE",
+        module: "BLOGS",
+        description: `Updated blog: ${updatedBlog.title}`,
+        targetId: updatedBlog._id.toString(),
+        targetName: updatedBlog.title,
+        newData: { title: updatedBlog.title, status: updatedBlog.status },
+        req,
+      })
+    }
 
     res.json(populatedBlog)
   }),
@@ -376,7 +416,21 @@ router.delete(
       throw new Error("Blog not found")
     }
 
+    const blogTitle = blog.title
     await blog.deleteOne()
+
+    // Log activity
+    if (req.user) {
+      await logActivity({
+        user: req.user,
+        action: "DELETE",
+        module: "BLOGS",
+        description: `Deleted blog: ${blogTitle}`,
+        targetId: req.params.id,
+        targetName: blogTitle,
+        req,
+      })
+    }
 
     res.json({ message: "Blog deleted successfully" })
   }),

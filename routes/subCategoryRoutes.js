@@ -481,6 +481,7 @@ import Category from "../models/categoryModel.js"
 import Product from "../models/productModel.js"
 import { protect, admin } from "../middleware/authMiddleware.js"
 import { deleteLocalFile, isCloudinaryUrl } from "../config/multer.js"
+import { logActivity } from "../middleware/permissionMiddleware.js"
 
 const router = express.Router()
 
@@ -877,6 +878,9 @@ router.post(
         parentSubCategoryName: createdSubCategory.parentSubCategory?.name || null
       }
       
+      // Log activity
+      await logActivity(req, "CREATE", "SUBCATEGORIES", `Created subcategory: ${createdSubCategory.name}`, createdSubCategory._id, createdSubCategory.name)
+      
       console.log('Subcategory created successfully:', responseData)
       res.status(201).json(responseData)
     } catch (error) {
@@ -1040,6 +1044,9 @@ router.put(
         parentSubCategoryName: updatedSubCategory.parentSubCategory?.name || null
       }
       
+      // Log activity
+      await logActivity(req, "UPDATE", "SUBCATEGORIES", `Updated subcategory: ${updatedSubCategory.name}`, updatedSubCategory._id, updatedSubCategory.name)
+      
       console.log('Subcategory updated successfully:', responseData)
       res.json(responseData)
     } catch (error) {
@@ -1113,6 +1120,9 @@ router.put(
         await subcategory.populate("parentSubCategory", "name slug _id")
       }
       
+      // Log activity
+      await logActivity(req, "RESTORE", "SUBCATEGORIES", `Restored subcategory: ${subcategory.name}`, subcategory._id, subcategory.name)
+      
       res.json({ 
         message: "Subcategory restored successfully",
         subcategory: {
@@ -1140,6 +1150,9 @@ router.delete(
     const subcategory = await SubCategory.findById(req.params.id)
 
     if (subcategory && subcategory.isDeleted) {
+      const subcategoryName = subcategory.name
+      const subcategoryId = subcategory._id
+      
       // Delete subcategory image
       if (subcategory.image && !isCloudinaryUrl(subcategory.image)) {
         try {
@@ -1150,6 +1163,10 @@ router.delete(
       }
 
       await subcategory.deleteOne()
+      
+      // Log activity
+      await logActivity(req, "DELETE", "SUBCATEGORIES", `Permanently deleted subcategory: ${subcategoryName}`, subcategoryId, subcategoryName)
+      
       res.json({ message: "Subcategory permanently deleted" })
     } else {
       res.status(404)
@@ -1316,6 +1333,9 @@ router.delete(
       subcategory.isActive = false
       subcategory.deletedAt = new Date()
       await subcategory.save()
+
+      // Log activity
+      await logActivity(req, "DELETE", "SUBCATEGORIES", `Moved subcategory to trash: ${subcategory.name}`, subcategory._id, subcategory.name)
 
       res.json({ message: "Subcategory moved to trash successfully" })
     } else {

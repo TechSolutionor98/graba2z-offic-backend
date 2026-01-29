@@ -2,6 +2,7 @@ import express from 'express';
 import HomeSection from '../models/homeSectionModel.js';
 import { protect, admin } from '../middleware/authMiddleware.js';
 import { deleteLocalFile, isCloudinaryUrl } from '../config/multer.js';
+import { logActivity } from '../middleware/permissionMiddleware.js';
 
 const router = express.Router();
 
@@ -94,6 +95,10 @@ router.post('/', protect, admin, async (req, res) => {
     });
 
     const createdSection = await section.save();
+
+    // Log activity
+    await logActivity(req, "CREATE", "HOME_SECTIONS", `Created home section: ${createdSection.name}`, createdSection._id, createdSection.name);
+
     res.status(201).json(createdSection);
   } catch (error) {
     res.status(400).json({ message: error.message });
@@ -158,6 +163,10 @@ router.put('/:id', protect, admin, async (req, res) => {
       console.log('🟡 SERVER UPDATE: Section settings after assignment:', JSON.stringify(section.settings, null, 2));
       const updatedSection = await section.save();
       console.log('🟢 SERVER UPDATE: Saved section settings:', JSON.stringify(updatedSection.settings, null, 2));
+
+      // Log activity
+      await logActivity(req, "UPDATE", "HOME_SECTIONS", `Updated home section: ${updatedSection.name}`, updatedSection._id, updatedSection.name);
+
       res.json(updatedSection);
     } else {
       res.status(404).json({ message: 'Section not found' });
@@ -224,10 +233,17 @@ router.delete('/:id', protect, admin, async (req, res) => {
     const section = await HomeSection.findById(req.params.id);
 
     if (section) {
+      const sectionName = section.name;
+      const sectionId = section._id;
+
       // Delete images from settings
       await deleteSettingsImages(section.settings);
 
       await section.deleteOne();
+
+      // Log activity
+      await logActivity(req, "DELETE", "HOME_SECTIONS", `Deleted home section: ${sectionName}`, sectionId, sectionName);
+
       res.json({ message: 'Section removed' });
     } else {
       res.status(404).json({ message: 'Section not found' });

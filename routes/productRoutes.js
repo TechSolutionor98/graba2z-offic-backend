@@ -5,6 +5,7 @@ import Category from "../models/categoryModel.js"
 import Brand from "../models/brandModel.js"
 import SubCategory from "../models/subCategoryModel.js"
 import { protect, admin } from "../middleware/authMiddleware.js"
+import { logActivity } from "../middleware/permissionMiddleware.js"
 import multer from "multer"
 import XLSX from "xlsx"
 import fs from "fs"
@@ -659,6 +660,18 @@ router.put(
         statusMessage = "deactivated"
       }
 
+      // Log activity
+      if (req.user) {
+        await logActivity({
+          user: req.user,
+          action: "BULK_ACTION",
+          module: "PRODUCTS",
+          description: `Bulk ${statusMessage} ${result.modifiedCount} product(s)`,
+          newData: { productCount: productIds.length, status: updateData },
+          req,
+        })
+      }
+
       res.json({
         message: `Successfully ${statusMessage} ${result.modifiedCount} product(s)`,
         modifiedCount: result.modifiedCount,
@@ -955,6 +968,10 @@ router.post(
         path: "variations.product",
         select: "name slug image price offerPrice sku selfVariationText reverseVariationText"
       })
+
+    // Log activity
+    await logActivity(req, "CREATE", "PRODUCTS", `Created product: ${createdProduct.name}`, createdProduct._id, createdProduct.name)
+
     res.status(201).json(populatedProduct)
   }),
 )
@@ -1154,6 +1171,10 @@ router.put(
           path: "variations.product",
           select: "name slug image price offerPrice sku selfVariationText reverseVariationText"
         })
+
+      // Log activity
+      await logActivity(req, "UPDATE", "PRODUCTS", `Updated product: ${updatedProduct.name}`, updatedProduct._id, updatedProduct.name)
+
       res.json(populatedProduct)
     } else {
       res.status(404)
@@ -1383,6 +1404,9 @@ router.post(
         select: "name slug image price offerPrice sku selfVariationText"
       })
 
+    // Log activity
+    await logActivity(req, "CREATE", "PRODUCTS", `Duplicated product: ${populatedProduct.name} (from ${product.name})`, populatedProduct._id, populatedProduct.name)
+
     res.status(201).json(populatedProduct)
   }),
 )
@@ -1561,6 +1585,21 @@ router.delete(
       }
 
       await product.deleteOne()
+      
+      // Log activity
+      if (req.user) {
+        await logActivity({
+          user: req.user,
+          action: "DELETE",
+          module: "PRODUCTS",
+          description: `Deleted product: ${product.name} (SKU: ${product.sku || 'N/A'})`,
+          targetId: product._id.toString(),
+          targetName: product.name,
+          previousData: { name: product.name, sku: product.sku, price: product.price },
+          req,
+        })
+      }
+      
       res.json({ message: "Product removed" })
     } else {
       res.status(404)

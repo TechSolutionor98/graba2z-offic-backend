@@ -3,6 +3,7 @@ import express from "express"
 import asyncHandler from "express-async-handler"
 import Order from "../models/orderModel.js"
 import { protect, admin } from "../middleware/authMiddleware.js"
+import { logActivity } from "../middleware/permissionMiddleware.js"
 import { sendOrderPlacedEmail, sendOrderStatusUpdateEmail } from "../utils/emailService.js"
 
 const router = express.Router()
@@ -190,6 +191,21 @@ router.put(
         console.error("Failed to send order status update email:", emailError)
         // Don't fail the status update if email fails
       }
+    }
+
+    // Log activity
+    if (req.user) {
+      await logActivity({
+        user: req.user,
+        action: "STATUS_CHANGE",
+        module: "ORDERS",
+        description: `Changed order #${order._id.toString().slice(-6)} status from "${oldStatus}" to "${status}"`,
+        targetId: order._id.toString(),
+        targetName: `Order #${order._id.toString().slice(-6)}`,
+        previousData: { status: oldStatus },
+        newData: { status: status, trackingId },
+        req,
+      })
     }
 
     res.json(updatedOrder)

@@ -3,6 +3,7 @@ import asyncHandler from "express-async-handler"
 import Banner from "../models/bannerModel.js"
 import Category from "../models/categoryModel.js"
 import { protect, admin } from "../middleware/authMiddleware.js"
+import { logActivity } from "../middleware/permissionMiddleware.js"
 import { uploadBanner, deleteLocalFile, isCloudinaryUrl } from "../config/multer.js"
 
 const router = express.Router()
@@ -102,6 +103,20 @@ router.post(
       .populate("category", "name slug")
       .populate("createdBy", "name email")
 
+    // Log activity
+    if (req.user) {
+      await logActivity({
+        user: req.user,
+        action: "CREATE",
+        module: "BANNERS",
+        description: `Created banner: ${createdBanner.title || 'Untitled'} (${createdBanner.position})`,
+        targetId: createdBanner._id.toString(),
+        targetName: createdBanner.title || createdBanner.position,
+        newData: { title: createdBanner.title, position: createdBanner.position },
+        req,
+      })
+    }
+
     res.status(201).json(populatedBanner)
   }),
 )
@@ -140,6 +155,19 @@ router.put(
         .populate("category", "name slug")
         .populate("createdBy", "name email")
 
+      // Log activity
+      if (req.user) {
+        await logActivity({
+          user: req.user,
+          action: "UPDATE",
+          module: "BANNERS",
+          description: `Updated banner: ${updatedBanner.title || 'Untitled'}`,
+          targetId: updatedBanner._id.toString(),
+          targetName: updatedBanner.title || updatedBanner.position,
+          req,
+        })
+      }
+
       res.json(populatedBanner)
     } else {
       res.status(404)
@@ -168,7 +196,22 @@ router.delete(
         }
       }
 
+      const bannerTitle = banner.title || banner.position
       await banner.deleteOne()
+
+      // Log activity
+      if (req.user) {
+        await logActivity({
+          user: req.user,
+          action: "DELETE",
+          module: "BANNERS",
+          description: `Deleted banner: ${bannerTitle}`,
+          targetId: req.params.id,
+          targetName: bannerTitle,
+          req,
+        })
+      }
+
       res.json({ message: "Banner removed" })
     } else {
       res.status(404)

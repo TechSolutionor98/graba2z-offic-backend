@@ -4,6 +4,7 @@ import Coupon from "../models/couponModel.js"
 import Category from "../models/categoryModel.js"
 import Product from "../models/productModel.js"
 import { protect, admin } from "../middleware/authMiddleware.js"
+import { logActivity } from "../middleware/permissionMiddleware.js"
 
 const router = express.Router()
 
@@ -208,6 +209,9 @@ router.post(
       .populate("categories", "name")
       .populate("createdBy", "name email")
 
+    // Log activity
+    await logActivity(req, "CREATE", "COUPONS", `Created coupon: ${createdCoupon.code}`, createdCoupon._id, createdCoupon.code)
+
     res.status(201).json(populatedCoupon)
   }),
 )
@@ -262,6 +266,9 @@ router.put(
         .populate("categories", "name")
         .populate("createdBy", "name email")
 
+      // Log activity
+      await logActivity(req, "UPDATE", "COUPONS", `Updated coupon: ${updatedCoupon.code}`, updatedCoupon._id, updatedCoupon.code)
+
       res.json(populatedCoupon)
     } else {
       res.status(404)
@@ -281,7 +288,13 @@ router.delete(
     const coupon = await Coupon.findById(req.params.id)
 
     if (coupon) {
+      const couponCode = coupon.code
+      const couponId = coupon._id
       await coupon.deleteOne()
+
+      // Log activity
+      await logActivity(req, "DELETE", "COUPONS", `Deleted coupon: ${couponCode}`, couponId, couponCode)
+
       res.json({ message: "Coupon removed" })
     } else {
       res.status(404)

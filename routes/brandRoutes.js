@@ -3,6 +3,7 @@ import asyncHandler from "express-async-handler"
 import Brand from "../models/brandModel.js"
 import { protect, admin } from "../middleware/authMiddleware.js"
 import { deleteLocalFile, isCloudinaryUrl } from "../config/multer.js"
+import { logActivity } from "../middleware/permissionMiddleware.js"
 
 const router = express.Router()
 
@@ -58,6 +59,10 @@ router.post(
     })
 
     const createdBrand = await brand.save()
+
+    // Log activity
+    await logActivity(req, "CREATE", "BRANDS", `Created brand: ${createdBrand.name}`, createdBrand._id, createdBrand.name)
+
     res.status(201).json(createdBrand)
   }),
 )
@@ -92,6 +97,10 @@ router.put(
       }
 
       const updatedBrand = await brand.save()
+
+      // Log activity
+      await logActivity(req, "UPDATE", "BRANDS", `Updated brand: ${updatedBrand.name}`, updatedBrand._id, updatedBrand.name)
+
       res.json(updatedBrand)
     } else {
       res.status(404)
@@ -111,6 +120,9 @@ router.delete(
     const brand = await Brand.findById(req.params.id)
 
     if (brand) {
+      const brandName = brand.name
+      const brandId = brand._id
+
       // Delete brand logo
       if (brand.logo && !isCloudinaryUrl(brand.logo)) {
         try {
@@ -121,6 +133,10 @@ router.delete(
       }
 
       await brand.deleteOne()
+
+      // Log activity
+      await logActivity(req, "DELETE", "BRANDS", `Deleted brand: ${brandName}`, brandId, brandName)
+
       res.json({ message: "Brand removed" })
     } else {
       res.status(404)
