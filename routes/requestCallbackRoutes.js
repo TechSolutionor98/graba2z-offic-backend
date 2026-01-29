@@ -24,15 +24,31 @@ router.post(
       expiresAt: Date.now() + 10 * 60 * 1000
     });
     
-    // Send email with code using email service
+    // Log verification code prominently for testing
+    console.log('\n' + '='.repeat(80));
+    console.log('🔐 VERIFICATION CODE GENERATED');
+    console.log('='.repeat(80));
+    console.log(`📧 Email: ${email}`);
+    console.log(`🔢 Code: ${code}`);
+    console.log(`⏰ Expires at: ${new Date(Date.now() + 10 * 60 * 1000).toLocaleString()}`);
+    console.log('='.repeat(80) + '\n');
+    
+    // Try to send email with code using email service
     try {
-      await sendVerificationEmail(email, 'User', code);
-      console.log(`Verification code sent to ${email}: ${code}`);
-      res.json({ message: 'Verification code sent', success: true });
+      await sendVerificationEmail(email, 'Guest User', code);
+      console.log(`✅ Email successfully sent to ${email}`);
+      res.json({ 
+        message: 'Verification code sent to your email', 
+        success: true 
+      });
     } catch (error) {
-      console.error('Failed to send verification email:', error);
-      // Still return success for demo purposes (code logged above)
-      res.json({ message: 'Verification code sent', success: true });
+      console.error('❌ Failed to send verification email:', error.message);
+      // Still return success - code is logged above and stored in memory
+      // This allows testing even when email service is unavailable
+      res.json({ 
+        message: 'Verification code generated (check server logs if email not received)', 
+        success: true 
+      });
     }
   })
 );

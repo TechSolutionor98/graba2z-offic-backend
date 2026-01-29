@@ -117,6 +117,8 @@ router.post(
     })
 
     const createdOrder = await order.save()
+    
+    console.log(`[ORDER CREATED] Order ID: ${createdOrder._id}, User: ${req.user ? req.user._id : 'GUEST'}, Email: ${deliveryType === 'home' ? shippingAddress?.email : pickupDetails?.email}`)
 
     // Populate the user information for the created order
     await createdOrder.populate("user", "name email")
@@ -219,10 +221,14 @@ router.get(
   "/myorders",
   protect,
   asyncHandler(async (req, res) => {
+    console.log(`[MYORDERS] Fetching orders for user: ${req.user._id}, email: ${req.user.email}`)
+    
     // Find orders directly associated with user
     const userOrders = await Order.find({ user: req.user._id })
       .populate('orderItems.product', 'name image')
       .sort({ createdAt: -1 })
+    
+    console.log(`[MYORDERS] Found ${userOrders.length} orders directly associated with user`)
 
     // Find orders that might be associated through email (for orphaned orders)
     const emailOrders = await Order.find({
@@ -235,6 +241,8 @@ router.get(
       .populate('orderItems.product', 'name image')
       .sort({ createdAt: -1 })
     
+    console.log(`[MYORDERS] Found ${emailOrders.length} orphaned orders with null user`)
+    
     // Also check for orders with undefined user field
     const undefinedUserOrders = await Order.find({
       user: { $exists: false },
@@ -245,10 +253,14 @@ router.get(
     })
       .populate('orderItems.product', 'name image')
       .sort({ createdAt: -1 })
+    
+    console.log(`[MYORDERS] Found ${undefinedUserOrders.length} orders with undefined user field`)
 
     // Update orphaned orders to associate them with the user
     const ordersToUpdate = [...emailOrders, ...undefinedUserOrders]
     if (ordersToUpdate.length > 0) {
+      console.log(`[MYORDERS] Updating ${ordersToUpdate.length} orphaned orders to associate with user ${req.user._id}`)
+      
       await Order.updateMany(
         {
           _id: { $in: ordersToUpdate.map(order => order._id) }
@@ -265,6 +277,8 @@ router.get(
     // Combine and sort all orders
     const allOrders = [...userOrders, ...ordersToUpdate]
       .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+    
+    console.log(`[MYORDERS] Returning total of ${allOrders.length} orders to user`)
     
     res.json(allOrders)
   }),

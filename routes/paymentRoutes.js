@@ -1660,8 +1660,8 @@ router.post("/ngenius/card", async (req, res) => {
         value: Math.round(amount * 100), // AED 10 → 1000 fils
       },
       merchantAttributes: {
-        redirectUrl: "https://graba2z.ae/payment/success", // ✅ required
-        cancelUrl: "https://graba2z.ae/payment/cancel", // optional
+        redirectUrl: process.env.FRONTEND_URL ? `${process.env.FRONTEND_URL}/payment/success` : "https://graba2z.ae/payment/success", // ✅ required
+        cancelUrl: process.env.FRONTEND_URL ? `${process.env.FRONTEND_URL}/payment/cancel` : "https://graba2z.ae/payment/cancel", // optional
       },
     }
 

@@ -3,6 +3,7 @@ import Product from '../models/productModel.js'
 import Category from '../models/categoryModel.js'
 import SubCategory from '../models/subCategoryModel.js'
 import Brand from '../models/brandModel.js'
+import mongoose from 'mongoose'
 
 const router = express.Router()
 
@@ -350,6 +351,49 @@ router.get('/products/:id', async (req, res) => {
       success: false,
       message: 'Server error while fetching product',
       error: error.message,
+    })
+  }
+})
+
+// @desc    Check database connections status (for debugging)
+// @route   GET /api/app/db-status
+// @access  Public (but should be protected in production)
+router.get('/db-status', async (req, res) => {
+  try {
+    const status = {
+      mainDB: {
+        connected: mongoose.connection.readyState === 1,
+        state: mongoose.connection.readyState,
+        host: mongoose.connection.host || 'Not connected',
+      },
+      blogDB: {
+        configured: !!process.env.MONGODB_URI_2,
+        connected: false,
+        host: 'Not connected',
+      },
+      environment: {
+        NODE_ENV: process.env.NODE_ENV,
+        MONGODB_URI_2_exists: !!process.env.MONGODB_URI_2,
+        MONGODB_URI_2_preview: process.env.MONGODB_URI_2 ? 
+          process.env.MONGODB_URI_2.substring(0, 20) + '...' : 'NOT SET',
+      }
+    }
+
+    // Check blog DB connection
+    if (mongoose.connections.length > 1) {
+      const blogConnection = mongoose.connections.find(conn => conn.name !== mongoose.connection.name)
+      if (blogConnection) {
+        status.blogDB.connected = blogConnection.readyState === 1
+        status.blogDB.host = blogConnection.host || 'Not connected'
+        status.blogDB.state = blogConnection.readyState
+      }
+    }
+
+    res.json(status)
+  } catch (error) {
+    res.status(500).json({
+      error: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     })
   }
 })
