@@ -10,4 +10,37 @@ const connectDB = async () => {
   }
 }
 
+// Separate connection for blogs
+let blogConnection = null
+
+const connectBlogDB = async () => {
+  if (!blogConnection) {
+    try {
+      // Check if MONGODB_URI_2 is configured
+      if (!process.env.MONGODB_URI_2) {
+        console.warn(`⚠️  MONGODB_URI_2 not configured. Blog features will be disabled.`)
+        return null
+      }
+      blogConnection = await mongoose.createConnection(process.env.MONGODB_URI_2).asPromise()
+      console.log(`✅ Blog MongoDB Connected: ${blogConnection.host}`)
+    } catch (error) {
+      console.error(`❌ Blog DB Error: ${error.message}`)
+      console.warn(`⚠️  Blog database connection failed. Blog features will be disabled.`)
+      // Don't exit process - allow main site to continue running
+      return null
+    }
+  }
+  return blogConnection
+}
+
+// Get existing blog connection
+const getBlogConnection = () => {
+  if (!blogConnection) {
+    throw new Error("Blog database not connected. Make sure MONGODB_URI_2 is configured and connectBlogDB() was called.")
+  }
+  return blogConnection
+}
+
 export default connectDB
+export { connectBlogDB, getBlogConnection }
+

@@ -17,7 +17,6 @@ router.get(
   asyncHandler(async (req, res) => {
     const ratings = await BlogRating.find({})
       .populate("blog", "title slug")
-      .populate("user", "name email")
       .sort({ createdAt: -1 })
 
     res.json(ratings)
@@ -59,7 +58,6 @@ router.get(
       blog: req.params.blogId,
       isApproved: true,
     })
-      .populate("user", "name")
       .sort({ createdAt: -1 })
 
     const avgRating = await BlogRating.aggregate([

@@ -3,7 +3,7 @@ import cors from "cors"
 import dotenv from "dotenv"
 import path from "path"
 import { fileURLToPath } from "url"
-import connectDB from "./config/db.js"
+import connectDB, { connectBlogDB } from "./config/db.js"
 import config from "./config/config.js"
 import { notFound, errorHandler } from "./middleware/errorMiddleware.js"
 
@@ -72,8 +72,10 @@ import reportsRoutes from "./routes/reportsRoutes.js"
 
 dotenv.config()
 
-// Connect to database
-connectDB()
+// Connect to databases - await both
+await connectDB()
+await connectBlogDB()
+
 
 const app = express()
 

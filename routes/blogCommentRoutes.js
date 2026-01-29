@@ -39,7 +39,6 @@ router.get(
 
     const comments = await BlogComment.find(query)
       .populate("blog", "title slug")
-      .populate("user", "name email")
       .populate("parentComment", "name comment")
       .sort({ createdAt: -1 })
       .limit(limit * 1)
@@ -67,7 +66,6 @@ router.get(
       status: "approved",
       parentComment: null, // Only get top-level comments
     })
-      .populate("user", "name")
       .sort({ createdAt: -1 })
 
     // Get replies for each comment
@@ -77,7 +75,6 @@ router.get(
           parentComment: comment._id,
           status: "approved",
         })
-          .populate("user", "name")
           .sort({ createdAt: 1 })
 
         return {
@@ -101,7 +98,6 @@ router.get(
   asyncHandler(async (req, res) => {
     const comment = await BlogComment.findById(req.params.id)
       .populate("blog", "title slug")
-      .populate("user", "name email")
       .populate("parentComment", "name comment")
 
     if (!comment) {

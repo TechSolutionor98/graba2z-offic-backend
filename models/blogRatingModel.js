@@ -1,4 +1,5 @@
 import mongoose from "mongoose"
+import { getBlogConnection } from "../config/db.js"
 
 const blogRatingSchema = new mongoose.Schema(
   {
@@ -35,6 +36,28 @@ const blogRatingSchema = new mongoose.Schema(
 // Ensure one rating per user per blog
 blogRatingSchema.index({ blog: 1, user: 1 }, { unique: true })
 
-const BlogRating = mongoose.model("BlogRating", blogRatingSchema)
+// Lazy initialization
+let BlogRating = null
 
-export default BlogRating
+function getModel() {
+  if (!BlogRating) {
+    const connection = getBlogConnection()
+    BlogRating = connection.model("BlogRating", blogRatingSchema)
+  }
+  return BlogRating
+}
+
+const BlogRatingProxy = new Proxy(function() {}, {
+  get(target, prop) {
+    return getModel()[prop]
+  },
+  construct(target, args) {
+    const Model = getModel()
+    return new Model(...args)
+  },
+  apply(target, thisArg, args) {
+    return getModel()(...args)
+  }
+})
+
+export default BlogRatingProxy

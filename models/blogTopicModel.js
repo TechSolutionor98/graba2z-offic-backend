@@ -1,4 +1,5 @@
 import mongoose from "mongoose"
+import { getBlogConnection } from "../config/db.js"
 
 const blogTopicSchema = new mongoose.Schema(
   {
@@ -35,6 +36,28 @@ const blogTopicSchema = new mongoose.Schema(
   },
 )
 
-const BlogTopic = mongoose.model("BlogTopic", blogTopicSchema)
+// Lazy initialization
+let BlogTopic = null
 
-export default BlogTopic
+function getModel() {
+  if (!BlogTopic) {
+    const connection = getBlogConnection()
+    BlogTopic = connection.model("BlogTopic", blogTopicSchema)
+  }
+  return BlogTopic
+}
+
+const BlogTopicProxy = new Proxy(function() {}, {
+  get(target, prop) {
+    return getModel()[prop]
+  },
+  construct(target, args) {
+    const Model = getModel()
+    return new Model(...args)
+  },
+  apply(target, thisArg, args) {
+    return getModel()(...args)
+  }
+})
+
+export default BlogTopicProxy

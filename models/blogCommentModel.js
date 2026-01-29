@@ -1,4 +1,5 @@
 import mongoose from "mongoose"
+import { getBlogConnection } from "../config/db.js"
 
 const blogCommentSchema = new mongoose.Schema(
   {
@@ -72,6 +73,28 @@ blogCommentSchema.index({ blog: 1, status: 1 })
 blogCommentSchema.index({ user: 1 })
 blogCommentSchema.index({ createdAt: -1 })
 
-const BlogComment = mongoose.model("BlogComment", blogCommentSchema)
+// Lazy initialization
+let BlogComment = null
 
-export default BlogComment
+function getModel() {
+  if (!BlogComment) {
+    const connection = getBlogConnection()
+    BlogComment = connection.model("BlogComment", blogCommentSchema)
+  }
+  return BlogComment
+}
+
+const BlogCommentProxy = new Proxy(function() {}, {
+  get(target, prop) {
+    return getModel()[prop]
+  },
+  construct(target, args) {
+    const Model = getModel()
+    return new Model(...args)
+  },
+  apply(target, thisArg, args) {
+    return getModel()(...args)
+  }
+})
+
+export default BlogCommentProxy

@@ -1,4 +1,5 @@
 import mongoose from "mongoose"
+import { getBlogConnection } from "../config/db.js"
 
 const blogCategorySchema = new mongoose.Schema(
   {
@@ -45,6 +46,29 @@ const blogCategorySchema = new mongoose.Schema(
   },
 )
 
-const BlogCategory = mongoose.model("BlogCategory", blogCategorySchema)
+// Lazy initialization - model created on first use
+let BlogCategory = null
 
-export default BlogCategory
+function getModel() {
+  if (!BlogCategory) {
+    const connection = getBlogConnection()
+    BlogCategory = connection.model("BlogCategory", blogCategorySchema)
+  }
+  return BlogCategory
+}
+
+// Create a callable function that can be used with 'new'
+const BlogCategoryProxy = new Proxy(function() {}, {
+  get(target, prop) {
+    return getModel()[prop]
+  },
+  construct(target, args) {
+    const Model = getModel()
+    return new Model(...args)
+  },
+  apply(target, thisArg, args) {
+    return getModel()(...args)
+  }
+})
+
+export default BlogCategoryProxy

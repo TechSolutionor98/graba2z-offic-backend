@@ -1,4 +1,5 @@
 import mongoose from "mongoose"
+import { getBlogConnection } from "../config/db.js"
 
 const blogSchema = new mongoose.Schema(
   {
@@ -116,6 +117,29 @@ const blogSchema = new mongoose.Schema(
 // Index for search functionality
 blogSchema.index({ title: "text", description: "text", tags: "text" })
 
-const Blog = mongoose.model("Blog", blogSchema)
+// Lazy initialization - model created on first use
+let Blog = null
 
-export default Blog
+function getModel() {
+  if (!Blog) {
+    const connection = getBlogConnection()
+    Blog = connection.model("Blog", blogSchema)
+  }
+  return Blog
+}
+
+const BlogProxy = new Proxy(function() {}, {
+  get(target, prop) {
+    return getModel()[prop]
+  },
+  construct(target, args) {
+    const Model = getModel()
+    return new Model(...args)
+  },
+  apply(target, thisArg, args) {
+    return getModel()(...args)
+  }
+})
+
+export default BlogProxy
+

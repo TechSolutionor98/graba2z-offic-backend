@@ -9,6 +9,7 @@ const config = {
 
   // Database Configuration
   MONGO_URI: process.env.MONGO_URI,
+  MONGODB_URI_2: process.env.MONGODB_URI_2, // Separate MongoDB for blogs
 
   // JWT Configuration
   JWT_SECRET: process.env.JWT_SECRET,

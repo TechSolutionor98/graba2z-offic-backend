@@ -68,24 +68,23 @@ router.get(
       Blog.aggregate([{ $group: { _id: null, total: { $sum: "$likes" } } }]),
 
       // Recent blogs
-      Blog.find().sort({ createdAt: -1 }).limit(5).populate("mainCategory", "name").populate("topic", "name"),
+      Blog.find().sort({ createdAt: -1 }).limit(5).populate("blogCategory", "name").populate("topic", "name"),
 
       // Popular blogs (by views)
-      Blog.find().sort({ views: -1 }).limit(5).populate("mainCategory", "name").populate("topic", "name"),
+      Blog.find().sort({ views: -1 }).limit(5).populate("blogCategory", "name").populate("topic", "name"),
 
       // Recent comments
       BlogComment.find()
         .sort({ createdAt: -1 })
         .limit(10)
-        .populate("blog", "title")
-        .populate("user", "name"),
+        .populate("blog", "title"),
     ])
 
     // Get category distribution
     const categoryDistribution = await Blog.aggregate([
       { $match: { status: "published" } },
-      { $group: { _id: "$mainCategory", count: { $sum: 1 } } },
-      { $lookup: { from: "categories", localField: "_id", foreignField: "_id", as: "category" } },
+      { $group: { _id: "$blogCategory", count: { $sum: 1 } } },
+      { $lookup: { from: "blogcategories", localField: "_id", foreignField: "_id", as: "category" } },
       { $unwind: "$category" },
       { $project: { name: "$category.name", count: 1 } },
       { $sort: { count: -1 } },
