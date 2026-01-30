@@ -56,6 +56,97 @@ router.get(
   })
 )
 
+// @desc    Check if user exists by email
+// @route   POST /api/super-admin/check-user
+// @access  Private/SuperAdmin
+router.post(
+  "/check-user",
+  protect,
+  superAdmin,
+  asyncHandler(async (req, res) => {
+    const { email } = req.body
+
+    if (!email) {
+      res.status(400)
+      throw new Error("Email is required")
+    }
+
+    const user = await User.findOne({ email }).select("-password")
+
+    if (user) {
+      res.json({
+        exists: true,
+        user: {
+          _id: user._id,
+          name: user.name,
+          email: user.email,
+          isAdmin: user.isAdmin,
+          isSuperAdmin: user.isSuperAdmin,
+        },
+      })
+    } else {
+      res.json({
+        exists: false,
+      })
+    }
+  })
+)
+
+// @desc    Promote existing user to admin
+// @route   PUT /api/super-admin/promote-to-admin/:id
+// @access  Private/SuperAdmin
+router.put(
+  "/promote-to-admin/:id",
+  protect,
+  superAdmin,
+  asyncHandler(async (req, res) => {
+    const { isSuperAdmin: makeSuperAdmin, permissions } = req.body
+
+    const user = await User.findById(req.params.id)
+
+    if (!user) {
+      res.status(404)
+      throw new Error("User not found")
+    }
+
+    if (user.isAdmin) {
+      res.status(400)
+      throw new Error("User is already an admin")
+    }
+
+    // Promote user to admin
+    user.isAdmin = true
+    user.isSuperAdmin = makeSuperAdmin || false
+    user.adminPermissions = permissions || { fullAccess: false }
+    user.isEmailVerified = true
+
+    const updatedUser = await user.save()
+
+    // Log activity
+    await logActivity({
+      user: req.user,
+      action: "UPDATE",
+      module: "ADMIN_MANAGEMENT",
+      description: `Promoted user to admin: ${updatedUser.email}`,
+      targetId: updatedUser._id.toString(),
+      targetName: updatedUser.name,
+      oldData: { isAdmin: false },
+      newData: { isAdmin: true, isSuperAdmin: makeSuperAdmin, permissions },
+      req,
+    })
+
+    res.json({
+      _id: updatedUser._id,
+      name: updatedUser.name,
+      email: updatedUser.email,
+      isAdmin: updatedUser.isAdmin,
+      isSuperAdmin: updatedUser.isSuperAdmin,
+      adminPermissions: updatedUser.adminPermissions,
+      message: "User promoted to admin successfully",
+    })
+  })
+)
+
 // @desc    Create new admin user
 // @route   POST /api/super-admin/admins
 // @access  Private/SuperAdmin
