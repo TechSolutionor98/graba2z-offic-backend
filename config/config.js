@@ -11,6 +11,11 @@ const config = {
   MONGO_URI: process.env.MONGO_URI,
   MONGODB_URI_2: process.env.MONGODB_URI_2, // Separate MongoDB for blogs
 
+  // Redis Cache Configuration
+  REDIS_URL: process.env.REDIS_URL, // Redis connection URL (optional - falls back to memory cache)
+  CACHE_ENABLED: process.env.CACHE_ENABLED !== 'false', // Enable/disable caching
+  CACHE_DEFAULT_TTL: parseInt(process.env.CACHE_DEFAULT_TTL) || 3600, // Default TTL in seconds
+
   // JWT Configuration
   JWT_SECRET: process.env.JWT_SECRET,
 

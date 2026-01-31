@@ -4,6 +4,7 @@ import Brand from "../models/brandModel.js"
 import { protect, admin } from "../middleware/authMiddleware.js"
 import { deleteLocalFile, isCloudinaryUrl } from "../config/multer.js"
 import { logActivity } from "../middleware/permissionMiddleware.js"
+import { cacheMiddleware, invalidateCache } from "../middleware/cacheMiddleware.js"
 
 const router = express.Router()
 
@@ -25,6 +26,7 @@ router.get(
 // @access  Public
 router.get(
   "/",
+  cacheMiddleware('brands'),
   asyncHandler(async (req, res) => {
     const brands = await Brand.find({ isActive: true, isDeleted: { $ne: true } }).sort({ sortOrder: 1, name: 1 })
     res.json(brands)
@@ -62,6 +64,9 @@ router.post(
 
     // Log activity
     await logActivity(req, "CREATE", "BRANDS", `Created brand: ${createdBrand.name}`, createdBrand._id, createdBrand.name)
+
+    // Invalidate brand cache
+    await invalidateCache(['brands', 'products'])
 
     res.status(201).json(createdBrand)
   }),
@@ -101,6 +106,9 @@ router.put(
       // Log activity
       await logActivity(req, "UPDATE", "BRANDS", `Updated brand: ${updatedBrand.name}`, updatedBrand._id, updatedBrand.name)
 
+      // Invalidate brand cache
+      await invalidateCache(['brands', 'products'])
+
       res.json(updatedBrand)
     } else {
       res.status(404)
@@ -136,6 +144,9 @@ router.delete(
 
       // Log activity
       await logActivity(req, "DELETE", "BRANDS", `Deleted brand: ${brandName}`, brandId, brandName)
+
+      // Invalidate brand cache
+      await invalidateCache(['brands', 'products'])
 
       res.json({ message: "Brand removed" })
     } else {

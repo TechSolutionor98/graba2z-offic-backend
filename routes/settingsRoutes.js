@@ -5,6 +5,7 @@ import User from "../models/userModel.js"
 import bcrypt from "bcryptjs"
 import { protect, admin } from "../middleware/authMiddleware.js"
 import { logActivity } from "../middleware/permissionMiddleware.js"
+import { cacheMiddleware, invalidateCache } from "../middleware/cacheMiddleware.js"
 
 const router = express.Router()
 
@@ -13,6 +14,7 @@ const router = express.Router()
 // @access  Public
 router.get(
   "/",
+  cacheMiddleware('settings'),
   asyncHandler(async (req, res) => {
     let settings = await Settings.findOne({})
 
@@ -52,6 +54,9 @@ router.put(
 
     // Log activity
     await logActivity(req, "UPDATE", "SETTINGS", `Updated site settings`, updatedSettings._id, "Site Settings")
+
+    // Invalidate settings cache
+    await invalidateCache('settings')
 
     res.json(updatedSettings)
   }),

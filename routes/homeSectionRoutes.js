@@ -3,13 +3,14 @@ import HomeSection from '../models/homeSectionModel.js';
 import { protect, admin } from '../middleware/authMiddleware.js';
 import { deleteLocalFile, isCloudinaryUrl } from '../config/multer.js';
 import { logActivity } from '../middleware/permissionMiddleware.js';
+import { cacheMiddleware, invalidateCache } from '../middleware/cacheMiddleware.js';
 
 const router = express.Router();
 
 // @desc    Get all home sections
 // @route   GET /api/home-sections
 // @access  Public
-router.get('/', async (req, res) => {
+router.get('/', cacheMiddleware('homeSections'), async (req, res) => {
   try {
     const sections = await HomeSection.find({})
       .sort({ order: 1, createdAt: -1 });
@@ -22,7 +23,7 @@ router.get('/', async (req, res) => {
 // @desc    Get active home sections only
 // @route   GET /api/home-sections/active
 // @access  Public
-router.get('/active', async (req, res) => {
+router.get('/active', cacheMiddleware('homeSections', { keyPrefix: 'active' }), async (req, res) => {
   try {
     const sections = await HomeSection.find({ isActive: true })
       .sort({ order: 1 });
@@ -99,6 +100,9 @@ router.post('/', protect, admin, async (req, res) => {
     // Log activity
     await logActivity(req, "CREATE", "HOME_SECTIONS", `Created home section: ${createdSection.name}`, createdSection._id, createdSection.name);
 
+    // Invalidate home sections cache
+    await invalidateCache('homeSections');
+
     res.status(201).json(createdSection);
   } catch (error) {
     res.status(400).json({ message: error.message });
@@ -166,6 +170,9 @@ router.put('/:id', protect, admin, async (req, res) => {
 
       // Log activity
       await logActivity(req, "UPDATE", "HOME_SECTIONS", `Updated home section: ${updatedSection.name}`, updatedSection._id, updatedSection.name);
+
+      // Invalidate home sections cache
+      await invalidateCache('homeSections');
 
       res.json(updatedSection);
     } else {
@@ -244,6 +251,9 @@ router.delete('/:id', protect, admin, async (req, res) => {
       // Log activity
       await logActivity(req, "DELETE", "HOME_SECTIONS", `Deleted home section: ${sectionName}`, sectionId, sectionName);
 
+      // Invalidate home sections cache
+      await invalidateCache('homeSections');
+
       res.json({ message: 'Section removed' });
     } else {
       res.status(404).json({ message: 'Section not found' });
@@ -269,6 +279,9 @@ router.put('/reorder/batch', protect, admin, async (req, res) => {
     );
 
     await Promise.all(updatePromises);
+    
+    // Invalidate home sections cache
+    await invalidateCache('homeSections');
     
     const updatedSections = await HomeSection.find({}).sort({ order: 1 });
     res.json(updatedSections);

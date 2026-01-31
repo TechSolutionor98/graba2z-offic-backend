@@ -6,6 +6,7 @@ import Brand from "../models/brandModel.js"
 import SubCategory from "../models/subCategoryModel.js"
 import { protect, admin } from "../middleware/authMiddleware.js"
 import { logActivity } from "../middleware/permissionMiddleware.js"
+import { cacheMiddleware, invalidateCache } from "../middleware/cacheMiddleware.js"
 import multer from "multer"
 import XLSX from "xlsx"
 import fs from "fs"
@@ -284,6 +285,7 @@ router.post("/by-ids", protect, admin, asyncHandler(async (req, res) => {
 // @access  Public
 router.get(
   "/",
+  cacheMiddleware('products'),
   asyncHandler(async (req, res) => {
   const { category, subcategory, parentCategory, featured, search, brand, limit } = req.query
 
@@ -379,6 +381,7 @@ router.get(
 // @access  Public
 router.get(
   "/paginated",
+  cacheMiddleware('products'),
   asyncHandler(async (req, res) => {
   const { category, subcategory, parentCategory, featured, search, page = 1, limit = 20, brand } = req.query
 
@@ -972,6 +975,9 @@ router.post(
     // Log activity
     await logActivity(req, "CREATE", "PRODUCTS", `Created product: ${createdProduct.name}`, createdProduct._id, createdProduct.name)
 
+    // Invalidate product cache
+    await invalidateCache('products')
+
     res.status(201).json(populatedProduct)
   }),
 )
@@ -1174,6 +1180,9 @@ router.put(
 
       // Log activity
       await logActivity(req, "UPDATE", "PRODUCTS", `Updated product: ${updatedProduct.name}`, updatedProduct._id, updatedProduct.name)
+
+      // Invalidate product cache
+      await invalidateCache('products')
 
       res.json(populatedProduct)
     } else {
@@ -1599,6 +1608,9 @@ router.delete(
           req,
         })
       }
+      
+      // Invalidate product cache
+      await invalidateCache('products')
       
       res.json({ message: "Product removed" })
     } else {

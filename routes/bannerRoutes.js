@@ -5,6 +5,7 @@ import Category from "../models/categoryModel.js"
 import { protect, admin } from "../middleware/authMiddleware.js"
 import { logActivity } from "../middleware/permissionMiddleware.js"
 import { uploadBanner, deleteLocalFile, isCloudinaryUrl } from "../config/multer.js"
+import { cacheMiddleware, invalidateCache } from "../middleware/cacheMiddleware.js"
 
 const router = express.Router()
 
@@ -13,6 +14,7 @@ const router = express.Router()
 // @access  Public
 router.get(
   "/",
+  cacheMiddleware('banners'),
   asyncHandler(async (req, res) => {
     const { position, category, active } = req.query
 
@@ -117,6 +119,9 @@ router.post(
       })
     }
 
+    // Invalidate banner cache
+    await invalidateCache('banners')
+
     res.status(201).json(populatedBanner)
   }),
 )
@@ -168,6 +173,9 @@ router.put(
         })
       }
 
+      // Invalidate banner cache
+      await invalidateCache('banners')
+
       res.json(populatedBanner)
     } else {
       res.status(404)
@@ -211,6 +219,9 @@ router.delete(
           req,
         })
       }
+
+      // Invalidate banner cache
+      await invalidateCache('banners')
 
       res.json({ message: "Banner removed" })
     } else {

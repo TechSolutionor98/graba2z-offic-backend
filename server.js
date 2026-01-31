@@ -6,6 +6,8 @@ import { fileURLToPath } from "url"
 import connectDB, { connectBlogDB } from "./config/db.js"
 import config from "./config/config.js"
 import { notFound, errorHandler } from "./middleware/errorMiddleware.js"
+import cacheService from "./services/cacheService.js"
+import { attachCacheService } from "./middleware/cacheMiddleware.js"
 
 // Get __dirname equivalent in ES modules
 const __filename = fileURLToPath(import.meta.url)
@@ -76,6 +78,10 @@ dotenv.config()
 await connectDB()
 await connectBlogDB()
 
+// Initialize cache service
+await cacheService.initialize()
+console.log('📦 Cache service initialized')
+
 
 const app = express()
 
@@ -120,6 +126,9 @@ app.use("/api/payment/tamara/webhook", captureRawBody, webhookRateLimit, authent
 // Body parser middleware
 app.use(express.json({ limit: "50mb" }))
 app.use(express.urlencoded({ extended: true, limit: "50mb" }))
+
+// Attach cache service to all requests
+app.use(attachCacheService)
 
 // Routes
 app.use("/api/users", userRoutes)

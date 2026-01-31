@@ -2,6 +2,7 @@ import express from "express"
 import asyncHandler from "express-async-handler"
 import Color from "../models/colorModel.js"
 import { protect, admin } from "../middleware/authMiddleware.js"
+import { cacheMiddleware, invalidateCache } from "../middleware/cacheMiddleware.js"
 
 const router = express.Router()
 
@@ -23,6 +24,7 @@ router.get(
 // @access  Public
 router.get(
   "/",
+  cacheMiddleware('colors'),
   asyncHandler(async (req, res) => {
     const colors = await Color.find({ isActive: true, isDeleted: { $ne: true } }).sort({ sortOrder: 1, name: 1 })
     res.json(colors)
@@ -46,6 +48,10 @@ router.post(
     })
 
     const createdColor = await color.save()
+    
+    // Invalidate colors cache
+    await invalidateCache('colors')
+    
     res.status(201).json(createdColor)
   }),
 )
@@ -68,6 +74,10 @@ router.put(
       color.isActive = isActive !== undefined ? isActive : color.isActive
 
       const updatedColor = await color.save()
+      
+      // Invalidate colors cache
+      await invalidateCache('colors')
+      
       res.json(updatedColor)
     } else {
       res.status(404)
@@ -88,6 +98,10 @@ router.delete(
 
     if (color) {
       await color.deleteOne()
+      
+      // Invalidate colors cache
+      await invalidateCache('colors')
+      
       res.json({ message: "Color removed" })
     } else {
       res.status(404)

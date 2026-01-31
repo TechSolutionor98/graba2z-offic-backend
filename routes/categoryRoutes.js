@@ -6,6 +6,7 @@ import Product from "../models/productModel.js"
 import { protect, admin } from "../middleware/authMiddleware.js"
 import { logActivity } from "../middleware/permissionMiddleware.js"
 import { deleteLocalFile, isCloudinaryUrl } from "../config/multer.js"
+import { cacheMiddleware, invalidateCache } from "../middleware/cacheMiddleware.js"
 
 const router = express.Router()
 
@@ -269,6 +270,7 @@ router.get(
 // @access  Public
 router.get(
   "/",
+  cacheMiddleware('categories'),
   asyncHandler(async (req, res) => {
     const categories = await Category.find({ isActive: true, isDeleted: { $ne: true } }).sort({ sortOrder: 1, name: 1 })
     res.json(categories)
@@ -280,6 +282,7 @@ router.get(
 // @access  Public
 router.get(
   "/slider",
+  cacheMiddleware('categories', { keyPrefix: 'slider' }),
   asyncHandler(async (req, res) => {
     // Fetch both categories and subcategories with showInSlider: true
     // NOTE: This endpoint does NOT check isActive status - it only checks showInSlider
@@ -300,6 +303,7 @@ router.get(
 // @access  Public
 router.get(
   "/tree",
+  cacheMiddleware('categories', { keyPrefix: 'tree' }),
   asyncHandler(async (req, res) => {
     try {
       // Load active, non-deleted categories and subcategories with all fields
@@ -490,6 +494,9 @@ router.post(
       })
     }
     
+    // Invalidate category cache
+    await invalidateCache(['categories', 'products'])
+    
     res.status(201).json(createdCategory)
   }),
 )
@@ -548,6 +555,9 @@ router.put(
           req,
         })
       }
+      
+      // Invalidate category cache
+      await invalidateCache(['categories', 'products'])
       
       res.json(updatedCategory)
     } else {
