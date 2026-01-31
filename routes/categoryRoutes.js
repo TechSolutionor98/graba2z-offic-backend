@@ -302,32 +302,31 @@ router.get(
   "/tree",
   asyncHandler(async (req, res) => {
     try {
-      // Load active, non-deleted categories and subcategories
+      // Load active, non-deleted categories and subcategories with all fields
       const [cats, subs] = await Promise.all([
         Category.find({ isActive: true, isDeleted: { $ne: true } })
-          .select("_id name slug sortOrder")
           .sort({ sortOrder: 1, name: 1 })
           .lean(),
         SubCategory.find({ isActive: true, isDeleted: { $ne: true } })
-          .select("_id name slug category parentSubCategory level sortOrder")
           .sort({ sortOrder: 1, name: 1 })
           .lean(),
       ])
 
-      // Prepare category nodes
+      // Prepare category nodes - preserve all fields
       const catMap = new Map()
       for (const c of cats) {
-        catMap.set(String(c._id), { _id: c._id, name: c.name, slug: c.slug, children: [] })
+        catMap.set(String(c._id), { 
+          ...c, 
+          children: [] 
+        })
       }
 
-      // Prepare subcategory nodes
+      // Prepare subcategory nodes - preserve all fields
       const subMap = new Map()
       for (const s of subs) {
         const level = s.level || 1
         subMap.set(String(s._id), {
-          _id: s._id,
-          name: s.name,
-          slug: s.slug,
+          ...s,
           level,
           category: s.category ? String(s.category) : null,
           parentSubCategory: s.parentSubCategory ? String(s.parentSubCategory) : null,
