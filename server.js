@@ -71,6 +71,7 @@ import cacheRoutes from "./routes/cacheRoutes.js"
 import customSliderItemRoutes from "./routes/customSliderItemRoutes.js"
 import superAdminRoutes from "./routes/superAdminRoutes.js"
 import reportsRoutes from "./routes/reportsRoutes.js"
+import homepageRoutes from "./routes/homepageRoutes.js"
 
 dotenv.config()
 
@@ -174,6 +175,8 @@ app.use("/api/reports", reportsRoutes)
 app.use("/api/email-templates", emailTemplateRoutes)
 app.use("/api/newsletter", newsletterRoutes)
 
+// Optimized homepage endpoint (combines multiple API calls)
+app.use("/api/homepage", homepageRoutes)
 
 app.use("/api/price-adjustment", priceAdjustmentRoutes)
 app.use("/api/redirects", redirectRoutes)
