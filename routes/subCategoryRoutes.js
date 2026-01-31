@@ -657,7 +657,20 @@ router.get(
   protect,
   admin,
   asyncHandler(async (req, res) => {
-    const subCategories = await SubCategory.find({ isDeleted: { $ne: true } })
+    const { category, parentSubCategory, level } = req.query;
+    let filter = { isDeleted: { $ne: true } }; // Admin sees all active and inactive
+    
+    if (category) {
+      filter.category = category;
+    }
+    if (parentSubCategory) {
+      filter.parentSubCategory = parentSubCategory;
+    }
+    if (level) {
+      filter.level = parseInt(level);
+    }
+    
+    const subCategories = await SubCategory.find(filter)
       .populate("category", "name slug _id")
       .populate("parentSubCategory", "name slug _id")
       .sort({ sortOrder: 1, name: 1 })
