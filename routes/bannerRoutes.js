@@ -9,13 +9,22 @@ import { cacheMiddleware, invalidateCache } from "../middleware/cacheMiddleware.
 
 const router = express.Router()
 
+const debugBanners = (...args) => {
+  if (process.env.DEBUG_BANNERS === "true") {
+    console.log("[DEBUG_BANNERS]", ...args)
+  }
+}
+
 // @desc    Get all banners (public)
 // @route   GET /api/banners
 // @access  Public
 router.get(
   "/",
-  cacheMiddleware('banners'),
   asyncHandler(async (req, res) => {
+    // Banners need to reflect admin edits immediately.
+    // Avoid server/proxy caching here (especially important on serverless environments).
+    res.set('Cache-Control', 'no-store, max-age=0, must-revalidate')
+
     const { position, category, active } = req.query
 
     const query = {}
@@ -85,6 +94,15 @@ router.post(
   asyncHandler(async (req, res) => {
     const { category, ...bannerData } = req.body
 
+    debugBanners("POST /api/banners payload", {
+      position: bannerData.position,
+      section: bannerData.section,
+      deviceType: bannerData.deviceType,
+      buttonLink: bannerData.buttonLink,
+      link: bannerData.link,
+      title: bannerData.title,
+    })
+
     // Verify category exists if provided and position is category
     if (bannerData.position === "category" && category) {
       const categoryExists = await Category.findById(category)
@@ -100,7 +118,26 @@ router.post(
       createdBy: req.user._id,
     })
 
+    // Hero banners should always use buttonLink as the banner link
+    // (no separate direct link field for hero position)
+    if ((banner.position || "hero") === "hero") {
+      banner.link = banner.buttonLink
+      debugBanners("Hero create: mirrored link from buttonLink", {
+        bannerId: banner._id?.toString?.(),
+        buttonLink: banner.buttonLink,
+        link: banner.link,
+      })
+    }
+
     const createdBanner = await banner.save()
+    debugBanners("POST /api/banners saved", {
+      id: createdBanner._id?.toString?.(),
+      position: createdBanner.position,
+      section: createdBanner.section,
+      deviceType: createdBanner.deviceType,
+      buttonLink: createdBanner.buttonLink,
+      link: createdBanner.link,
+    })
     const populatedBanner = await Banner.findById(createdBanner._id)
       .populate("category", "name slug")
       .populate("createdBy", "name email")
@@ -120,7 +157,7 @@ router.post(
     }
 
     // Invalidate banner cache
-    await invalidateCache('banners')
+    await invalidateCache(['banners', 'homeSections'])
 
     res.status(201).json(populatedBanner)
   }),
@@ -139,6 +176,19 @@ router.put(
     if (banner) {
       const { category, ...updateData } = req.body
 
+      debugBanners("PUT /api/banners/:id payload", {
+        id: req.params.id,
+        position: updateData.position,
+        section: updateData.section,
+        deviceType: updateData.deviceType,
+        buttonLink: updateData.buttonLink,
+        link: updateData.link,
+        title: updateData.title,
+      })
+
+      // Hero banners should always use buttonLink as the banner link
+      const finalPosition = updateData.position ?? banner.position
+
       // Verify category exists if provided and position is category
       if (updateData.position === "category" && category) {
         const categoryExists = await Category.findById(category)
@@ -153,9 +203,27 @@ router.put(
         banner[key] = updateData[key]
       })
 
+      if (finalPosition === "hero") {
+        // Mirror current buttonLink into link after applying updates
+        banner.link = banner.buttonLink
+        debugBanners("Hero update: mirrored link from buttonLink", {
+          id: req.params.id,
+          buttonLink: banner.buttonLink,
+          link: banner.link,
+        })
+      }
+
       banner.category = updateData.position === "category" ? category : null
 
       const updatedBanner = await banner.save()
+      debugBanners("PUT /api/banners/:id saved", {
+        id: updatedBanner._id?.toString?.(),
+        position: updatedBanner.position,
+        section: updatedBanner.section,
+        deviceType: updatedBanner.deviceType,
+        buttonLink: updatedBanner.buttonLink,
+        link: updatedBanner.link,
+      })
       const populatedBanner = await Banner.findById(updatedBanner._id)
         .populate("category", "name slug")
         .populate("createdBy", "name email")
@@ -174,7 +242,7 @@ router.put(
       }
 
       // Invalidate banner cache
-      await invalidateCache('banners')
+      await invalidateCache(['banners', 'homeSections'])
 
       res.json(populatedBanner)
     } else {
@@ -221,7 +289,7 @@ router.delete(
       }
 
       // Invalidate banner cache
-      await invalidateCache('banners')
+      await invalidateCache(['banners', 'homeSections'])
 
       res.json({ message: "Banner removed" })
     } else {

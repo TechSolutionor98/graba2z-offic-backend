@@ -303,6 +303,40 @@ const productSchema = mongoose.Schema(
         },
       },
     ],
+    // SEO Fields (only used for meta tags, not displayed on frontend)
+    seoTitle: {
+      type: String,
+      default: "",
+    },
+    seoDescription: {
+      type: String,
+      default: "",
+    },
+    seoKeywords: {
+      type: String,
+      default: "",
+    },
+    seoCanonicalUrl: {
+      type: String,
+      default: "",
+    },
+    seoRobots: {
+      type: String,
+      default: "index, follow",
+      enum: ["index, follow", "noindex, follow", "index, nofollow", "noindex, nofollow"],
+    },
+    ogTitle: {
+      type: String,
+      default: "",
+    },
+    ogDescription: {
+      type: String,
+      default: "",
+    },
+    ogImage: {
+      type: String,
+      default: "",
+    },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",

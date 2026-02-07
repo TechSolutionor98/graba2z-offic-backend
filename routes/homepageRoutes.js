@@ -56,7 +56,7 @@ router.get(
 
       // Banners - active only
       Banner.find({ isActive: true })
-        .select('title subtitle image mobileImage link position category sortOrder buttonText')
+        .select('title subtitle image mobileImage link buttonLink position category sortOrder buttonText')
         .populate('category', 'name slug')
         .sort({ sortOrder: 1, createdAt: -1 })
         .lean(),
