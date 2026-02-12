@@ -3,8 +3,9 @@ import asyncHandler from "express-async-handler"
 import User from "../models/userModel.js"
 import generateToken from "../utils/generateToken.js"
 import { protect } from "../middleware/authMiddleware.js"
-import { sendVerificationEmail, sendAccountDeletionEmail } from "../utils/emailService.js"
+import { sendVerificationEmail, sendAccountDeletionEmail, sendGuestAccountCreatedEmail } from "../utils/emailService.js"
 import { sendResetPasswordEmail } from "../utils/emailService.js"
+import crypto from "crypto"
 
 const router = express.Router()
 
@@ -132,6 +133,74 @@ router.post(
       console.error("Failed to send verification email:", emailError)
       res.status(500)
       throw new Error("Failed to send verification email")
+    }
+  }),
+)
+
+// @desc    Register guest as user with auto-generated password
+// @route   POST /api/users/register-guest
+// @access  Public
+router.post(
+  "/register-guest",
+  asyncHandler(async (req, res) => {
+    const { name, email, phone, address } = req.body
+
+    // Check if user already exists
+    const userExists = await User.findOne({ email })
+
+    if (userExists) {
+      // User already exists, just return success (they can use forgot password if needed)
+      console.log(`[register-guest] User already exists with email: ${email}`)
+      res.json({
+        message: "Account already exists",
+        alreadyExists: true,
+        email: email,
+      })
+      return
+    }
+
+    // Generate a random password (12 characters with letters, numbers, and special chars)
+    const randomPassword = crypto.randomBytes(8).toString('base64').slice(0, 12)
+
+    // Create the user with verified email (since they already verified via guest flow)
+    const user = await User.create({
+      name,
+      email,
+      password: randomPassword,
+      isEmailVerified: true,
+      phone: phone || "",
+      address: address ? {
+        street: address.address || "",
+        city: address.city || "",
+        state: address.state || "",
+        zipCode: address.zipCode || "",
+        country: address.country || "UAE",
+      } : undefined,
+    })
+
+    if (user) {
+      // Send email with credentials
+      try {
+        await sendGuestAccountCreatedEmail(email, name, randomPassword)
+        console.log(`[register-guest] Account created and email sent to: ${email}`)
+        res.status(201).json({
+          message: "Account created successfully! Check your email for login credentials.",
+          email: user.email,
+          success: true,
+        })
+      } catch (emailError) {
+        console.error("[register-guest] Failed to send credentials email:", emailError)
+        // Still return success - account was created
+        res.status(201).json({
+          message: "Account created successfully! However, we couldn't send the credentials email.",
+          email: user.email,
+          success: true,
+          emailFailed: true,
+        })
+      }
+    } else {
+      res.status(400)
+      throw new Error("Failed to create user account")
     }
   }),
 )

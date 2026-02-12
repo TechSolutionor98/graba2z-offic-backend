@@ -1302,6 +1302,198 @@ const getEmailTemplate = (type, data) => {
         </html>
       `
 
+    case "guestAccountCreated":
+      return `
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+          <meta charset="UTF-8" />
+          <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+          <title>Your Account Has Been Created</title>
+          <style>
+            body {
+              background-color: #e8f7ee;
+              font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+              margin: 0;
+              padding: 0;
+            }
+            .container {
+              max-width: 600px;
+              margin: 32px auto;
+              background-color: #ffffff;
+              border-radius: 16px;
+              overflow: hidden;
+              box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+              border: 1px solid #e0e0e0;
+            }
+            .header {
+              background-color: #fff;
+              padding: 32px 0 16px 0;
+              text-align: center;
+              border-bottom: 1px solid #e0e0e0;
+            }
+            .header a {
+              display: inline-block;
+            }
+            .header img {
+              max-height: 60px;
+            }
+            .content {
+              padding: 40px 30px 32px 30px;
+              text-align: center;
+            }
+            .success-icon {
+              width: 80px;
+              height: 80px;
+              background-color: #1abc7b;
+              border-radius: 50%;
+              margin: 20px auto;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              color: white;
+              font-size: 40px;
+            }
+            .content h2 {
+              color: #1abc7b;
+              font-size: 1.5rem;
+              margin-bottom: 0.5em;
+            }
+            .content p {
+              color: #444;
+              font-size: 1.1rem;
+              margin: 0.5em 0 1.5em 0;
+            }
+            .credentials-box {
+              background: #f0fdf4;
+              border: 2px solid #86efac;
+              border-radius: 10px;
+              margin: 32px auto 24px auto;
+              padding: 24px;
+              max-width: 400px;
+              text-align: left;
+            }
+            .credentials-box .label {
+              color: #666;
+              font-size: 0.9rem;
+              margin-bottom: 4px;
+            }
+            .credentials-box .value {
+              color: #1abc7b;
+              font-size: 1.2rem;
+              font-weight: bold;
+              margin-bottom: 16px;
+              word-break: break-all;
+            }
+            .credentials-box .value:last-child {
+              margin-bottom: 0;
+            }
+            .login-btn {
+              display: inline-block;
+              background: #1abc7b;
+              color: #fff;
+              font-weight: 600;
+              padding: 16px 40px;
+              border-radius: 8px;
+              text-decoration: none;
+              font-size: 1.1rem;
+              margin: 24px 0 0 0;
+              transition: background 0.2s;
+            }
+            .login-btn:hover {
+              background: #159c65;
+            }
+            .note-box {
+              background: #fef3c7;
+              border-left: 4px solid #f59e0b;
+              border-radius: 8px;
+              padding: 16px 20px;
+              margin: 20px 0;
+              text-align: left;
+              font-size: 0.95rem;
+            }
+            .note-box strong {
+              color: #b45309;
+            }
+            .footer {
+              background-color: #e8f7ee;
+              padding: 32px 20px 20px 20px;
+              text-align: center;
+              font-size: 13px;
+              color: #888;
+            }
+            .footer .socials {
+              margin: 18px 0 10px 0;
+            }
+            .footer .socials a {
+              display: inline-block;
+              margin: 0 10px;
+              text-decoration: none;
+            }
+            .footer .socials img {
+              width: 32px;
+              height: 32px;
+              vertical-align: middle;
+              border-radius: 50%;
+              background: #fff;
+              box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+              transition: box-shadow 0.2s;
+            }
+            .footer .socials img:hover {
+              box-shadow: 0 4px 16px rgba(26,188,123,0.15);
+            }
+            @media (max-width: 600px) {
+              .container { border-radius: 0; margin: 0; }
+              .content { padding: 24px 8px 24px 8px; }
+              .footer { padding: 24px 4px 12px 4px; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <a href="https://www.graba2z.ae/" target="_blank">
+                <img src="https://res.cloudinary.com/dyfhsu5v6/image/upload/v1753105567/admin-logo_ruxcjj.png" alt="Graba2z Logo" />
+              </a>
+            </div>
+            <div class="content">
+              <div class="success-icon">✓</div>
+              <h2>Welcome to Graba2z!</h2>
+              <p>Hi <b>${data.name || "Customer"}</b>,<br />
+              Your account has been created successfully. You can now use the following credentials to log in anytime:</p>
+              <div class="credentials-box">
+                <div class="label">Email</div>
+                <div class="value">${data.email || ""}</div>
+                <div class="label">Password</div>
+                <div class="value">${data.password || ""}</div>
+              </div>
+              <div class="note-box">
+                <strong>Important:</strong> We recommend changing your password after your first login for security purposes.
+              </div>
+              <a href="https://www.graba2z.ae/login" class="login-btn">Login to Your Account</a>
+              <p style="margin-top: 2em; color: #888; font-size: 1em;">Continue shopping and enjoy exclusive deals on Graba2z!</p>
+            </div>
+            <div class="footer">
+              <div class="socials">
+                <a href="https://www.facebook.com/grabatozae/" target="_blank"><img src="https://res.cloudinary.com/dyfhsu5v6/image/upload/v1753107123/WhatsApp_Image_2025-07-21_at_7.10.18_AM_1_axvzvv.jpg" alt="Facebook" style="width:32px;height:32px;margin:0 10px;vertical-align:middle;background:transparent;border-radius:8px;box-shadow:none;" /></a>
+                <a href="https://www.instagram.com/grabatoz/" target="_blank"><img src="https://res.cloudinary.com/dyfhsu5v6/image/upload/v1753107124/WhatsApp_Image_2025-07-21_at_7.10.18_AM_xgjv5f.jpg" alt="Instagram" style="width:32px;height:32px;margin:0 10px;vertical-align:middle;background:transparent;border-radius:8px;box-shadow:none;" /></a>
+                <a href="https://x.com/GrabAtoz" target="_blank"><img src="https://res.cloudinary.com/dyfhsu5v6/image/upload/v1753107545/WhatsApp_Image_2025-07-21_at_7.10.18_AM_2_cwzjg6.png" alt="X" style="width:32px;height:32px;margin:0 10px;vertical-align:middle;background:transparent;border-radius:8px;box-shadow:none;" /></a>
+                <a href="https://www.linkedin.com/company/grabatozae" target="_blank"><img src="https://res.cloudinary.com/dyfhsu5v6/image/upload/v1753107123/WhatsApp_Image_2025-07-21_at_7.10.18_AM_3_ll6y2i.jpg" alt="LinkedIn" style="width:32px;height:32px;margin:0 10px;vertical-align:middle;background:transparent;border-radius:8px;box-shadow:none;" /></a>
+              </div>
+              <p>This email was sent by: support@grabatoz.ae</p>
+              <br/>
+              <p>Kindly Do Not Reply to this Email</p>
+              <br/>
+              <div style="margin-top: 10px; color: #888;">
+                &copy; 2025 Graba2z. All rights reserved.<br />
+                <span style="font-size:12px;">If you did not create this account, please contact our support team.</span>
+              </div>
+            </div>
+          </div>
+        </body>
+        </html>
+      `
+
     default:
       return `
         <!DOCTYPE html>
@@ -1561,6 +1753,20 @@ export const sendResetPasswordEmail = async (email, name, resetLink) => {
     return { success: true }
   } catch (error) {
     console.error("Failed to send reset password email:", error)
+    throw error
+  }
+}
+
+// Send guest account created email with login credentials
+export const sendGuestAccountCreatedEmail = async (email, name, password) => {
+  try {
+    console.log(`[sendGuestAccountCreatedEmail] Sending account credentials to ${email}`)
+    const html = getEmailTemplate("guestAccountCreated", { name, email, password })
+    await sendEmail(email, "Your Graba2z Account Has Been Created - Graba2z", html, "support")
+    console.log(`[sendGuestAccountCreatedEmail] Email sent successfully to ${email}`)
+    return { success: true }
+  } catch (error) {
+    console.error("[sendGuestAccountCreatedEmail] Failed to send email:", error)
     throw error
   }
 }
