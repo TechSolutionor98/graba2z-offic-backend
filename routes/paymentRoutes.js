@@ -1001,14 +1001,33 @@
 import express from "express"
 import axios from "axios"
 import jwt from "jsonwebtoken"
+import asyncHandler from "express-async-handler"
 import Order from "../models/orderModel.js"
+import User from "../models/userModel.js"
 import { protect } from "../middleware/authMiddleware.js"
 import TamaraService from "../services/tamaraService.js"
 
 const router = express.Router()
 
-// Tamara Payment Routes
-router.post("/tamara/checkout", protect, async (req, res) => {
+// Middleware to optionally protect routes (sets req.user if token exists, allows guest if not)
+const optionalProtect = asyncHandler(async (req, res, next) => {
+  let token
+
+  if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
+    try {
+      token = req.headers.authorization.split(' ')[1]
+      const decoded = jwt.verify(token, process.env.JWT_SECRET)
+      req.user = await User.findById(decoded.id).select('-password')
+    } catch (error) {
+      console.log('Optional auth failed:', error.message)
+      // Don't throw error, just continue without user (guest checkout)
+    }
+  }
+  next()
+})
+
+// Tamara Payment Routes - Supports both authenticated and guest checkout
+router.post("/tamara/checkout", optionalProtect, async (req, res) => {
   try {
     const {
       total_amount,
@@ -1570,8 +1589,8 @@ router.post("/tamara/authorize/:orderId", protect, async (req, res) => {
   }
 })
 
-// Tabby Payment Routes
-router.post("/tabby/sessions", protect, async (req, res) => {
+// Tabby Payment Routes - Supports both authenticated and guest checkout
+router.post("/tabby/sessions", optionalProtect, async (req, res) => {
   try {
     const tabbyConfig = {
       headers: {
