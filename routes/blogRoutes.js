@@ -187,6 +187,7 @@ router.post(
       description,
       metaTitle,
       metaDescription,
+      schema,
       tags,
     } = req.body
 
@@ -214,6 +215,7 @@ router.post(
       description,
       metaTitle,
       metaDescription,
+      schema,
       tags,
     })
 
@@ -280,6 +282,7 @@ router.put(
       description,
       metaTitle,
       metaDescription,
+      schema,
       tags,
     } = req.body
 
@@ -300,6 +303,7 @@ router.put(
     blog.description = description || blog.description
     blog.metaTitle = metaTitle || blog.metaTitle
     blog.metaDescription = metaDescription || blog.metaDescription
+    blog.schema = schema !== undefined ? schema : blog.schema
     blog.tags = tags || blog.tags
 
     const updatedBlog = await blog.save()

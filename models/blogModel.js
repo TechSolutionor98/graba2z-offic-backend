@@ -90,6 +90,10 @@ const blogSchema = new mongoose.Schema(
     metaDescription: {
       type: String,
     },
+    schema: {
+      type: String,
+      default: "",
+    },
     tags: [
       {
         type: String,
