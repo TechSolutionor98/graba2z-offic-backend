@@ -1,10 +1,31 @@
 import express from "express"
 import asyncHandler from "express-async-handler"
+import mongoose from "mongoose"
 import Blog from "../models/blogModel.js"
+import BlogCategory from "../models/blogCategoryModel.js"
+import BlogTopic from "../models/blogTopicModel.js"
+import BlogBrand from "../models/blogBrandModel.js"
 import { protect, admin } from "../middleware/authMiddleware.js"
 import { logActivity } from "../middleware/permissionMiddleware.js"
 
 const router = express.Router()
+
+// Ensure all blog models are registered (lazy initialization)
+let modelsInitialized = false
+const ensureModelsInitialized = () => {
+  if (!modelsInitialized) {
+    // Access the models to trigger lazy initialization
+    // This registers them on the blog connection
+    try {
+      BlogCategory.find
+      BlogTopic.find
+      BlogBrand.find
+      modelsInitialized = true
+    } catch (err) {
+      console.error("Error initializing blog models:", err.message)
+    }
+  }
+}
 
 // @desc    Get featured blogs
 // @route   GET /api/blogs/featured
@@ -12,6 +33,8 @@ const router = express.Router()
 router.get(
   "/featured",
   asyncHandler(async (req, res) => {
+    ensureModelsInitialized() // Ensure models are registered before populate
+    
     const featuredBlogs = await Blog.find({ 
       status: "published", 
       featured: true 
@@ -32,6 +55,8 @@ router.get(
 router.get(
   "/trending",
   asyncHandler(async (req, res) => {
+    ensureModelsInitialized() // Ensure models are registered before populate
+    
     const { limit = 20 } = req.query
     
     const trendingBlogs = await Blog.find({ 
@@ -54,6 +79,8 @@ router.get(
 router.get(
   "/",
   asyncHandler(async (req, res) => {
+    ensureModelsInitialized() // Ensure models are registered before populate
+    
     const { status, category, topic, search, page = 1, limit = 10 } = req.query
 
     const query = {}
@@ -115,6 +142,14 @@ router.get(
 router.get(
   "/:id",
   asyncHandler(async (req, res) => {
+    ensureModelsInitialized() // Ensure models are registered before populate
+    
+    // Validate ObjectId format
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      res.status(400)
+      throw new Error("Invalid blog ID format")
+    }
+    
     const blog = await Blog.findById(req.params.id)
       .populate("blogCategory", "name slug")
       .populate("topic", "name slug color")
@@ -139,6 +174,8 @@ router.get(
 router.get(
   "/slug/:slug",
   asyncHandler(async (req, res) => {
+    ensureModelsInitialized() // Ensure models are registered before populate
+    
     const blog = await Blog.findOne({ slug: req.params.slug })
       .populate("blogCategory", "name slug")
       .populate("topic", "name slug color")
@@ -165,6 +202,8 @@ router.post(
   protect,
   admin,
   asyncHandler(async (req, res) => {
+    ensureModelsInitialized() // Ensure models are registered before populate
+    
     const {
       blogName,
       title,
@@ -253,6 +292,14 @@ router.put(
   protect,
   admin,
   asyncHandler(async (req, res) => {
+    ensureModelsInitialized() // Ensure models are registered before populate
+    
+    // Validate ObjectId format
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      res.status(400)
+      throw new Error("Invalid blog ID format")
+    }
+    
     const blog = await Blog.findById(req.params.id)
 
     if (!blog) {
@@ -340,6 +387,12 @@ router.patch(
   protect,
   admin,
   asyncHandler(async (req, res) => {
+    // Validate ObjectId format
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      res.status(400)
+      throw new Error("Invalid blog ID format")
+    }
+    
     const { status } = req.body
 
     const blog = await Blog.findByIdAndUpdate(req.params.id, { status }, { new: true })
@@ -364,6 +417,12 @@ router.delete(
   protect,
   admin,
   asyncHandler(async (req, res) => {
+    // Validate ObjectId format
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      res.status(400)
+      throw new Error("Invalid blog ID format")
+    }
+    
     const blog = await Blog.findById(req.params.id)
 
     if (!blog) {

@@ -94,12 +94,7 @@ const blogSchema = new mongoose.Schema(
       type: String,
       default: "",
     },
-    tags: [
-      {
-        type: String,
-        trim: true,
-      },
-    ],
+    tags: mongoose.Schema.Types.Mixed,
     views: {
       type: Number,
       default: 0,
@@ -118,15 +113,20 @@ const blogSchema = new mongoose.Schema(
   },
 )
 
-// Index for search functionality
-blogSchema.index({ title: "text", description: "text", tags: "text" })
+// Index for search functionality (removed tags from text index to fix validation error)
+blogSchema.index({ title: "text", description: "text" })
 
 // Lazy initialization - model created on first use
 let Blog = null
 
 function getModel() {
+  const connection = getBlogConnection()
+  // Always delete and recreate to prevent schema caching issues
+  if (connection.models.Blog) {
+    delete connection.models.Blog
+    Blog = null
+  }
   if (!Blog) {
-    const connection = getBlogConnection()
     Blog = connection.model("Blog", blogSchema)
   }
   return Blog

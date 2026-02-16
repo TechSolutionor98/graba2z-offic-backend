@@ -42,6 +42,10 @@ let BlogTopic = null
 function getModel() {
   if (!BlogTopic) {
     const connection = getBlogConnection()
+    // Delete existing model if it exists to prevent schema caching issues
+    if (connection.models.BlogTopic) {
+      delete connection.models.BlogTopic
+    }
     BlogTopic = connection.model("BlogTopic", blogTopicSchema)
   }
   return BlogTopic

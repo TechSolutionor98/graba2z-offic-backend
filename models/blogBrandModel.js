@@ -51,6 +51,10 @@ let BlogBrand = null
 function getModel() {
   if (!BlogBrand) {
     const connection = getBlogConnection()
+    // Delete existing model if it exists to prevent schema caching issues
+    if (connection.models.BlogBrand) {
+      delete connection.models.BlogBrand
+    }
     BlogBrand = connection.model("BlogBrand", blogBrandSchema)
   }
   return BlogBrand
