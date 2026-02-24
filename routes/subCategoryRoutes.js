@@ -775,7 +775,7 @@ router.post(
   admin,
   asyncHandler(async (req, res) => {
     try {
-      const { name, description, seoContent, metaTitle, metaDescription, redirectUrl, category, parentSubCategory, level, image, slug } = req.body
+      const { name, description, seoContent, metaTitle, metaDescription, customSchema, redirectUrl, category, parentSubCategory, level, image, slug } = req.body
 
       console.log('Creating subcategory with data:', req.body)
 
@@ -864,6 +864,7 @@ router.post(
         seoContent: seoContent || "",
         metaTitle: metaTitle || name.trim(),
         metaDescription: metaDescription || "",
+        customSchema: customSchema || "",
         redirectUrl: redirectUrl || "",
         category: category,
         parentSubCategory: parentSubCategory || null,
@@ -927,7 +928,7 @@ router.put(
   admin,
   asyncHandler(async (req, res) => {
     try {
-      const { name, description, seoContent, metaTitle, metaDescription, redirectUrl, category, parentSubCategory, level, image, slug, isActive, showInSlider } = req.body
+      const { name, description, seoContent, metaTitle, metaDescription, customSchema, redirectUrl, category, parentSubCategory, level, image, slug, isActive, showInSlider } = req.body
 
       console.log('Updating subcategory with data:', req.body)
 
@@ -1031,6 +1032,7 @@ router.put(
       subcategory.seoContent = seoContent !== undefined ? seoContent : subcategory.seoContent
       subcategory.metaTitle = metaTitle !== undefined ? metaTitle : subcategory.metaTitle
       subcategory.metaDescription = metaDescription !== undefined ? metaDescription : subcategory.metaDescription
+      subcategory.customSchema = customSchema !== undefined ? customSchema : subcategory.customSchema
       subcategory.redirectUrl = redirectUrl !== undefined ? redirectUrl : subcategory.redirectUrl
       subcategory.category = category || subcategory.category
       subcategory.parentSubCategory = parentSubCategory !== undefined ? parentSubCategory : subcategory.parentSubCategory

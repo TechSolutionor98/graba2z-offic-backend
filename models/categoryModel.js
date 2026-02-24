@@ -87,6 +87,10 @@ const categorySchema = mongoose.Schema(
       trim: true,
       maxlength: 300, // Increased limit for better SEO flexibility
     },
+    customSchema: {
+      type: String,
+      default: "",
+    },
     redirectUrl: {
       type: String,
       default: "",

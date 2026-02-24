@@ -325,6 +325,10 @@ const productSchema = mongoose.Schema(
       default: "index, follow",
       enum: ["index, follow", "noindex, follow", "index, nofollow", "noindex, nofollow"],
     },
+    customSchema: {
+      type: String,
+      default: "",
+    },
     ogTitle: {
       type: String,
       default: "",
