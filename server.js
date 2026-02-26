@@ -3,6 +3,7 @@ import cors from "cors"
 import dotenv from "dotenv"
 import path from "path"
 import { fileURLToPath } from "url"
+import sharp from "sharp"
 import connectDB, { connectBlogDB } from "./config/db.js"
 import config from "./config/config.js"
 import { notFound, errorHandler } from "./middleware/errorMiddleware.js"
@@ -109,8 +110,55 @@ app.options("*", (req, res) => {
   res.send();
 });
 
-// Serve static files from uploads directory
 const uploadsPath = path.join(__dirname, 'uploads');
+
+// Dynamic image optimization for local /uploads assets.
+// Example: /uploads/products/a.webp?w=330&h=330&q=70&fmt=webp
+app.get('/uploads/*', async (req, res, next) => {
+  try {
+    const width = Number.parseInt(req.query.w, 10) || 0
+    const height = Number.parseInt(req.query.h, 10) || 0
+    const quality = Math.min(100, Math.max(1, Number.parseInt(req.query.q, 10) || 72))
+    const format = String(req.query.fmt || "").toLowerCase()
+
+    // Only optimize when a target dimension is requested.
+    if (!width && !height) return next()
+
+    const relPath = req.path.replace(/^\/+/, "")
+    const absPath = path.resolve(uploadsPath, relPath)
+    if (!absPath.startsWith(path.resolve(uploadsPath))) return res.status(400).send("Invalid image path")
+
+    let pipeline = sharp(absPath).rotate().resize({
+      width: width || undefined,
+      height: height || undefined,
+      fit: "inside",
+      withoutEnlargement: true,
+    })
+
+    // Default modern output.
+    if (format === "jpeg" || format === "jpg") {
+      pipeline = pipeline.jpeg({ quality, mozjpeg: true })
+      res.type("image/jpeg")
+    } else if (format === "png") {
+      pipeline = pipeline.png({ quality })
+      res.type("image/png")
+    } else if (format === "avif") {
+      pipeline = pipeline.avif({ quality })
+      res.type("image/avif")
+    } else {
+      pipeline = pipeline.webp({ quality })
+      res.type("image/webp")
+    }
+
+    res.setHeader("Cache-Control", "public, max-age=31536000, immutable")
+    const output = await pipeline.toBuffer()
+    return res.send(output)
+  } catch (error) {
+    return next()
+  }
+})
+
+// Serve static files from uploads directory
 app.use('/uploads', express.static(uploadsPath));
 
 // Add logging for static file requests
