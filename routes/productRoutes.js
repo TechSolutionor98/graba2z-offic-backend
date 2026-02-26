@@ -172,6 +172,7 @@ router.get("/admin", protect, admin, async (req, res) => {
 
     let productsQuery = Product.find(query)
       .populate("brand category subCategory parentCategory subCategory2 subCategory3 subCategory4")
+      .populate("tax", "rate")
       .populate({
         path: "variations.product",
         select: "name slug image price offerPrice sku selfVariationText reverseVariationText"
@@ -266,6 +267,7 @@ router.post("/by-ids", protect, admin, asyncHandler(async (req, res) => {
     // Fetch products by IDs
     const products = await Product.find({ _id: { $in: validIds } })
       .populate("brand category subCategory parentCategory subCategory2 subCategory3 subCategory4")
+      .populate("tax", "rate")
       .sort({ createdAt: -1 })
 
     res.json({ 
