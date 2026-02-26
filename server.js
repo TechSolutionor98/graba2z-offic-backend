@@ -124,7 +124,10 @@ app.get('/uploads/*', async (req, res, next) => {
     // Only optimize when a target dimension is requested.
     if (!width && !height) return next()
 
-    const relPath = req.path.replace(/^\/+/, "")
+    // req.path can be "/uploads//products/file.webp" - normalize and strip route prefix.
+    const normalizedPath = String(req.path || "").replace(/\\/g, "/").replace(/\/+/g, "/")
+    const relPath = normalizedPath.replace(/^\/uploads\/?/, "")
+    if (!relPath) return next()
     const absPath = path.resolve(uploadsPath, relPath)
     if (!absPath.startsWith(path.resolve(uploadsPath))) return res.status(400).send("Invalid image path")
 
