@@ -184,8 +184,8 @@ router.put(
 
     const updatedOrder = await order.save()
 
-    // Send status update email if status changed
-    if (oldStatus !== status) {
+    // Send status update email only when status actually changes
+    if (oldStatus !== updatedOrder.status) {
       try {
         await sendOrderStatusUpdateEmail(updatedOrder)
         console.log(`Order status update email sent for order ${updatedOrder._id}`)
@@ -201,11 +201,11 @@ router.put(
         user: req.user,
         action: "STATUS_CHANGE",
         module: "ORDERS",
-        description: `Changed order #${order._id.toString().slice(-6)} status from "${oldStatus}" to "${status}"`,
+        description: `Changed order #${order._id.toString().slice(-6)} status from "${oldStatus}" to "${updatedOrder.status}"`,
         targetId: order._id.toString(),
         targetName: `Order #${order._id.toString().slice(-6)}`,
         previousData: { status: oldStatus },
-        newData: { status: status, trackingId },
+        newData: { status: updatedOrder.status, trackingId },
         req,
       })
     }

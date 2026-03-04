@@ -39,6 +39,71 @@ const supportTransporter = nodemailer.createTransport({
   },
 })
 
+const ORDER_NOTIFICATION_EMAIL = (process.env.ORDER_NOTIFICATION_EMAIL || "order@grabatoz.ae").trim()
+
+const getOrderEmailRecipients = (customerEmail, includeCustomer = true) => {
+  const candidates = []
+
+  if (includeCustomer && customerEmail) {
+    candidates.push(String(customerEmail).trim())
+  }
+
+  if (ORDER_NOTIFICATION_EMAIL) {
+    candidates.push(ORDER_NOTIFICATION_EMAIL)
+  }
+
+  const uniqueRecipients = []
+  for (const recipient of candidates) {
+    if (!recipient) continue
+    const exists = uniqueRecipients.some((email) => email.toLowerCase() === recipient.toLowerCase())
+    if (!exists) uniqueRecipients.push(recipient)
+  }
+
+  return uniqueRecipients
+}
+
+const escapeHtml = (value) =>
+  String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;")
+
+const formatCurrency = (value) => `${(Number(value) || 0).toFixed(2)} AED`
+
+const formatDateTime = (value) => {
+  if (!value) return "N/A"
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return "N/A"
+  return date.toLocaleString("en-AE", {
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  })
+}
+
+const formatDeliveryType = (deliveryType) => (deliveryType === "pickup" ? "Store Pickup" : "Home Delivery")
+
+const formatPaymentMethod = (actualPaymentMethod, paymentMethod) => {
+  const method = (actualPaymentMethod || paymentMethod || "").toString().trim().toLowerCase()
+  switch (method) {
+    case "tabby":
+      return "Tabby"
+    case "tamara":
+      return "Tamara"
+    case "card":
+      return "Card"
+    case "cod":
+    case "cash on delivery":
+      return "Cash on Delivery"
+    default:
+      return paymentMethod || actualPaymentMethod || "N/A"
+  }
+}
+
 // Helper to select transporter and from address
 const getMailConfig = (type) => {
   if (type === "order") {
@@ -1534,6 +1599,117 @@ const getEmailTemplate = (type, data) => {
   }
 }
 
+const getAdminOrderNotificationTemplate = (data) => {
+  const orderItems = Array.isArray(data.orderItems) ? data.orderItems : []
+  const orderNumber = data.orderNumber || data._id?.toString().slice(-6) || "N/A"
+  const customerName = data.shippingAddress?.name || data.pickupDetails?.name || data.user?.name || "N/A"
+  const customerEmail = data.shippingAddress?.email || data.pickupDetails?.email || data.user?.email || "N/A"
+  const customerPhone = data.shippingAddress?.phone || data.pickupDetails?.phone || "N/A"
+  const orderDate = data.createdAt || new Date().toISOString()
+  const isGuestOrder = !data.user
+  const userId = data.user?._id?.toString?.() || data.user?.toString?.() || "N/A"
+
+  const shippingAddress = data.shippingAddress
+    ? `${data.shippingAddress.address || ""}, ${data.shippingAddress.city || ""}, ${data.shippingAddress.state || ""}, ${data.shippingAddress.zipCode || ""}`
+        .replace(/,\s*,/g, ",")
+        .replace(/^,\s*|\s*,$/g, "")
+        .trim() || "N/A"
+    : "N/A"
+
+  const pickupLocation = data.pickupDetails?.location || "N/A"
+  const pickupStoreId = data.pickupDetails?.storeId || "N/A"
+  const customerNotes = data.customerNotes || "N/A"
+
+  const itemRows = orderItems
+    .map((item, index) => {
+      const name = item.product?.name || item.name || "Product"
+      const quantity = Number(item.quantity) || 1
+      const unitPrice = Number(item.price) || 0
+      const lineTotal = quantity * unitPrice
+      const color = item.selectedColorData?.color ? ` | Color: ${item.selectedColorData.color}` : ""
+      const os = item.selectedDosData?.dosType ? ` | OS: ${item.selectedDosData.dosType}` : ""
+
+      return `
+        <tr>
+          <td style="padding:8px;border:1px solid #ddd;">${index + 1}</td>
+          <td style="padding:8px;border:1px solid #ddd;">${escapeHtml(name)}${escapeHtml(color)}${escapeHtml(os)}</td>
+          <td style="padding:8px;border:1px solid #ddd;text-align:center;">${quantity}</td>
+          <td style="padding:8px;border:1px solid #ddd;text-align:right;">${formatCurrency(unitPrice)}</td>
+          <td style="padding:8px;border:1px solid #ddd;text-align:right;">${formatCurrency(lineTotal)}</td>
+        </tr>
+      `
+    })
+    .join("")
+
+  const itemsPrice = Number(data.itemsPrice) || 0
+  const shippingPrice = Number(data.shippingPrice) || 0
+  const totalPrice = Number(data.totalPrice) || 0
+
+  return `
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+      <title>New Order - Admin Notification</title>
+    </head>
+    <body style="margin:0;padding:16px;background:#f3f4f6;font-family:Arial,Helvetica,sans-serif;color:#111827;">
+      <div style="max-width:900px;margin:0 auto;background:#fff;border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;">
+        <div style="background:#84cc16;color:#fff;padding:16px 20px;">
+          <h2 style="margin:0;font-size:20px;">New Order Received</h2>
+          <div style="margin-top:6px;font-size:14px;">Order #${escapeHtml(orderNumber)} (${escapeHtml(data._id?.toString?.() || "N/A")})</div>
+        </div>
+        <div style="padding:20px;">
+          <h3 style="margin:0 0 10px 0;font-size:16px;">Customer Details</h3>
+          <table style="width:100%;border-collapse:collapse;margin-bottom:18px;">
+            <tr><td style="padding:8px;border:1px solid #ddd;width:220px;background:#f9fafb;"><strong>Name</strong></td><td style="padding:8px;border:1px solid #ddd;">${escapeHtml(customerName)}</td></tr>
+            <tr><td style="padding:8px;border:1px solid #ddd;background:#f9fafb;"><strong>Email</strong></td><td style="padding:8px;border:1px solid #ddd;">${escapeHtml(customerEmail)}</td></tr>
+            <tr><td style="padding:8px;border:1px solid #ddd;background:#f9fafb;"><strong>Phone</strong></td><td style="padding:8px;border:1px solid #ddd;">${escapeHtml(customerPhone)}</td></tr>
+            <tr><td style="padding:8px;border:1px solid #ddd;background:#f9fafb;"><strong>Customer Type</strong></td><td style="padding:8px;border:1px solid #ddd;">${isGuestOrder ? "Guest" : "Logged-in User"}</td></tr>
+            <tr><td style="padding:8px;border:1px solid #ddd;background:#f9fafb;"><strong>User ID</strong></td><td style="padding:8px;border:1px solid #ddd;">${escapeHtml(userId)}</td></tr>
+          </table>
+
+          <h3 style="margin:0 0 10px 0;font-size:16px;">Order Details</h3>
+          <table style="width:100%;border-collapse:collapse;margin-bottom:18px;">
+            <tr><td style="padding:8px;border:1px solid #ddd;width:220px;background:#f9fafb;"><strong>Order Date</strong></td><td style="padding:8px;border:1px solid #ddd;">${escapeHtml(formatDateTime(orderDate))}</td></tr>
+            <tr><td style="padding:8px;border:1px solid #ddd;background:#f9fafb;"><strong>Delivery Type</strong></td><td style="padding:8px;border:1px solid #ddd;">${escapeHtml(formatDeliveryType(data.deliveryType))}</td></tr>
+            <tr><td style="padding:8px;border:1px solid #ddd;background:#f9fafb;"><strong>Shipping Address</strong></td><td style="padding:8px;border:1px solid #ddd;">${escapeHtml(shippingAddress)}</td></tr>
+            <tr><td style="padding:8px;border:1px solid #ddd;background:#f9fafb;"><strong>Pickup Location</strong></td><td style="padding:8px;border:1px solid #ddd;">${escapeHtml(pickupLocation)}</td></tr>
+            <tr><td style="padding:8px;border:1px solid #ddd;background:#f9fafb;"><strong>Pickup Store ID</strong></td><td style="padding:8px;border:1px solid #ddd;">${escapeHtml(pickupStoreId)}</td></tr>
+            <tr><td style="padding:8px;border:1px solid #ddd;background:#f9fafb;"><strong>Payment Method</strong></td><td style="padding:8px;border:1px solid #ddd;">${escapeHtml(formatPaymentMethod(data.actualPaymentMethod, data.paymentMethod))}</td></tr>
+            <tr><td style="padding:8px;border:1px solid #ddd;background:#f9fafb;"><strong>Status</strong></td><td style="padding:8px;border:1px solid #ddd;">${escapeHtml(data.status || "New")}</td></tr>
+            <tr><td style="padding:8px;border:1px solid #ddd;background:#f9fafb;"><strong>Customer Notes</strong></td><td style="padding:8px;border:1px solid #ddd;">${escapeHtml(customerNotes)}</td></tr>
+          </table>
+
+          <h3 style="margin:0 0 10px 0;font-size:16px;">Products</h3>
+          <table style="width:100%;border-collapse:collapse;margin-bottom:18px;">
+            <thead>
+              <tr style="background:#f9fafb;">
+                <th style="padding:8px;border:1px solid #ddd;text-align:left;">#</th>
+                <th style="padding:8px;border:1px solid #ddd;text-align:left;">Product</th>
+                <th style="padding:8px;border:1px solid #ddd;text-align:center;">Qty</th>
+                <th style="padding:8px;border:1px solid #ddd;text-align:right;">Unit Price</th>
+                <th style="padding:8px;border:1px solid #ddd;text-align:right;">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${itemRows || `<tr><td colspan="5" style="padding:10px;border:1px solid #ddd;text-align:center;">No items</td></tr>`}
+            </tbody>
+          </table>
+
+          <h3 style="margin:0 0 10px 0;font-size:16px;">Amount Summary</h3>
+          <table style="width:100%;border-collapse:collapse;">
+            <tr><td style="padding:8px;border:1px solid #ddd;width:220px;background:#f9fafb;"><strong>Items Price</strong></td><td style="padding:8px;border:1px solid #ddd;text-align:right;">${formatCurrency(itemsPrice)}</td></tr>
+            <tr><td style="padding:8px;border:1px solid #ddd;background:#f9fafb;"><strong>Shipping Price</strong></td><td style="padding:8px;border:1px solid #ddd;text-align:right;">${formatCurrency(shippingPrice)}</td></tr>
+            <tr><td style="padding:8px;border:1px solid #ddd;background:#f9fafb;"><strong>Total Price</strong></td><td style="padding:8px;border:1px solid #ddd;text-align:right;"><strong>${formatCurrency(totalPrice)}</strong></td></tr>
+          </table>
+        </div>
+      </div>
+    </body>
+    </html>
+  `
+}
+
 // Generic send email function with sender type
 const sendEmail = async (to, subject, html, senderType = "support") => {
   try {
@@ -1579,30 +1755,61 @@ export const sendVerificationEmail = async (email, name, code) => {
 export const sendOrderPlacedEmail = async (order) => {
   try {
     const orderNumber = order._id.toString().slice(-6)
-    
+
     // Get customer name and email - works for both guest and logged-in users
     const customerName = order.shippingAddress?.name || order.pickupDetails?.name || order.user?.name || "Customer"
     const customerEmail = order.shippingAddress?.email || order.pickupDetails?.email || order.user?.email
 
     if (!customerEmail) {
-      console.error("No customer email found for order:", order._id)
-      return { success: false, error: "No customer email" }
+      console.warn(`[sendOrderPlacedEmail] No customer email found for order ${order._id}. Sending internal email only.`)
     }
 
-    // Log whether this is a guest or logged-in user order
     const isGuestOrder = !order.user
-    console.log(`[sendOrderPlacedEmail] Sending confirmation email for ${isGuestOrder ? 'GUEST' : 'LOGGED-IN'} user order ${order._id} to ${customerEmail}`)
+    const orderData = typeof order.toObject === "function" ? order.toObject() : order
+    const recipientsSent = []
+    const orderEmail = ORDER_NOTIFICATION_EMAIL || ""
 
-    const html = getEmailTemplate("orderConfirmation", {
-      ...order.toObject(),
-      orderNumber,
-      customerName,
-      customerEmail,
-    })
+    const shouldSendCustomerEmail =
+      !!customerEmail &&
+      (!orderEmail || customerEmail.toLowerCase().trim() !== orderEmail.toLowerCase().trim())
 
-    await sendEmail(customerEmail, `Order Confirmation #${orderNumber} - Graba2z`, html, "order")
-    console.log(`[sendOrderPlacedEmail] Confirmation email sent successfully for order ${order._id}`)
-    return { success: true }
+    if (shouldSendCustomerEmail) {
+      const customerHtml = getEmailTemplate("orderConfirmation", {
+        ...orderData,
+        orderNumber,
+        customerName,
+        customerEmail,
+      })
+
+      const customerSubject = `Order Confirmation #${orderNumber} - Graba2z`
+      await sendEmail(customerEmail, customerSubject, customerHtml, "order")
+      recipientsSent.push(customerEmail)
+    }
+
+    if (orderEmail) {
+      const adminHtml = getAdminOrderNotificationTemplate({
+        ...orderData,
+        orderNumber,
+        customerName,
+        customerEmail,
+      })
+      const adminSubject = `New Order #${orderNumber} - Admin Notification`
+      await sendEmail(orderEmail, adminSubject, adminHtml, "order")
+      recipientsSent.push(orderEmail)
+    }
+
+    if (recipientsSent.length === 0) {
+      console.error("No email recipients found for order:", order._id)
+      return { success: false, error: "No recipients" }
+    }
+
+    console.log(
+      `[sendOrderPlacedEmail] Sent order placed emails for ${isGuestOrder ? "GUEST" : "LOGGED-IN"} user order ${order._id} to ${recipientsSent.join(", ")}`,
+    )
+    console.log(
+      `[sendOrderPlacedEmail] Confirmation email sent successfully for order ${order._id} to ${recipientsSent.length} recipient(s)`,
+    )
+    return { success: true, recipients: recipientsSent }
   } catch (error) {
     console.error("Failed to send order placed email:", error)
     throw error
@@ -1614,13 +1821,7 @@ export const sendOrderStatusUpdateEmail = async (order) => {
   try {
     // Normalize status for checking
     const normalizedStatus = (order.status || '').toString().trim().toLowerCase()
-    
-    // IMPORTANT: Do NOT send email to customer if order status is "Deleted"
-    // This applies to both logged-in users and guest users
-    if (normalizedStatus === 'deleted') {
-      console.log(`[sendOrderStatusUpdateEmail] Skipping email for Deleted status order ${order._id}`)
-      return { success: true, skipped: true, reason: 'Deleted status - no customer notification' }
-    }
+    const sendToCustomer = normalizedStatus !== "deleted"
 
     const orderNumber = order._id.toString().slice(-6)
     
@@ -1631,14 +1832,27 @@ export const sendOrderStatusUpdateEmail = async (order) => {
     // Priority: shippingAddress.email > pickupDetails.email > user.email
     const customerEmail = order.shippingAddress?.email || order.pickupDetails?.email || order.user?.email
 
-    if (!customerEmail) {
-      console.error("No customer email found for order:", order._id)
-      return { success: false, error: "No customer email" }
+    if (!customerEmail && sendToCustomer) {
+      console.warn(
+        `[sendOrderStatusUpdateEmail] No customer email found for order ${order._id}. Sending internal email only.`,
+      )
     }
 
     // Log whether this is a guest or logged-in user order
     const isGuestOrder = !order.user
-    console.log(`[sendOrderStatusUpdateEmail] Sending email for ${isGuestOrder ? 'GUEST' : 'LOGGED-IN'} user order ${order._id} to ${customerEmail}`)
+    const recipients = getOrderEmailRecipients(customerEmail, sendToCustomer)
+    if (recipients.length === 0) {
+      console.error("No email recipients found for order:", order._id)
+      return { success: false, error: "No recipients" }
+    }
+
+    if (!sendToCustomer) {
+      console.log(`[sendOrderStatusUpdateEmail] Customer email suppressed for Deleted status order ${order._id}`)
+    }
+
+    console.log(
+      `[sendOrderStatusUpdateEmail] Sending email for ${isGuestOrder ? "GUEST" : "LOGGED-IN"} user order ${order._id} to ${recipients.join(", ")}`,
+    )
 
     const html = getEmailTemplate("orderStatusUpdate", {
       ...order.toObject(),
@@ -1682,9 +1896,12 @@ export const sendOrderStatusUpdateEmail = async (order) => {
     }
 
     const subject = `${statusMessages[normalizedStatus] || "Order Update"} #${orderNumber} - Graba2z`
-    await sendEmail(customerEmail, subject, sanitizedHtml, "order")
-    console.log(`[sendOrderStatusUpdateEmail] Email sent successfully for order ${order._id}`)
-    return { success: true }
+    for (const recipient of recipients) {
+      await sendEmail(recipient, subject, sanitizedHtml, "order")
+    }
+
+    console.log(`[sendOrderStatusUpdateEmail] Email sent successfully for order ${order._id} to ${recipients.length} recipient(s)`)
+    return { success: true, recipients }
   } catch (error) {
     console.error("Failed to send order status update email:", error)
     throw error
