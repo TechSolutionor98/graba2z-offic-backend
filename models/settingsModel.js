@@ -49,7 +49,7 @@ const settingsSchema = mongoose.Schema(
     },
     contactPhone: {
       type: String,
-      default: "+1 (555) 123-4567",
+      default: "+971 0505033860",
     },
     socialMedia: {
       facebook: String,
