@@ -252,7 +252,10 @@ router.post(
     // Set expiry to 60 minutes
     user.resetPasswordExpires = new Date(Date.now() + 60 * 60 * 1000);
     await user.save();
-    const resetLink = `${process.env.CLIENT_URL || "http://localhost:5173"}/reset-password?token=${resetToken}`;
+    const clientBaseUrl = (process.env.CLIENT_URL || "http://localhost:5173").replace(/\/+$/, "");
+    const resetPath = process.env.RESET_PASSWORD_PATH || "/ae-en/reset-password";
+    const normalizedResetPath = resetPath.startsWith("/") ? resetPath : `/${resetPath}`;
+    const resetLink = `${clientBaseUrl}${normalizedResetPath}?token=${encodeURIComponent(resetToken)}`;
     await sendResetPasswordEmail(user.email, user.name, resetLink);
     res.json({ message: "If this email is registered, a reset link has been sent." });
   })
