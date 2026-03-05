@@ -7,8 +7,36 @@ import BlogTopic from "../models/blogTopicModel.js"
 import BlogBrand from "../models/blogBrandModel.js"
 import { protect, admin } from "../middleware/authMiddleware.js"
 import { logActivity } from "../middleware/permissionMiddleware.js"
+import { cacheMiddleware, invalidateCache } from "../middleware/cacheMiddleware.js"
 
 const router = express.Router()
+
+const toBool = (value) => String(value).toLowerCase() === "true"
+
+const stripHtml = (html = "") =>
+  String(html)
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+
+const toSummaryBlog = (blog) => {
+  const source = blog?.toObject ? blog.toObject() : blog
+  return {
+    ...source,
+    description: stripHtml(source?.description || "").slice(0, 320),
+  }
+}
+
+const parseSort = (sortValue) => {
+  if (!sortValue || typeof sortValue !== "string") {
+    return { createdAt: -1 }
+  }
+
+  const field = sortValue.startsWith("-") ? sortValue.slice(1) : sortValue
+  const order = sortValue.startsWith("-") ? -1 : 1
+  const normalizedField = field === "publishedAt" ? "createdAt" : field
+  return { [normalizedField]: order }
+}
 
 // Ensure all blog models are registered (lazy initialization)
 let modelsInitialized = false
@@ -54,12 +82,14 @@ router.get(
 // @access  Public
 router.get(
   "/trending",
+  cacheMiddleware("blogs", { keyPrefix: "trending", ttl: 300 }),
   asyncHandler(async (req, res) => {
     ensureModelsInitialized() // Ensure models are registered before populate
     
-    const { limit = 20 } = req.query
+    const { limit = 20, summary = "false" } = req.query
+    const isSummary = toBool(summary)
     
-    const trendingBlogs = await Blog.find({ 
+    let trendingQuery = Blog.find({ 
       status: "published", 
       trending: true 
     })
@@ -69,7 +99,17 @@ router.get(
       .sort({ createdAt: -1 })
       .limit(parseInt(limit))
 
-    res.json(trendingBlogs)
+    if (isSummary) {
+      trendingQuery = trendingQuery
+        .select(
+          "blogName title slug status featured trending blogCategory mainCategory subCategory1 subCategory2 subCategory3 subCategory4 topic brand mainImage readMinutes postedBy description views likes shares createdAt updatedAt",
+        )
+        .lean()
+    }
+
+    const trendingBlogs = await trendingQuery
+
+    res.json(isSummary ? trendingBlogs.map(toSummaryBlog) : trendingBlogs)
   }),
 )
 
@@ -78,10 +118,12 @@ router.get(
 // @access  Public
 router.get(
   "/",
+  cacheMiddleware("blogs", { keyPrefix: "list", ttl: 300 }),
   asyncHandler(async (req, res) => {
     ensureModelsInitialized() // Ensure models are registered before populate
     
-    const { status, category, topic, search, page = 1, limit = 10 } = req.query
+    const { status, category, topic, search, page = 1, limit = 10, summary = "false", sort } = req.query
+    const isSummary = toBool(summary)
 
     const query = {}
 
@@ -109,14 +151,23 @@ router.get(
       ]
     }
 
-    const blogs = await Blog.find(query)
+    let blogsQuery = Blog.find(query)
       .populate("blogCategory", "name slug")
       .populate("topic", "name slug color")
       .populate("brand", "name slug logo")
-      .sort({ createdAt: -1 })
+      .sort(parseSort(sort))
       .limit(limit * 1)
       .skip((page - 1) * limit)
 
+    if (isSummary) {
+      blogsQuery = blogsQuery
+        .select(
+          "blogName title slug status featured trending blogCategory mainCategory subCategory1 subCategory2 subCategory3 subCategory4 topic brand mainImage readMinutes postedBy description views likes shares createdAt updatedAt",
+        )
+        .lean()
+    }
+
+    const blogs = await blogsQuery
     const total = await Blog.countDocuments(query)
     
     const currentPage = parseInt(page)
@@ -124,7 +175,7 @@ router.get(
     const totalPages = Math.ceil(total / itemsPerPage)
 
     res.json({
-      blogs,
+      blogs: isSummary ? blogs.map(toSummaryBlog) : blogs,
       pagination: {
         current: currentPage,
         total: totalPages,
@@ -279,6 +330,8 @@ router.post(
         req,
       })
     }
+    
+    await invalidateCache(["blogs", "blogCategories", "blogTopics", "blogBrands"])
 
     res.status(201).json(populatedBlog)
   }),
@@ -374,6 +427,8 @@ router.put(
         req,
       })
     }
+    
+    await invalidateCache(["blogs", "blogCategories", "blogTopics", "blogBrands"])
 
     res.json(populatedBlog)
   }),
@@ -404,6 +459,8 @@ router.patch(
       res.status(404)
       throw new Error("Blog not found")
     }
+
+    await invalidateCache(["blogs", "blogCategories", "blogTopics", "blogBrands"])
 
     res.json(blog)
   }),
@@ -445,6 +502,8 @@ router.delete(
         req,
       })
     }
+
+    await invalidateCache(["blogs", "blogCategories", "blogTopics", "blogBrands"])
 
     res.json({ message: "Blog deleted successfully" })
   }),

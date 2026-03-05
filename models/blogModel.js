@@ -115,21 +115,16 @@ const blogSchema = new mongoose.Schema(
 
 // Index for search functionality (removed tags from text index to fix validation error)
 blogSchema.index({ title: "text", description: "text" })
-
-// Lazy initialization - model created on first use
-let Blog = null
+blogSchema.index({ status: 1, createdAt: -1 })
+blogSchema.index({ status: 1, featured: 1, createdAt: -1 })
+blogSchema.index({ status: 1, trending: 1, createdAt: -1 })
 
 function getModel() {
   const connection = getBlogConnection()
-  // Always delete and recreate to prevent schema caching issues
   if (connection.models.Blog) {
-    delete connection.models.Blog
-    Blog = null
+    return connection.models.Blog
   }
-  if (!Blog) {
-    Blog = connection.model("Blog", blogSchema)
-  }
-  return Blog
+  return connection.model("Blog", blogSchema)
 }
 
 const BlogProxy = new Proxy(function() {}, {

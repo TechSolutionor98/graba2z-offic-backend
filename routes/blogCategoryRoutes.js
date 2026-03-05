@@ -2,6 +2,7 @@ import express from "express"
 import asyncHandler from "express-async-handler"
 import BlogCategory from "../models/blogCategoryModel.js"
 import { protect, admin } from "../middleware/authMiddleware.js"
+import { cacheMiddleware, invalidateCache } from "../middleware/cacheMiddleware.js"
 
 const router = express.Router()
 
@@ -10,6 +11,7 @@ const router = express.Router()
 // @access  Public
 router.get(
   "/",
+  cacheMiddleware("blogCategories", { ttl: 300 }),
   asyncHandler(async (req, res) => {
     const categories = await BlogCategory.find({ isActive: true })
       .populate("parentCategory", "name slug")
@@ -24,6 +26,7 @@ router.get(
 // @access  Public
 router.get(
   "/:id",
+  cacheMiddleware("blogCategories", { keyPrefix: "byId", ttl: 300 }),
   asyncHandler(async (req, res) => {
     const category = await BlogCategory.findById(req.params.id).populate("parentCategory", "name slug")
 
@@ -64,6 +67,7 @@ router.post(
     })
 
     const createdCategory = await category.save()
+    await invalidateCache(["blogs", "blogCategories"])
     res.status(201).json(createdCategory)
   }),
 )
@@ -85,6 +89,7 @@ router.put(
 
     Object.assign(category, req.body)
     const updatedCategory = await category.save()
+    await invalidateCache(["blogs", "blogCategories"])
 
     res.json(updatedCategory)
   }),
@@ -106,6 +111,7 @@ router.delete(
     }
 
     await category.deleteOne()
+    await invalidateCache(["blogs", "blogCategories"])
     res.json({ message: "Category deleted successfully" })
   }),
 )
