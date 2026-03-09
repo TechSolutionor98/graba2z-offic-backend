@@ -8,7 +8,7 @@ import connectDB, { connectBlogDB } from "./config/db.js"
 import config from "./config/config.js"
 import { notFound, errorHandler } from "./middleware/errorMiddleware.js"
 import cacheService from "./services/cacheService.js"
-import { attachCacheService } from "./middleware/cacheMiddleware.js"
+import { attachCacheService, autoInvalidateAllCacheOnMutation } from "./middleware/cacheMiddleware.js"
 
 // Get __dirname equivalent in ES modules
 const __filename = fileURLToPath(import.meta.url)
@@ -181,6 +181,9 @@ app.use(express.urlencoded({ extended: true, limit: "50mb" }))
 
 // Attach cache service to all requests
 app.use(attachCacheService)
+
+// Keep server cache in sync automatically after any successful data mutation.
+app.use(autoInvalidateAllCacheOnMutation())
 
 // Routes
 app.use("/api/users", userRoutes)

@@ -159,6 +159,49 @@ export const attachCacheService = (req, res, next) => {
 }
 
 /**
+ * Global auto-invalidation middleware.
+ * Clears server cache after any successful mutation request so data stays real-time.
+ *
+ * @param {object} options
+ * @param {string[]} options.excludePaths - URL prefixes to skip
+ */
+export const autoInvalidateAllCacheOnMutation = (options = {}) => {
+  const { excludePaths = ["/api/cache"] } = options
+
+  return (req, res, next) => {
+    if (!["POST", "PUT", "PATCH", "DELETE"].includes(req.method)) {
+      return next()
+    }
+
+    const requestPath = req.originalUrl || ""
+    const isExcluded = excludePaths.some((prefix) => requestPath.startsWith(prefix))
+    if (isExcluded) {
+      return next()
+    }
+
+    res.on("finish", () => {
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        return
+      }
+
+      // Invalidate asynchronously after response is sent.
+      ;(async () => {
+        try {
+          const invalidatedCount = await cacheService.invalidatePattern("*")
+          console.log(
+            `Cache: Auto-invalidated ${invalidatedCount} key(s) after ${req.method} ${requestPath} (${res.statusCode})`,
+          )
+        } catch (error) {
+          console.error("Cache auto-invalidation error:", error.message)
+        }
+      })()
+    })
+
+    next()
+  }
+}
+
+/**
  * Express middleware function to wrap existing route handlers with caching
  * 
  * @param {string} entityType - The entity type
@@ -225,6 +268,7 @@ export default {
   invalidateCacheMiddleware,
   cacheWithInvalidation,
   attachCacheService,
+  autoInvalidateAllCacheOnMutation,
   withCache,
   invalidateCache,
 }

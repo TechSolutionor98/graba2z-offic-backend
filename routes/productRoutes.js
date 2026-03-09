@@ -597,6 +597,9 @@ router.put(
 
       console.log('Update result:', result)
 
+      // Invalidate storefront product cache after bulk category move
+      await invalidateCache("products")
+
       res.json({
         message: `Successfully moved ${result.modifiedCount} product(s)`,
         modifiedCount: result.modifiedCount,
@@ -654,6 +657,9 @@ router.put(
       )
 
       console.log('Update result:', result)
+
+      // Invalidate storefront product cache after bulk status update
+      await invalidateCache("products")
 
       // Determine status message
       let statusMessage = ""
@@ -713,10 +719,21 @@ router.get(
 router.get(
   "/slug/:slug",
   asyncHandler(async (req, res) => {
+    const rawSlug = typeof req.params.slug === "string" ? req.params.slug : ""
+    let decodedSlug = rawSlug
+    try {
+      decodedSlug = decodeURIComponent(rawSlug)
+    } catch {
+      decodedSlug = rawSlug
+    }
+    const trimmedSlug = decodedSlug.trim().replace(/^\/+|\/+$/g, "")
+    const sanitizedSlug = sanitizeSlug(trimmedSlug)
+    const slugCandidates = Array.from(new Set([decodedSlug, trimmedSlug, sanitizedSlug].filter(Boolean)))
+
     // Allow access to active products (both visible and hidden from shop)
     // This ensures hidden products are accessible via direct link and variations
     const product = await Product.findOne({ 
-      slug: req.params.slug, 
+      slug: { $in: slugCandidates }, 
       isActive: true 
       // Note: We don't filter by hideFromShop here because hidden products should be accessible via direct link
     })
@@ -1417,6 +1434,9 @@ router.post(
 
     // Log activity
     await logActivity(req, "CREATE", "PRODUCTS", `Duplicated product: ${populatedProduct.name} (from ${product.name})`, populatedProduct._id, populatedProduct.name)
+
+    // Invalidate product cache so storefront/admin lists refresh
+    await invalidateCache("products")
 
     res.status(201).json(populatedProduct)
   }),
@@ -2629,6 +2649,9 @@ router.post(
       }),
     )
 
+    // Invalidate cache after bulk create/update operations
+    await invalidateCache("products")
+
     res.json({
       message: `Bulk save complete: ${created} created, ${updated} updated, ${failed} failed`,
       total: products.length,
@@ -2959,6 +2982,9 @@ router.post(
       console.log(`Failed: ${failed}`)
       console.log(`==========================\n`)
 
+      // Invalidate cache after bulk import operations
+      await invalidateCache("products")
+
       res.json({
         message: `Bulk import complete: ${created} created, ${updated} updated, ${failed} failed`,
         total: rows.length,
@@ -3272,6 +3298,9 @@ router.post(
         failedCount++
       }
     }
+
+    // Invalidate cache after bulk product creation
+    await invalidateCache("products")
 
     res.json({
       success: true,
