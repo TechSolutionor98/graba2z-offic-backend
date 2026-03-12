@@ -10,7 +10,18 @@ const router = express.Router()
 // @access  Private/Admin
 router.get("/products", protect, admin, async (req, res) => {
   try {
-    const { search, parentCategory, subCategory, brand } = req.query
+    const {
+      search,
+      parentCategory,
+      category,
+      subCategory,
+      subCategory2,
+      subCategory3,
+      subCategory4,
+      brand,
+      isActive,
+      onHold,
+    } = req.query
 
     // Build query
     const query = {}
@@ -26,14 +37,35 @@ router.get("/products", protect, admin, async (req, res) => {
       query.parentCategory = parentCategory
     }
 
-    // Filter by subcategory
-    if (subCategory && subCategory !== "all") {
+    // Level 1 subcategory (accept both category and legacy subCategory)
+    if (category && category !== "all") {
+      query.category = category
+    } else if (subCategory && subCategory !== "all") {
       query.category = subCategory
+    }
+
+    // Level 2/3/4 subcategories
+    if (subCategory2 && subCategory2 !== "all") {
+      query.subCategory2 = subCategory2
+    }
+    if (subCategory3 && subCategory3 !== "all") {
+      query.subCategory3 = subCategory3
+    }
+    if (subCategory4 && subCategory4 !== "all") {
+      query.subCategory4 = subCategory4
     }
 
     // Filter by brand
     if (brand && brand !== "all") {
       query.brand = brand
+    }
+
+    // Status filtering
+    if (typeof onHold !== "undefined") {
+      query.onHold = String(onHold).toLowerCase() === "true"
+    }
+    if (typeof isActive !== "undefined") {
+      query.isActive = String(isActive).toLowerCase() === "true"
     }
 
     const products = await Product.find(query)
