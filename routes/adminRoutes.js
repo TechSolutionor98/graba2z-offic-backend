@@ -1125,11 +1125,13 @@ router.get(
   protect,
   admin,
   asyncHandler(async (req, res) => {
-    const { page = 1, limit = 50, status, search } = req.query
+    const { status, search } = req.query
+    const includeDeleted = String(req.query.includeDeleted).toLowerCase() === "true"
+    const hasPagination = req.query.page !== undefined || req.query.limit !== undefined
+    const page = Number.parseInt(req.query.page, 10) || 1
+    const limit = Number.parseInt(req.query.limit, 10) || 50
 
-    const query = {
-      status: { $ne: "Deleted" } // Exclude deleted orders
-    }
+    const query = includeDeleted ? {} : { status: { $ne: "Deleted" } } // Exclude deleted unless requested
 
     if (status && status !== "all") {
       query.status = status
@@ -1143,15 +1145,20 @@ router.get(
       ]
     }
 
-    const orders = await Order.find(query)
+    let ordersQuery = Order.find(query)
       .populate({ path: "user", select: "name email" })
       .populate({
         path: "orderItems.product",
         select: "name image sku price offerPrice oldPrice discount",
       })
-      .sort({ deliveredAt: -1, createdAt: -1 }) // Sort by delivered date first, then created date
-      .limit(limit * 1)
-      .skip((page - 1) * limit)
+      .sort({ createdAt: -1 }) // Sort latest orders first by creation time
+
+    // Keep backward compatibility: paginate only when page/limit is explicitly requested
+    if (hasPagination) {
+      ordersQuery = ordersQuery.limit(limit).skip((page - 1) * limit)
+    }
+
+    const orders = await ordersQuery
 
     // Debug logging for delivered orders
     if (status === "Delivered") {
