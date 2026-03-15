@@ -1,5 +1,6 @@
 import express from "express"
 import asyncHandler from "express-async-handler"
+import axios from "axios"
 import Category from "../models/categoryModel.js"
 import SubCategory from "../models/subCategoryModel.js"
 import Product from "../models/productModel.js"
@@ -9,6 +10,18 @@ import { deleteLocalFile, isCloudinaryUrl } from "../config/multer.js"
 import { cacheMiddleware, invalidateCache } from "../middleware/cacheMiddleware.js"
 
 const router = express.Router()
+
+// Helper for translation
+const translateText = async (text) => {
+  if (!text || text.trim() === "") return "";
+  try {
+    const response = await axios.post("https://langaimodel.grabatoz.ae/api/translate/en-ar", { text });
+    return response.data.translation || "";
+  } catch (error) {
+    console.error("Translation error for text:", text, error.message);
+    return "";
+  }
+};
 
 // Helper function to extract media URLs from HTML description (TipTap content)
 const extractMediaUrlsFromHtml = (html) => {
@@ -186,8 +199,8 @@ router.get(
     const [categories, subCategories] = await Promise.all([
       Category.find({ isDeleted: { $ne: true } }).sort({ sortOrder: 1, name: 1 }).lean(),
       SubCategory.find({ isDeleted: { $ne: true } })
-        .populate('category', 'name')
-        .populate('parentSubCategory', 'name')
+        .populate('category', 'name nameAr')
+        .populate('parentSubCategory', 'name nameAr')
         .sort({ sortOrder: 1, name: 1 })
         .lean(),
     ])
@@ -465,12 +478,21 @@ router.post(
     // Generate slug if not provided
     const categorySlug = slug || name.trim().toLowerCase().replace(/\s+/g, "-")
 
+    // Translate only user-facing fields
+    const nameAr = await translateText(name.trim());
+    const descriptionAr = await translateText(description || "");
+
     const category = new Category({
       name: name.trim(),
+      nameAr,
       description: description || "",
+      descriptionAr,
       seoContent: seoContent || "",
+      seoContentAr: "", // Excluded from auto-translation
       metaTitle: metaTitle || "",
+      metaTitleAr: "", // Excluded from auto-translation
       metaDescription: metaDescription || "",
+      metaDescriptionAr: "", // Excluded from auto-translation
       customSchema: customSchema || "",
       redirectUrl: redirectUrl || "",
       image: image || "",
@@ -539,6 +561,15 @@ router.put(
       category.slug = slug || category.slug
       category.isActive = isActive !== undefined ? isActive : category.isActive
       category.showInSlider = showInSlider !== undefined ? showInSlider : category.showInSlider
+
+      // Translate updated fields if they have changed (excluding SEO/Meta)
+      if (name !== undefined) category.nameAr = await translateText(category.name);
+      if (description !== undefined) category.descriptionAr = await translateText(category.description);
+      
+      // Clear SEO/Meta translations if they exist (policy change)
+      category.seoContentAr = "";
+      category.metaTitleAr = "";
+      category.metaDescriptionAr = "";
 
       const previousName = category.name
       const updatedCategory = await category.save()

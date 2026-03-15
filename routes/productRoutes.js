@@ -1,5 +1,6 @@
 import express from "express"
 import asyncHandler from "express-async-handler"
+import axios from "axios"
 import Product from "../models/productModel.js"
 import Category from "../models/categoryModel.js"
 import Brand from "../models/brandModel.js"
@@ -20,6 +21,18 @@ import mongoose from "mongoose"
 import { deleteLocalFile, isCloudinaryUrl } from "../config/multer.js"
 
 const router = express.Router()
+
+// Helper for translation
+const translateText = async (text) => {
+  if (!text || text.trim() === "") return "";
+  try {
+    const response = await axios.post("https://langaimodel.grabatoz.ae/api/translate/en-ar", { text });
+    return response.data.translation || "";
+  } catch (error) {
+    console.error("Translation error for text:", text, error.message);
+    return "";
+  }
+};
 
 // Multer setup for Excel parsing (use memory storage for Vercel compatibility)
 const excelUpload = multer({ storage: multer.memoryStorage() })
@@ -171,11 +184,17 @@ router.get("/admin", protect, admin, async (req, res) => {
     const totalCount = await Product.countDocuments(query)
 
     let productsQuery = Product.find(query)
-      .populate("brand category subCategory parentCategory subCategory2 subCategory3 subCategory4")
+      .populate("brand", "name nameAr slug")
+      .populate("category", "name nameAr slug")
+      .populate("subCategory", "name nameAr slug")
+      .populate("parentCategory", "name nameAr slug")
+      .populate("subCategory2", "name nameAr slug")
+      .populate("subCategory3", "name nameAr slug")
+      .populate("subCategory4", "name nameAr slug")
       .populate("tax", "rate")
       .populate({
         path: "variations.product",
-        select: "name slug image price offerPrice sku selfVariationText reverseVariationText"
+        select: "name nameAr slug image price offerPrice sku selfVariationText selfVariationTextAr reverseVariationText reverseVariationTextAr"
       })
       .sort({ createdAt: -1 })
 
@@ -266,7 +285,13 @@ router.post("/by-ids", protect, admin, asyncHandler(async (req, res) => {
 
     // Fetch products by IDs
     const products = await Product.find({ _id: { $in: validIds } })
-      .populate("brand category subCategory parentCategory subCategory2 subCategory3 subCategory4")
+      .populate("brand", "name nameAr slug")
+      .populate("category", "name nameAr slug")
+      .populate("subCategory", "name nameAr slug")
+      .populate("parentCategory", "name nameAr slug")
+      .populate("subCategory2", "name nameAr slug")
+      .populate("subCategory3", "name nameAr slug")
+      .populate("subCategory4", "name nameAr slug")
       .populate("tax", "rate")
       .sort({ createdAt: -1 })
 
@@ -355,15 +380,15 @@ router.get(
 
     let productsQuery = Product.find(query)
       .select(
-        "name slug sku price offerPrice discount image countInStock stockStatus brand category subCategory parentCategory subCategory2 subCategory3 subCategory4 featured tags createdAt rating numReviews",
+        "name nameAr slug sku price offerPrice discount image countInStock stockStatus stockStatusAr brand category subCategory parentCategory subCategory2 subCategory3 subCategory4 featured tags createdAt rating numReviews",
       )
-      .populate("brand", "name slug")
-      .populate("category", "name slug")
-      .populate("subCategory", "name slug") // Populate legacy subCategory field
-      .populate("parentCategory", "name slug")
-      .populate("subCategory2", "name slug") // Populate Level 2 subcategories
-      .populate("subCategory3", "name slug") // Populate Level 3 subcategories
-      .populate("subCategory4", "name slug") // Populate Level 4 subcategories
+      .populate("brand", "name nameAr slug")
+      .populate("category", "name nameAr slug")
+      .populate("subCategory", "name nameAr slug") // Populate legacy subCategory field
+      .populate("parentCategory", "name nameAr slug")
+      .populate("subCategory2", "name nameAr slug") // Populate Level 2 subcategories
+      .populate("subCategory3", "name nameAr slug") // Populate Level 3 subcategories
+      .populate("subCategory4", "name nameAr slug") // Populate Level 4 subcategories
       .lean() // Use lean() for better performance
       .sort({ createdAt: -1 })
 
@@ -444,11 +469,11 @@ router.get(
 
     const products = await Product.find(query)
       .select(
-        "name slug sku price offerPrice discount image countInStock stockStatus brand category parentCategory featured tags createdAt rating numReviews",
+        "name nameAr slug sku price offerPrice discount image countInStock stockStatus stockStatusAr brand category parentCategory featured tags createdAt rating numReviews",
       )
-      .populate("brand", "name slug")
-      .populate("category", "name slug")
-      .populate("parentCategory", "name slug")
+      .populate("brand", "name nameAr slug")
+      .populate("category", "name nameAr slug")
+      .populate("parentCategory", "name nameAr slug")
       .lean()
       .skip((page - 1) * Number.parseInt(limit))
       .limit(Number.parseInt(limit))
@@ -702,7 +727,9 @@ router.put(
 router.get(
   "/:id",
   asyncHandler(async (req, res) => {
-    const product = await Product.findById(req.params.id).populate("category", "name slug").populate("brand", "name")
+    const product = await Product.findById(req.params.id)
+      .populate("category", "name nameAr slug")
+      .populate("brand", "name nameAr")
 
     if (product && product.isActive) {
       res.json(product)
@@ -737,15 +764,15 @@ router.get(
       isActive: true 
       // Note: We don't filter by hideFromShop here because hidden products should be accessible via direct link
     })
-      .populate("parentCategory", "name slug")
-      .populate("category", "name slug")
-      .populate("subCategory2", "name slug")
-      .populate("subCategory3", "name slug")
-      .populate("subCategory4", "name slug")
-      .populate("brand", "name")
+      .populate("parentCategory", "name nameAr slug")
+      .populate("category", "name nameAr slug")
+      .populate("subCategory2", "name nameAr slug")
+      .populate("subCategory3", "name nameAr slug")
+      .populate("subCategory4", "name nameAr slug")
+      .populate("brand", "name nameAr")
       .populate({
         path: "variations.product",
-        select: "name slug image price offerPrice sku isActive hideFromShop selfVariationText reverseVariationText",
+        select: "name nameAr slug image price offerPrice sku isActive hideFromShop selfVariationText selfVariationTextAr reverseVariationText reverseVariationTextAr",
         // Populate all variation products regardless of hideFromShop status
         // This ensures hidden variations are visible in the variations section
       })
@@ -911,8 +938,66 @@ router.post(
       productData.barcode = productData.barcode && productData.barcode.trim() !== "" ? productData.barcode.trim() : undefined
     }
 
+    // Translate product fields
+    let nameAr = "";
+    let descriptionAr = "";
+    let shortDescriptionAr = "";
+    let tagsAr = [];
+
+    if (productData.name) {
+      nameAr = await translateText(productData.name);
+    }
+    if (productData.description) {
+      descriptionAr = await translateText(productData.description);
+    }
+    if (productData.shortDescription) {
+      shortDescriptionAr = await translateText(productData.shortDescription);
+    }
+    if (productData.tags && Array.isArray(productData.tags)) {
+      tagsAr = await Promise.all(productData.tags.map(t => translateText(t)));
+    }
+
+    // Translate specifications
+    if (productData.specifications && Array.isArray(productData.specifications)) {
+      for (const spec of productData.specifications) {
+        if (spec.key && !spec.keyAr) spec.keyAr = await translateText(spec.key);
+        if (spec.value && !spec.valueAr) spec.valueAr = await translateText(spec.value);
+      }
+    }
+
+    // Translate stock status
+    let stockStatusAr = "";
+    if (productData.stockStatus) {
+      stockStatusAr = await translateText(productData.stockStatus);
+    }
+
+    // Translate variation texts
+    let reverseVariationTextAr = "";
+    let selfVariationTextAr = "";
+    if (productData.reverseVariationText) {
+      reverseVariationTextAr = await translateText(productData.reverseVariationText);
+    }
+    if (productData.selfVariationText) {
+      selfVariationTextAr = await translateText(productData.selfVariationText);
+    }
+
+    if (productData.variations && Array.isArray(productData.variations)) {
+      for (const v of productData.variations) {
+        if (v.variationText && !v.variationTextAr) {
+          v.variationTextAr = await translateText(v.variationText);
+        }
+      }
+    }
+
     const product = new Product({
       ...productData,
+      nameAr,
+      descriptionAr,
+      shortDescriptionAr,
+      tagsAr,
+      stockStatusAr,
+      reverseVariationTextAr,
+      selfVariationTextAr,
       parentCategory,
       category,
       subCategory: category || undefined, // for backward compatibility
@@ -1097,9 +1182,50 @@ router.put(
       }
 
       // Update product fields
-      Object.keys(updateData).forEach((key) => {
+      for (const key of Object.keys(updateData)) {
         product[key] = updateData[key]
-      })
+      }
+
+      // Translate updated fields
+      if (updateData.name !== undefined) product.nameAr = await translateText(product.name);
+      if (updateData.description !== undefined) product.descriptionAr = await translateText(product.description);
+      if (updateData.shortDescription !== undefined) product.shortDescriptionAr = await translateText(product.shortDescription);
+      if (updateData.tags !== undefined) {
+        if (Array.isArray(product.tags)) {
+          product.tagsAr = await Promise.all(product.tags.map(t => translateText(t)));
+        } else {
+          product.tagsAr = [];
+        }
+      }
+
+      // Translate specifications
+      if (updateData.specifications !== undefined && Array.isArray(product.specifications)) {
+        for (const spec of product.specifications) {
+          if (spec.key && !spec.keyAr) spec.keyAr = await translateText(spec.key);
+          if (spec.value && !spec.valueAr) spec.valueAr = await translateText(spec.value);
+        }
+      }
+
+      // Translate stock status
+      if (updateData.stockStatus !== undefined) {
+        product.stockStatusAr = await translateText(product.stockStatus);
+      }
+
+      // Translate variation texts
+      if (updateData.reverseVariationText !== undefined) {
+        product.reverseVariationTextAr = await translateText(product.reverseVariationText);
+      }
+      if (updateData.selfVariationText !== undefined) {
+        product.selfVariationTextAr = await translateText(product.selfVariationText);
+      }
+
+      if (updateData.variations !== undefined && Array.isArray(product.variations)) {
+        for (const v of product.variations) {
+          if (v.variationText && !v.variationTextAr) {
+            v.variationTextAr = await translateText(v.variationText);
+          }
+        }
+      }
 
       if (parentCategory) product.parentCategory = parentCategory
       if (category) {
@@ -2472,7 +2598,16 @@ router.post(
       if (!brandMap.has(key)) {
         console.log(`Creating new brand: ${name}`)
         const slug = generateSlug(name)
-        const newBrand = await Brand.create({ name: name.trim(), slug, createdBy: req.user._id })
+        
+        // Translate brand fields
+        const nameAr = await translateText(name.trim());
+        
+        const newBrand = await Brand.create({ 
+          name: name.trim(), 
+          nameAr,
+          slug, 
+          createdBy: req.user._id 
+        })
         brandMap.set(key, newBrand._id)
         console.log(`Created brand: ${newBrand.name} -> ${newBrand._id}`)
       }
@@ -2557,8 +2692,28 @@ router.post(
           discount = Math.round(((price - offerPrice) / price) * 100)
         }
 
+        // Translate product fields
+        const nameAr = await translateText(prod.name);
+        const descriptionAr = await translateText(prod.description || "");
+        const shortDescriptionAr = await translateText(prod.shortDescription || "");
+        const stockStatusAr = await translateText(stockStatus);
+        
+        let tagsAr = [];
+        if (prod.tags && Array.isArray(prod.tags)) {
+          tagsAr = await Promise.all(prod.tags.map(t => translateText(t)));
+        }
+
+        // Translate specifications
+        if (prod.specifications && Array.isArray(prod.specifications)) {
+          for (const spec of prod.specifications) {
+            if (spec.key && !spec.keyAr) spec.keyAr = await translateText(spec.key);
+            if (spec.value && !spec.valueAr) spec.valueAr = await translateText(spec.value);
+          }
+        }
+
         const productData = {
           name: prod.name || "",
+          nameAr,
           slug: prod.slug || generateSlug(prod.name || ""),
           sku: (prod.sku && prod.sku.trim() !== "") ? prod.sku.trim() : undefined,
           barcode: (prod.barcode && prod.barcode.trim() !== "") ? prod.barcode.trim() : undefined,
@@ -2575,6 +2730,7 @@ router.post(
           discount,
           tax: taxId,
           stockStatus,
+          stockStatusAr,
           showStockOut: prod.showStockOut !== undefined ? Boolean(prod.showStockOut) : true,
           canPurchase: prod.canPurchase !== undefined ? Boolean(prod.canPurchase) : true,
           refundable: prod.refundable !== undefined ? Boolean(prod.refundable) : true,
@@ -2583,8 +2739,11 @@ router.post(
           unit: unitId,
           weight: prod.weight || 0,
           tags: prod.tags || [],
+          tagsAr,
           description: prod.description || "",
+          descriptionAr,
           shortDescription: prod.shortDescription || "",
+          shortDescriptionAr,
           specifications: prod.specifications || [],
           countInStock: prod.countInStock !== undefined ? prod.countInStock : 0,
           isActive: prod.isActive !== undefined ? Boolean(prod.isActive) : true,
@@ -2744,8 +2903,13 @@ router.post(
           // Create new if requested
           if (createIfMissing) {
             const slug = generateSlug(nameValue.trim())
+            
+            // Translate name for Arabic field
+            const nameAr = await translateText(nameValue.trim());
+            
             const newDoc = await Model.create({
               name: nameValue.trim(),
+              nameAr,
               slug,
               isActive: true,
               createdBy: userId,
@@ -2771,8 +2935,13 @@ router.post(
           
           // Create new subcategory
           const slug = generateSlug(nameValue.trim())
+          
+          // Translate name for Arabic field
+          const nameAr = await translateText(nameValue.trim());
+          
           const newSub = await SubCategory.create({
             name: nameValue.trim(),
+            nameAr,
             slug,
             category: parentCategoryId,
             parentSubCategory: parentSubId || null,
@@ -2922,6 +3091,25 @@ router.post(
             isActive: true,
           }
 
+          // Translate product fields
+          const nameAr = await translateText(productData.name);
+          const descriptionAr = await translateText(productData.description || "");
+          const shortDescriptionAr = await translateText(productData.shortDescription || "");
+          const stockStatusAr = await translateText(productData.stockStatus);
+          
+          let tagsAr = [];
+          if (productData.tags && Array.isArray(productData.tags)) {
+            tagsAr = await Promise.all(productData.tags.map(t => translateText(t)));
+          }
+
+          Object.assign(productData, {
+            nameAr,
+            descriptionAr,
+            shortDescriptionAr,
+            stockStatusAr,
+            tagsAr
+          })
+
           if (isUpdate) {
             // UPDATE existing product
             Object.assign(product, productData)
@@ -3048,8 +3236,12 @@ router.post(
                 .replace(/-+/g, "-")
                 .trim()
 
+              // Translate category fields
+              const parentNameAr = await translateText(parentCategoryStr);
+
               parentCategory = new Category({
                 name: parentCategoryStr,
+                nameAr: parentNameAr,
                 slug: slug,
                 isActive: true,
                 createdBy: req.user._id,
@@ -3081,8 +3273,12 @@ router.post(
                 .replace(/-+/g, "-")
                 .trim()
 
+              // Translate subcategory fields
+              const subNameAr = await translateText(categoryStr);
+
               subCategory = new SubCategory({
                 name: categoryStr,
+                nameAr: subNameAr,
                 slug: slug,
                 category: parentCategory._id,
                 isActive: true,
@@ -3114,8 +3310,12 @@ router.post(
                 .replace(/-+/g, "-")
                 .trim()
 
+              // Translate brand fields
+              const brandNameAr = await translateText(brandStr);
+
               brand = new Brand({
                 name: brandStr,
+                nameAr: brandNameAr,
                 slug: slug,
                 isActive: true,
                 createdBy: req.user._id,
@@ -3230,9 +3430,36 @@ router.post(
           continue
         }
 
+        // Translate product fields
+        const nameAr = await translateText(productName);
+        const descriptionAr = await translateText(productData.description || "");
+        const shortDescriptionAr = await translateText(productData.shortDescription || "");
+        const stockStatusAr = await translateText(productData.stockStatus || "In Stock");
+        
+        let tagsAr = [];
+        if (productData.tags && Array.isArray(productData.tags)) {
+          tagsAr = await Promise.all(productData.tags.map(t => translateText(t)));
+        } else if (productData.tags && typeof productData.tags === 'string') {
+          const tagList = productData.tags.split(",").map(t => t.trim()).filter(Boolean);
+          tagsAr = await Promise.all(tagList.map(t => translateText(t)));
+        }
+
+        // Translate specifications
+        const specifications = productData.specifications
+          ? [
+              {
+                key: "Specifications",
+                keyAr: await translateText("Specifications"),
+                value: String(productData.specifications).trim(),
+                valueAr: await translateText(String(productData.specifications).trim()),
+              },
+            ]
+          : [];
+
         // Create the product with proper ObjectId references
         const product = new Product({
           name: productName,
+          nameAr,
           slug: productSlug,
           sku: trimmedSKU !== "" ? trimmedSKU : undefined,
           parentCategory: parentCategory?._id,
@@ -3244,6 +3471,7 @@ router.post(
           price: Number(productData.price) || 0,
           offerPrice: Number(productData.offerPrice) || 0,
           stockStatus: String(productData.stockStatus || "In Stock").trim(),
+          stockStatusAr,
           showStockOut: productData.showStockOut !== undefined ? Boolean(productData.showStockOut) : true,
           canPurchase: productData.canPurchase !== undefined ? Boolean(productData.canPurchase) : true,
           refundable: productData.refundable !== undefined ? Boolean(productData.refundable) : true,
@@ -3256,18 +3484,14 @@ router.post(
                 .map((tag) => tag.trim())
                 .filter((tag) => tag)
             : [],
+          tagsAr,
           description: String(productData.description || "").trim(),
+          descriptionAr,
           discount: Number(productData.discount) || 0,
-          specifications: productData.specifications
-            ? [
-                {
-                  key: "Specifications",
-                  value: String(productData.specifications).trim(),
-                },
-              ]
-            : [],
+          specifications,
           details: String(productData.details || "").trim(),
           shortDescription: String(productData.shortDescription || "").trim(),
+          shortDescriptionAr,
           barcode: trimmedBarcode !== "" ? trimmedBarcode : undefined,
           isActive: true,
           countInStock: Number(productData.countInStock) || 0,

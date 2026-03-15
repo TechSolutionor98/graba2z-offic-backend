@@ -476,6 +476,7 @@
 
 import express from "express"
 import asyncHandler from "express-async-handler"
+import axios from "axios"
 import SubCategory from "../models/subCategoryModel.js"
 import Category from "../models/categoryModel.js"
 import Product from "../models/productModel.js"
@@ -484,6 +485,18 @@ import { deleteLocalFile, isCloudinaryUrl } from "../config/multer.js"
 import { logActivity } from "../middleware/permissionMiddleware.js"
 
 const router = express.Router()
+
+// Helper for translation
+const translateText = async (text) => {
+  if (!text || text.trim() === "") return "";
+  try {
+    const response = await axios.post("https://langaimodel.grabatoz.ae/api/translate/en-ar", { text });
+    return response.data.translation || "";
+  } catch (error) {
+    console.error("Translation error for text:", text, error.message);
+    return "";
+  }
+};
 
 // Helper function to extract media URLs from HTML description (TipTap content)
 const extractMediaUrlsFromHtml = (html) => {
@@ -858,12 +871,21 @@ router.post(
         subcategoryLevel = parentSub.level + 1
       }
 
+      // Translate only user-facing fields
+      const nameAr = await translateText(name.trim());
+      const descriptionAr = await translateText(description || "");
+
       const subcategory = new SubCategory({
         name: name.trim(),
+        nameAr,
         description: description || "",
+        descriptionAr,
         seoContent: seoContent || "",
+        seoContentAr: "", // Excluded
         metaTitle: metaTitle || name.trim(),
+        metaTitleAr: "", // Excluded
         metaDescription: metaDescription || "",
+        metaDescriptionAr: "", // Excluded
         customSchema: customSchema || "",
         redirectUrl: redirectUrl || "",
         category: category,
@@ -1041,6 +1063,15 @@ router.put(
       subcategory.slug = newSlug
       subcategory.isActive = isActive !== undefined ? isActive : subcategory.isActive
       subcategory.showInSlider = showInSlider !== undefined ? showInSlider : subcategory.showInSlider
+
+      // Translate updated fields (excluding SEO/Meta)
+      if (name !== undefined) subcategory.nameAr = await translateText(subcategory.name);
+      if (description !== undefined) subcategory.descriptionAr = await translateText(subcategory.description);
+      
+      // Clear SEO/Meta translations (policy change)
+      subcategory.seoContentAr = "";
+      subcategory.metaTitleAr = "";
+      subcategory.metaDescriptionAr = "";
 
       console.log('Saving updated subcategory:', subcategory)
       const updatedSubCategory = await subcategory.save()

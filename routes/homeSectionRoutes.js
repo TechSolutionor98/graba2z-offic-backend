@@ -1,5 +1,6 @@
 import express from 'express';
 import HomeSection from '../models/homeSectionModel.js';
+import axios from 'axios';
 import { protect, admin } from '../middleware/authMiddleware.js';
 import { deleteLocalFile, isCloudinaryUrl } from '../config/multer.js';
 import { logActivity } from '../middleware/permissionMiddleware.js';
@@ -7,12 +8,25 @@ import { cacheMiddleware, invalidateCache } from '../middleware/cacheMiddleware.
 
 const router = express.Router();
 
+// Helper for translation
+const translateText = async (text) => {
+  if (!text || text.trim() === "") return "";
+  try {
+    const response = await axios.post("https://langaimodel.grabatoz.ae/api/translate/en-ar", { text });
+    return response.data.translation || "";
+  } catch (error) {
+    console.error("Translation error for text:", text, error.message);
+    return "";
+  }
+};
+
 // @desc    Get all home sections
 // @route   GET /api/home-sections
 // @access  Public
 router.get('/', cacheMiddleware('homeSections'), async (req, res) => {
   try {
     const sections = await HomeSection.find({})
+      .select('name nameAr slug key description descriptionAr isActive order sectionType settings')
       .sort({ order: 1, createdAt: -1 });
     res.json(sections);
   } catch (error) {
@@ -84,11 +98,17 @@ router.post('/', protect, admin, async (req, res) => {
       return res.status(400).json({ message: `Order ${order} is already used by another section. Please change the existing section's order first.` });
     }
 
+    // Translate fields
+    const nameAr = await translateText(name);
+    const descriptionAr = await translateText(description || "");
+
     const section = new HomeSection({
       name,
+      nameAr,
       slug,
       key,
       description,
+      descriptionAr,
       isActive: isActive !== undefined ? isActive : true,
       order: order || 1,
       sectionType: sectionType || 'banner-cards',
@@ -163,6 +183,10 @@ router.put('/:id', protect, admin, async (req, res) => {
       section.order = order !== undefined ? order : section.order;
       section.sectionType = sectionType || section.sectionType;
       section.settings = settings !== undefined ? settings : section.settings;
+
+      // Translate updated fields
+      if (name !== undefined) section.nameAr = await translateText(section.name);
+      if (description !== undefined) section.descriptionAr = await translateText(section.description);
 
       console.log('🟡 SERVER UPDATE: Section settings after assignment:', JSON.stringify(section.settings, null, 2));
       const updatedSection = await section.save();

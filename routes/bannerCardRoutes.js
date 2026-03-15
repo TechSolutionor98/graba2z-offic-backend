@@ -1,9 +1,22 @@
 import express from 'express';
 import BannerCard from '../models/bannerCardModel.js';
+import axios from 'axios';
 import { protect, admin } from '../middleware/authMiddleware.js';
 import { logActivity } from '../middleware/permissionMiddleware.js';
 
 const router = express.Router();
+
+// Helper for translation
+const translateText = async (text) => {
+  if (!text || text.trim() === "") return "";
+  try {
+    const response = await axios.post("https://langaimodel.grabatoz.ae/api/translate/en-ar", { text });
+    return response.data.translation || "";
+  } catch (error) {
+    console.error("Translation error for text:", text, error.message);
+    return "";
+  }
+};
 
 // @desc    Get all banner cards (admin)
 // @route   GET /api/banner-cards/admin
@@ -76,10 +89,16 @@ router.post('/', protect, admin, async (req, res) => {
       return res.status(400).json({ message: 'Slug already exists' });
     }
 
+    // Translate fields
+    const nameAr = await translateText(name);
+    const detailsAr = await translateText(details || "");
+
     const bannerCard = new BannerCard({
       name,
+      nameAr,
       slug,
       details,
+      detailsAr,
       image,
       bgImage: bgImage || '',
       section,
@@ -139,6 +158,10 @@ router.put('/:id', protect, admin, async (req, res) => {
       bannerCard.isActive = isActive !== undefined ? isActive : bannerCard.isActive;
       bannerCard.order = order !== undefined ? order : bannerCard.order;
       bannerCard.bgColor = bgColor || bannerCard.bgColor;
+
+      // Translate updated fields
+      if (name !== undefined) bannerCard.nameAr = await translateText(bannerCard.name);
+      if (details !== undefined) bannerCard.detailsAr = await translateText(bannerCard.details);
 
       const updatedBannerCard = await bannerCard.save();
 

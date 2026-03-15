@@ -7,6 +7,11 @@ const customSliderItemSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
+    nameAr: {
+      type: String,
+      default: "",
+      trim: true,
+    },
     image: {
       type: String,
       required: true,

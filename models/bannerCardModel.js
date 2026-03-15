@@ -17,6 +17,14 @@ const bannerCardSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
+    nameAr: {
+      type: String,
+      default: '',
+    },
+    detailsAr: {
+      type: String,
+      default: '',
+    },
     image: {
       type: String,
       default: '',

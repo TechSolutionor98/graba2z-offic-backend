@@ -23,6 +23,14 @@ const homeSectionSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
+    nameAr: {
+      type: String,
+      default: '',
+    },
+    descriptionAr: {
+      type: String,
+      default: '',
+    },
     isActive: {
       type: Boolean,
       default: true,
@@ -61,7 +69,6 @@ const homeSectionSchema = new mongoose.Schema(
 
 // Index for faster queries
 homeSectionSchema.index({ isActive: 1, order: 1 });
-homeSectionSchema.index({ slug: 1 });
 
 const HomeSection = mongoose.model('HomeSection', homeSectionSchema);
 

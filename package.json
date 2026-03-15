@@ -14,7 +14,9 @@
   "dependencies": {
     "@getbrevo/brevo": "^2.2.0",
     "@sendgrid/mail": "^8.1.4",
+    "axios": "^1.13.6",
     "bcryptjs": "^2.4.3",
+    "bing-translate-api": "^4.2.0",
     "cloudinary": "^1.41.3",
     "colors": "^1.4.0",
     "cookie-parser": "^1.4.7",

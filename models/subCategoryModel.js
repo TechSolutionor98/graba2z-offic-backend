@@ -7,6 +7,11 @@ const subCategorySchema = mongoose.Schema(
       required: true,
       trim: true,
     },
+    nameAr: {
+      type: String,
+      default: "",
+      trim: true,
+    },
     slug: {
       type: String,
       required: true,
@@ -17,7 +22,15 @@ const subCategorySchema = mongoose.Schema(
       type: String,
       trim: true,
     },
+    descriptionAr: {
+      type: String,
+      default: "",
+    },
     seoContent: {
+      type: String,
+      default: "",
+    },
+    seoContentAr: {
       type: String,
       default: "",
     },
@@ -27,11 +40,23 @@ const subCategorySchema = mongoose.Schema(
       trim: true,
       maxlength: 100, // Increased limit for better SEO flexibility
     },
+    metaTitleAr: {
+      type: String,
+      default: "",
+      trim: true,
+      maxlength: 100,
+    },
     metaDescription: {
       type: String,
       default: "",
       trim: true,
       maxlength: 300, // Increased limit for better SEO flexibility
+    },
+    metaDescriptionAr: {
+      type: String,
+      default: "",
+      trim: true,
+      maxlength: 300,
     },
     customSchema: {
       type: String,

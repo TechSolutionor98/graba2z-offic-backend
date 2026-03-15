@@ -1,5 +1,6 @@
 import express from "express"
 import asyncHandler from "express-async-handler"
+import axios from "axios"
 import Brand from "../models/brandModel.js"
 import { protect, admin } from "../middleware/authMiddleware.js"
 import { deleteLocalFile, isCloudinaryUrl } from "../config/multer.js"
@@ -7,6 +8,18 @@ import { logActivity } from "../middleware/permissionMiddleware.js"
 import { cacheMiddleware, invalidateCache } from "../middleware/cacheMiddleware.js"
 
 const router = express.Router()
+
+// Helper for translation
+const translateText = async (text) => {
+  if (!text || text.trim() === "") return "";
+  try {
+    const response = await axios.post("https://langaimodel.grabatoz.ae/api/translate/en-ar", { text });
+    return response.data.translation || "";
+  } catch (error) {
+    console.error("Translation error for text:", text, error.message);
+    return "";
+  }
+};
 
 // @desc    Fetch all brands (Admin only - includes inactive)
 // @route   GET /api/brands/admin
@@ -50,10 +63,16 @@ router.post(
       .replace(/-+/g, "-")
       .replace(/^-|-$/g, "")
 
+    // Translate texts
+    const nameAr = await translateText(name);
+    const descriptionAr = await translateText(description || "");
+
     const brand = new Brand({
       name,
+      nameAr,
       slug,
       description,
+      descriptionAr,
       logo,
       website,
       sortOrder,
@@ -100,6 +119,10 @@ router.put(
           .replace(/-+/g, "-")
           .replace(/^-|-$/g, "")
       }
+
+      // Translate updated fields
+      if (name !== undefined) brand.nameAr = await translateText(brand.name);
+      if (description !== undefined) brand.descriptionAr = await translateText(brand.description);
 
       const updatedBrand = await brand.save()
 

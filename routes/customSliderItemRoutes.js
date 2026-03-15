@@ -1,8 +1,21 @@
 import express from "express"
+import axios from "axios"
 import CustomSliderItem from "../models/customSliderItemModel.js"
 import { protect, admin } from "../middleware/authMiddleware.js"
 
 const router = express.Router()
+
+// Helper for translation
+const translateText = async (text) => {
+  if (!text || text.trim() === "") return "";
+  try {
+    const response = await axios.post("https://langaimodel.grabatoz.ae/api/translate/en-ar", { text });
+    return response.data.translation || "";
+  } catch (error) {
+    console.error("Translation error for text:", text, error.message);
+    return "";
+  }
+};
 
 // @desc    Get all custom slider items
 // @route   GET /api/custom-slider-items
@@ -43,6 +56,7 @@ router.post("/", protect, admin, async (req, res) => {
 
     const item = await CustomSliderItem.create({
       name,
+      nameAr: await translateText(name),
       image,
       redirectUrl,
       isActive: isActive !== undefined ? isActive : true,
@@ -69,7 +83,10 @@ router.put("/:id", protect, admin, async (req, res) => {
 
     const { name, image, redirectUrl, isActive, order } = req.body
 
-    if (name !== undefined) item.name = name
+    if (name !== undefined) {
+      item.name = name
+      item.nameAr = await translateText(name)
+    }
     if (image !== undefined) item.image = image
     if (redirectUrl !== undefined) item.redirectUrl = redirectUrl
     if (isActive !== undefined) item.isActive = isActive

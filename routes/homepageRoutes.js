@@ -44,20 +44,20 @@ router.get(
     ] = await Promise.all([
       // Categories - active only, sorted
       Category.find({ isActive: true, isDeleted: { $ne: true } })
-        .select('name slug image icon description sortOrder')
+        .select('name nameAr slug image icon description descriptionAr sortOrder')
         .sort({ sortOrder: 1, name: 1 })
         .lean(),
 
       // Brands - active only with logo, sorted
       Brand.find({ isActive: true, isDeleted: { $ne: true }, logo: { $exists: true, $ne: '' } })
-        .select('name slug logo website sortOrder')
+        .select('name nameAr slug logo website sortOrder')
         .sort({ sortOrder: 1, name: 1 })
         .lean(),
 
       // Banners - active only
       Banner.find({ isActive: true })
-        .select('title subtitle image mobileImage link buttonLink position category sortOrder buttonText')
-        .populate('category', 'name slug')
+        .select('title titleAr subtitle subtitleAr image mobileImage link buttonLink position category sortOrder buttonText buttonTextAr')
+        .populate('category', 'name nameAr slug')
         .sort({ sortOrder: 1, createdAt: -1 })
         .lean(),
 
@@ -71,15 +71,14 @@ router.get(
         .select('siteName logo favicon homeSections socialLinks contactInfo')
         .lean(),
 
-      // Featured products - limited to 12, optimized fields only
       Product.find({ 
         isActive: true, 
         featured: true,
         hideFromShop: { $ne: true }
       })
-        .select('name slug sku price offerPrice discount image stockStatus countInStock brand category rating numReviews')
-        .populate('brand', 'name slug')
-        .populate('category', 'name slug')
+        .select('name nameAr slug sku price offerPrice discount image stockStatus stockStatusAr countInStock brand category rating numReviews')
+        .populate('brand', 'name nameAr slug')
+        .populate('category', 'name nameAr slug')
         .sort({ 
           // In-stock products first
           stockStatus: 1,
@@ -106,8 +105,8 @@ router.get(
         hideFromShop: { $ne: true },
         brand: brandId
       })
-        .select('name slug sku price offerPrice discount image stockStatus countInStock brand')
-        .populate('brand', 'name slug')
+        .select('name nameAr slug sku price offerPrice discount image stockStatus stockStatusAr countInStock brand')
+        .populate('brand', 'name nameAr slug')
         .sort({ stockStatus: 1, createdAt: -1 })
         .limit(4)
         .lean()
@@ -176,9 +175,9 @@ router.get(
 
     const [products, total] = await Promise.all([
       Product.find(query)
-        .select('name slug sku price offerPrice discount image stockStatus countInStock brand category rating numReviews')
-        .populate('brand', 'name slug')
-        .populate('category', 'name slug')
+        .select('name nameAr slug sku price offerPrice discount image stockStatus stockStatusAr countInStock brand category rating numReviews')
+        .populate('brand', 'name nameAr slug')
+        .populate('category', 'name nameAr slug')
         .sort({ stockStatus: 1, createdAt: -1 })
         .skip(skip)
         .limit(parseInt(limit))

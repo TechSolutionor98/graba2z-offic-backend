@@ -8,6 +8,11 @@ const brandSchema = mongoose.Schema(
       unique: true,
       trim: true,
     },
+    nameAr: {
+      type: String,
+      default: "",
+      trim: true,
+    },
     slug: {
       type: String,
       required: true,
@@ -17,6 +22,10 @@ const brandSchema = mongoose.Schema(
     description: {
       type: String,
       trim: true,
+    },
+    descriptionAr: {
+      type: String,
+      default: "",
     },
     logo: {
       type: String,

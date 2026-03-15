@@ -62,6 +62,11 @@ const categorySchema = mongoose.Schema(
       required: true,
       trim: true,
     },
+    nameAr: {
+      type: String,
+      default: "",
+      trim: true,
+    },
     slug: {
       type: String,
       unique: true,
@@ -71,7 +76,15 @@ const categorySchema = mongoose.Schema(
       type: String,
       default: "",
     },
+    descriptionAr: {
+      type: String,
+      default: "",
+    },
     seoContent: {
+      type: String,
+      default: "",
+    },
+    seoContentAr: {
       type: String,
       default: "",
     },
@@ -81,11 +94,23 @@ const categorySchema = mongoose.Schema(
       trim: true,
       maxlength: 100, // Increased limit for better SEO flexibility
     },
+    metaTitleAr: {
+      type: String,
+      default: "",
+      trim: true,
+      maxlength: 100,
+    },
     metaDescription: {
       type: String,
       default: "",
       trim: true,
       maxlength: 300, // Increased limit for better SEO flexibility
+    },
+    metaDescriptionAr: {
+      type: String,
+      default: "",
+      trim: true,
+      maxlength: 300,
     },
     customSchema: {
       type: String,
@@ -125,7 +150,6 @@ const categorySchema = mongoose.Schema(
 
 // Index for better performance
 categorySchema.index({ name: 1 })
-categorySchema.index({ slug: 1 })
 categorySchema.index({ isActive: 1 })
 
 const Category = mongoose.model("Category", categorySchema)

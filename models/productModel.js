@@ -7,6 +7,10 @@ const productSchema = mongoose.Schema(
       type: String,
       required: true,
     },
+    nameAr: {
+      type: String,
+      default: "",
+    },
     sku: {
       type: String,
       unique: true,
@@ -32,6 +36,10 @@ const productSchema = mongoose.Schema(
       required: true,
       default: "In Stock",
       enum: ["In Stock", "Out of Stock", "PreOrder"],
+    },
+    stockStatusAr: {
+      type: String,
+      default: "",
     },
     brand: {
       type: mongoose.Schema.Types.ObjectId,
@@ -73,8 +81,16 @@ const productSchema = mongoose.Schema(
       type: String,
       required: true,
     },
+    descriptionAr: {
+      type: String,
+      default: "",
+    },
     shortDescription: {
       type: String,
+    },
+    shortDescriptionAr: {
+      type: String,
+      default: "",
     },
     buyingPrice: {
       type: Number,
@@ -147,6 +163,11 @@ const productSchema = mongoose.Schema(
         type: String,
       },
     ],
+    tagsAr: [
+      {
+        type: String,
+      },
+    ],
     isActive: {
       type: Boolean,
       default: true,
@@ -186,7 +207,9 @@ const productSchema = mongoose.Schema(
     specifications: [
       {
         key: { type: String },
+        keyAr: { type: String, default: "" },
         value: { type: String },
+        valueAr: { type: String, default: "" },
       },
     ],
     reviews: [
@@ -214,14 +237,26 @@ const productSchema = mongoose.Schema(
           type: String,
           default: "",
         },
+        variationTextAr: {
+          type: String,
+          default: "",
+        },
       },
     ],
     reverseVariationText: {
       type: String,
       default: "",
     },
+    reverseVariationTextAr: {
+      type: String,
+      default: "",
+    },
     // The label for this product when shown in variation lists (e.g., "16GB RAM", "24GB RAM")
     selfVariationText: {
+      type: String,
+      default: "",
+    },
+    selfVariationTextAr: {
       type: String,
       default: "",
     },
