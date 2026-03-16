@@ -1,6 +1,7 @@
 import express from "express"
 import asyncHandler from "express-async-handler"
 import axios from "axios"
+import { translate as bingTranslate } from "bing-translate-api"
 import Brand from "../models/brandModel.js"
 import { protect, admin } from "../middleware/authMiddleware.js"
 import { deleteLocalFile, isCloudinaryUrl } from "../config/multer.js"
@@ -8,18 +9,69 @@ import { logActivity } from "../middleware/permissionMiddleware.js"
 import { cacheMiddleware, invalidateCache } from "../middleware/cacheMiddleware.js"
 
 const router = express.Router()
+const TRANSLATION_TIMEOUT_MS = Number(process.env.TRANSLATION_TIMEOUT_MS || 4000)
+const BING_TRANSLATION_TIMEOUT_MS = Number(process.env.BING_TRANSLATION_TIMEOUT_MS || 3000)
+const ENABLE_BRAND_TRANSLATION = process.env.ENABLE_BRAND_TRANSLATION !== "false"
+const ENABLE_BING_TRANSLATION_FALLBACK = process.env.ENABLE_BING_TRANSLATION_FALLBACK !== "false"
+
+const withTimeout = (promise, ms, timeoutMessage) =>
+  Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error(timeoutMessage)), ms)
+    }),
+  ])
 
 // Helper for translation
 const translateText = async (text) => {
-  if (!text || text.trim() === "") return "";
+  if (!ENABLE_BRAND_TRANSLATION) return ""
+  const normalizedText = String(text || "").trim()
+  if (!normalizedText) return ""
+
   try {
-    const response = await axios.post("https://langaimodel.grabatoz.ae/api/translate/en-ar", { text });
-    return response.data.translation || "";
+    const response = await axios.post(
+      "https://langaimodel.grabatoz.ae/api/translate/en-ar",
+      { text: normalizedText },
+      { timeout: TRANSLATION_TIMEOUT_MS },
+    )
+    const translated = response.data.translation || ""
+    if (translated) return translated
   } catch (error) {
-    console.error("Translation error for text:", text, error.message);
-    return "";
+    console.error("Primary translation failed, trying Bing fallback:", error.message)
   }
-};
+
+  if (!ENABLE_BING_TRANSLATION_FALLBACK) return ""
+
+  try {
+    const bingResult = await withTimeout(
+      bingTranslate(normalizedText, null, "ar"),
+      BING_TRANSLATION_TIMEOUT_MS,
+      "Bing translation timeout",
+    )
+    return bingResult?.translation || ""
+  } catch (error) {
+    console.error("Bing fallback translation failed:", error.message)
+    return ""
+  }
+}
+
+const buildSlug = (value = "") =>
+  value
+    .toString()
+    .toLowerCase()
+    .replace(/[^a-zA-Z0-9]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+
+const runInBackground = (task, label) => {
+  setImmediate(async () => {
+    try {
+      await task()
+    } catch (error) {
+      console.error(`${label} failed:`, error.message)
+    }
+  })
+}
 
 // @desc    Fetch all brands (Admin only - includes inactive)
 // @route   GET /api/brands/admin
@@ -54,40 +106,55 @@ router.post(
   protect,
   admin,
   asyncHandler(async (req, res) => {
-    const { name, description, logo, website, sortOrder } = req.body
+    const { name, description, logo, website, sortOrder, isActive } = req.body
+    const normalizedName = String(name || "").trim()
+
+    if (!normalizedName) {
+      res.status(400)
+      throw new Error("Brand name is required")
+    }
 
     // Generate slug from name
-    const slug = name
-      .toLowerCase()
-      .replace(/[^a-zA-Z0-9]/g, "-")
-      .replace(/-+/g, "-")
-      .replace(/^-|-$/g, "")
+    const slug = buildSlug(normalizedName)
+    if (!slug) {
+      res.status(400)
+      throw new Error("Please enter a valid brand name")
+    }
+
+    const existingBrand = await Brand.findOne({ $or: [{ name: normalizedName }, { slug }] })
+    if (existingBrand) {
+      res.status(400)
+      throw new Error("Brand with this name already exists")
+    }
 
     // Translate texts
-    const nameAr = await translateText(name);
-    const descriptionAr = await translateText(description || "");
+    const [nameAr, descriptionAr] = await Promise.all([
+      translateText(normalizedName),
+      translateText(description || ""),
+    ])
 
     const brand = new Brand({
-      name,
+      name: normalizedName,
       nameAr,
       slug,
       description,
       descriptionAr,
       logo,
       website,
+      isActive: isActive !== undefined ? isActive : true,
       sortOrder,
       createdBy: req.user._id,
     })
 
     const createdBrand = await brand.save()
 
-    // Log activity
-    await logActivity(req, "CREATE", "BRANDS", `Created brand: ${createdBrand.name}`, createdBrand._id, createdBrand.name)
-
-    // Invalidate brand cache
-    await invalidateCache(['brands', 'products'])
-
     res.status(201).json(createdBrand)
+
+    runInBackground(
+      () => logActivity(req, "CREATE", "BRANDS", `Created brand: ${createdBrand.name}`, createdBrand._id, createdBrand.name),
+      "Brand create activity log",
+    )
+    runInBackground(() => invalidateCache(['brands', 'products']), "Brand create cache invalidation")
   }),
 )
 
@@ -102,6 +169,7 @@ router.put(
     const brand = await Brand.findById(req.params.id)
 
     if (brand) {
+      const previousName = brand.name
       const { name, description, logo, website, isActive, sortOrder } = req.body
 
       brand.name = name || brand.name
@@ -112,27 +180,34 @@ router.put(
       brand.sortOrder = sortOrder !== undefined ? sortOrder : brand.sortOrder
 
       // Update slug if name changed
-      if (name && name !== brand.name) {
-        brand.slug = name
-          .toLowerCase()
-          .replace(/[^a-zA-Z0-9]/g, "-")
-          .replace(/-+/g, "-")
-          .replace(/^-|-$/g, "")
+      if (name && name !== previousName) {
+        const updatedSlug = buildSlug(name)
+        if (!updatedSlug) {
+          res.status(400)
+          throw new Error("Please enter a valid brand name")
+        }
+        brand.slug = updatedSlug
       }
 
       // Translate updated fields
-      if (name !== undefined) brand.nameAr = await translateText(brand.name);
-      if (description !== undefined) brand.descriptionAr = await translateText(brand.description);
+      if (name !== undefined || description !== undefined) {
+        const [nextNameAr, nextDescriptionAr] = await Promise.all([
+          name !== undefined ? translateText(brand.name) : Promise.resolve(brand.nameAr),
+          description !== undefined ? translateText(brand.description) : Promise.resolve(brand.descriptionAr),
+        ])
+        brand.nameAr = nextNameAr
+        brand.descriptionAr = nextDescriptionAr
+      }
 
       const updatedBrand = await brand.save()
 
-      // Log activity
-      await logActivity(req, "UPDATE", "BRANDS", `Updated brand: ${updatedBrand.name}`, updatedBrand._id, updatedBrand.name)
-
-      // Invalidate brand cache
-      await invalidateCache(['brands', 'products'])
-
       res.json(updatedBrand)
+
+      runInBackground(
+        () => logActivity(req, "UPDATE", "BRANDS", `Updated brand: ${updatedBrand.name}`, updatedBrand._id, updatedBrand.name),
+        "Brand update activity log",
+      )
+      runInBackground(() => invalidateCache(['brands', 'products']), "Brand update cache invalidation")
     } else {
       res.status(404)
       throw new Error("Brand not found")
@@ -165,13 +240,13 @@ router.delete(
 
       await brand.deleteOne()
 
-      // Log activity
-      await logActivity(req, "DELETE", "BRANDS", `Deleted brand: ${brandName}`, brandId, brandName)
-
-      // Invalidate brand cache
-      await invalidateCache(['brands', 'products'])
-
       res.json({ message: "Brand removed" })
+
+      runInBackground(
+        () => logActivity(req, "DELETE", "BRANDS", `Deleted brand: ${brandName}`, brandId, brandName),
+        "Brand delete activity log",
+      )
+      runInBackground(() => invalidateCache(['brands', 'products']), "Brand delete cache invalidation")
     } else {
       res.status(404)
       throw new Error("Brand not found")
