@@ -1,7 +1,6 @@
 import express from "express"
 import asyncHandler from "express-async-handler"
 import axios from "axios"
-import { translate as bingTranslate } from "bing-translate-api"
 import Brand from "../models/brandModel.js"
 import { protect, admin } from "../middleware/authMiddleware.js"
 import { deleteLocalFile, isCloudinaryUrl } from "../config/multer.js"
@@ -13,6 +12,8 @@ const TRANSLATION_TIMEOUT_MS = Number(process.env.TRANSLATION_TIMEOUT_MS || 4000
 const BING_TRANSLATION_TIMEOUT_MS = Number(process.env.BING_TRANSLATION_TIMEOUT_MS || 3000)
 const ENABLE_BRAND_TRANSLATION = process.env.ENABLE_BRAND_TRANSLATION !== "false"
 const ENABLE_BING_TRANSLATION_FALLBACK = process.env.ENABLE_BING_TRANSLATION_FALLBACK !== "false"
+let cachedBingTranslate = null
+let bingLoaderAttempted = false
 
 const withTimeout = (promise, ms, timeoutMessage) =>
   Promise.race([
@@ -21,6 +22,24 @@ const withTimeout = (promise, ms, timeoutMessage) =>
       setTimeout(() => reject(new Error(timeoutMessage)), ms)
     }),
   ])
+
+const loadBingTranslate = async () => {
+  if (bingLoaderAttempted) return cachedBingTranslate
+  bingLoaderAttempted = true
+
+  try {
+    const bingModule = await import("bing-translate-api")
+    cachedBingTranslate = bingModule?.translate || null
+    if (!cachedBingTranslate) {
+      console.error("Bing translation fallback unavailable: translate export not found")
+    }
+  } catch (error) {
+    console.error("Bing translation package not available:", error.message)
+    cachedBingTranslate = null
+  }
+
+  return cachedBingTranslate
+}
 
 // Helper for translation
 const translateText = async (text) => {
@@ -43,6 +62,9 @@ const translateText = async (text) => {
   if (!ENABLE_BING_TRANSLATION_FALLBACK) return ""
 
   try {
+    const bingTranslate = await loadBingTranslate()
+    if (!bingTranslate) return ""
+
     const bingResult = await withTimeout(
       bingTranslate(normalizedText, null, "ar"),
       BING_TRANSLATION_TIMEOUT_MS,
