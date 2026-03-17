@@ -1,22 +1,12 @@
 import express from 'express';
 import BannerCard from '../models/bannerCardModel.js';
-import axios from 'axios';
 import { protect, admin } from '../middleware/authMiddleware.js';
 import { logActivity } from '../middleware/permissionMiddleware.js';
+import { translateEnToAr } from "../utils/translateWithFallback.js"
 
 const router = express.Router();
 
-// Helper for translation
-const translateText = async (text) => {
-  if (!text || text.trim() === "") return "";
-  try {
-    const response = await axios.post("https://langaimodel.grabatoz.ae/api/translate/en-ar", { text });
-    return response.data.translation || "";
-  } catch (error) {
-    console.error("Translation error for text:", text, error.message);
-    return "";
-  }
-};
+const translateText = translateEnToAr
 
 // @desc    Get all banner cards (admin)
 // @route   GET /api/banner-cards/admin

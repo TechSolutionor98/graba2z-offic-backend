@@ -1,6 +1,5 @@
 import express from "express"
 import asyncHandler from "express-async-handler"
-import axios from "axios"
 import Category from "../models/categoryModel.js"
 import SubCategory from "../models/subCategoryModel.js"
 import Product from "../models/productModel.js"
@@ -8,20 +7,11 @@ import { protect, admin } from "../middleware/authMiddleware.js"
 import { logActivity } from "../middleware/permissionMiddleware.js"
 import { deleteLocalFile, isCloudinaryUrl } from "../config/multer.js"
 import { cacheMiddleware, invalidateCache } from "../middleware/cacheMiddleware.js"
+import { translateEnToAr } from "../utils/translateWithFallback.js"
 
 const router = express.Router()
 
-// Helper for translation
-const translateText = async (text) => {
-  if (!text || text.trim() === "") return "";
-  try {
-    const response = await axios.post("https://langaimodel.grabatoz.ae/api/translate/en-ar", { text });
-    return response.data.translation || "";
-  } catch (error) {
-    console.error("Translation error for text:", text, error.message);
-    return "";
-  }
-};
+const translateText = translateEnToAr
 
 // Helper function to extract media URLs from HTML description (TipTap content)
 const extractMediaUrlsFromHtml = (html) => {

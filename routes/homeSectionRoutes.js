@@ -1,24 +1,14 @@
 import express from 'express';
 import HomeSection from '../models/homeSectionModel.js';
-import axios from 'axios';
 import { protect, admin } from '../middleware/authMiddleware.js';
 import { deleteLocalFile, isCloudinaryUrl } from '../config/multer.js';
 import { logActivity } from '../middleware/permissionMiddleware.js';
 import { cacheMiddleware, invalidateCache } from '../middleware/cacheMiddleware.js';
+import { translateEnToAr } from "../utils/translateWithFallback.js"
 
 const router = express.Router();
 
-// Helper for translation
-const translateText = async (text) => {
-  if (!text || text.trim() === "") return "";
-  try {
-    const response = await axios.post("https://langaimodel.grabatoz.ae/api/translate/en-ar", { text });
-    return response.data.translation || "";
-  } catch (error) {
-    console.error("Translation error for text:", text, error.message);
-    return "";
-  }
-};
+const translateText = translateEnToAr
 
 // @desc    Get all home sections
 // @route   GET /api/home-sections
