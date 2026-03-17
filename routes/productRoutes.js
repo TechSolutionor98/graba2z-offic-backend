@@ -197,6 +197,10 @@ function generateSlug(name) {
 }
 
 const sanitizeSlug = (slug) => generateSlug(slug)
+const normalizeOptionalUniqueField = (value) => {
+  const normalized = String(value ?? "").trim()
+  return normalized !== "" ? normalized : undefined
+}
 
 // Helper to escape regex special characters
 function escapeRegex(string) {
@@ -976,21 +980,34 @@ router.post(
       }
     }
 
+    const normalizedSKU = normalizeOptionalUniqueField(productData.sku)
+    const normalizedBarcode = normalizeOptionalUniqueField(productData.barcode)
+    const normalizedGTIN = normalizeOptionalUniqueField(productData.gtin)
+
     // Check SKU uniqueness if provided
-    if (productData.sku && productData.sku.trim() !== "") {
-      const existingSKU = await Product.findOne({ sku: productData.sku.trim() })
+    if (normalizedSKU) {
+      const existingSKU = await Product.findOne({ sku: normalizedSKU })
       if (existingSKU) {
         res.status(400)
-        throw new Error(`SKU '${productData.sku}' already exists`)
+        throw new Error(`SKU '${normalizedSKU}' already exists`)
       }
     }
 
     // Check barcode uniqueness if provided
-    if (productData.barcode && productData.barcode.trim() !== "") {
-      const existingBarcode = await Product.findOne({ barcode: productData.barcode.trim() })
+    if (normalizedBarcode) {
+      const existingBarcode = await Product.findOne({ barcode: normalizedBarcode })
       if (existingBarcode) {
         res.status(400)
-        throw new Error(`Barcode '${productData.barcode}' already exists`)
+        throw new Error(`Barcode '${normalizedBarcode}' already exists`)
+      }
+    }
+
+    // Check GTIN uniqueness if provided
+    if (normalizedGTIN) {
+      const existingGTIN = await Product.findOne({ gtin: normalizedGTIN })
+      if (existingGTIN) {
+        res.status(400)
+        throw new Error(`GTIN '${normalizedGTIN}' already exists`)
       }
     }
 
@@ -999,13 +1016,10 @@ router.post(
       productData.slug = generateSlug(productData.name)
     }
 
-    // Normalize SKU and barcode - set to undefined if empty to work with sparse index
-    if (productData.sku !== undefined) {
-      productData.sku = productData.sku && productData.sku.trim() !== "" ? productData.sku.trim() : undefined
-    }
-    if (productData.barcode !== undefined) {
-      productData.barcode = productData.barcode && productData.barcode.trim() !== "" ? productData.barcode.trim() : undefined
-    }
+    // Normalize optional unique fields - set to undefined if empty to work with sparse index
+    productData.sku = normalizedSKU
+    productData.barcode = normalizedBarcode
+    productData.gtin = normalizedGTIN
 
     // Translate product fields
     let nameAr = "";
@@ -1226,7 +1240,7 @@ router.put(
 
       // Check SKU uniqueness if provided and changed (excluding current product)
       if (updateData.sku !== undefined) {
-        const newSKU = updateData.sku && updateData.sku.trim() !== "" ? updateData.sku.trim() : undefined
+        const newSKU = normalizeOptionalUniqueField(updateData.sku)
         if (newSKU && newSKU !== product.sku) {
           const existingSKU = await Product.findOne({ sku: newSKU, _id: { $ne: req.params.id } })
           if (existingSKU) {
@@ -1239,7 +1253,7 @@ router.put(
 
       // Check barcode uniqueness if provided and changed (excluding current product)
       if (updateData.barcode !== undefined) {
-        const newBarcode = updateData.barcode && updateData.barcode.trim() !== "" ? updateData.barcode.trim() : undefined
+        const newBarcode = normalizeOptionalUniqueField(updateData.barcode)
         if (newBarcode && newBarcode !== product.barcode) {
           const existingBarcode = await Product.findOne({ barcode: newBarcode, _id: { $ne: req.params.id } })
           if (existingBarcode) {
@@ -1248,6 +1262,19 @@ router.put(
           }
         }
         updateData.barcode = newBarcode
+      }
+
+      // Check GTIN uniqueness if provided and changed (excluding current product)
+      if (updateData.gtin !== undefined) {
+        const newGTIN = normalizeOptionalUniqueField(updateData.gtin)
+        if (newGTIN && newGTIN !== product.gtin) {
+          const existingGTIN = await Product.findOne({ gtin: newGTIN, _id: { $ne: req.params.id } })
+          if (existingGTIN) {
+            res.status(400)
+            throw new Error(`GTIN '${newGTIN}' already exists`)
+          }
+        }
+        updateData.gtin = newGTIN
       }
 
       // Update product fields

@@ -131,7 +131,16 @@ class TamaraService {
         throw new Error(`Missing required fields: ${missingFields.join(", ")}`)
       }
 
-      const baseUrl = process.env.NODE_ENV === "production" ? "https://grabatoz.ae" : "https://your-ngrok-url.ngrok.io" // Replace with your ngrok URL for testing
+      const frontendBaseUrl = process.env.FRONTEND_URL || "https://www.graba2z.ae"
+      const apiBaseUrl =
+        process.env.API_URL ||
+        process.env.BACKEND_URL ||
+        (process.env.NODE_ENV === "production" ? "https://api.grabatoz.ae" : "https://your-ngrok-url.ngrok.io")
+      const merchantUrl = checkoutData.merchant_url || {}
+      const notificationUrl = String(merchantUrl.notification || `${apiBaseUrl}/api/payment/tamara/webhook`).replace(
+        /\/api\/webhooks\/tamara\/?$/i,
+        "/api/payment/tamara/webhook",
+      )
 
       console.log("🔄 Making Tamara API request:", {
         url: `/checkout`,
@@ -140,7 +149,8 @@ class TamaraService {
         totalAmount: checkoutData.total_amount,
         itemsCount: checkoutData.items?.length,
         consumerEmail: checkoutData.consumer?.email,
-        baseUrl: baseUrl,
+        frontendBaseUrl,
+        apiBaseUrl,
       })
 
       const formattedPayload = {
@@ -194,10 +204,10 @@ class TamaraService {
         country_code: checkoutData.country_code || "AE",
         description: checkoutData.description || `Order for ${checkoutData.items?.length || 1} items from Graba2z`,
         merchant_url: {
-          cancel: `${baseUrl}/payment/cancel`,
-          failure: `${baseUrl}/payment/cancel`,
-          success: `${baseUrl}/payment/success`,
-          notification: `${baseUrl}/api/webhooks/tamara`, // This must be publicly accessible
+          cancel: merchantUrl.cancel || `${frontendBaseUrl}/payment/cancel`,
+          failure: merchantUrl.failure || `${frontendBaseUrl}/payment/cancel`,
+          success: merchantUrl.success || `${frontendBaseUrl}/payment/success`,
+          notification: notificationUrl,
         },
         payment_type: checkoutData.payment_type || "PAY_BY_INSTALMENTS",
         instalments: checkoutData.instalments || 3,

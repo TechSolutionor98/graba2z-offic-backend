@@ -106,81 +106,6 @@
 // // })
 
 // // // N-Genius Payment Routes
-// // router.post("/ngenius/card", async (req, res) => {
-// //   const { amount, currencyCode = "AED" } = req.body
-
-// //   if (!amount) {
-// //     return res.status(400).json({ error: "Amount is required" })
-// //   }
-
-// //   try {
-// //     const basicToken =
-// //       "Njk1NWExNDItMjA3ZC00MWZiLTk5NjQtZTM5OWY5MmVjMjRmOjhmZGM1NThhLTM0ZWYtNDFjMC05M2NjLTk5OWNhZjM5ZTA2OQ=="
-
-// //     // Step 1: Get access token
-// //     const tokenRes = await axios.post(
-// //       `${process.env.NGENIUS_API_URL}/identity/auth/access-token`,
-// //       {}, // required: empty object, not null
-// //       {
-// //         headers: {
-// //           Authorization: `Basic ${basicToken}`,
-// //           "Content-Type": "application/vnd.ni-identity.v1+json",
-// //         },
-// //       },
-// //     )
-
-// //     const accessToken = tokenRes.data.access_token
-// //     if (!accessToken) {
-// //       return res.status(500).json({ error: "Access token not received" })
-// //     }
-
-// //     console.log("Access token:", accessToken.slice(0, 12) + "...")
-
-// //     // Step 2: Create order
-// //     const orderPayload = {
-// //       action: "PURCHASE",
-// //       amount: {
-// //         currencyCode,
-// //         value: Math.round(amount * 100), // AED 10 → 1000 fils
-// //       },
-// //       merchantAttributes: {
-// //         redirectUrl: "https://graba2z.ae/payment/success", // ✅ required
-// //         cancelUrl: "https://graba2z.ae/payment/cancel", // optional
-// //       },
-// //     }
-
-// //     const orderRes = await axios.post(
-// //       `${process.env.NGENIUS_API_URL}/transactions/outlets/${process.env.NG_OUTLET_ID}/orders`,
-// //       orderPayload,
-// //       {
-// //         headers: {
-// //           Authorization: `Bearer ${accessToken}`,
-// //           "Content-Type": "application/vnd.ni-payment.v2+json",
-// //           Accept: "application/vnd.ni-payment.v2+json",
-// //         },
-// //       },
-// //     )
-
-// //     const { _links } = orderRes.data
-// //     const redirectUrl = _links?.payment?.href
-
-// //     if (!redirectUrl) {
-// //       return res.status(500).json({ error: "No redirect URL found in response" })
-// //     }
-
-// //     res.status(200).json({
-// //       paymentUrl: redirectUrl,
-// //       orderData: orderRes.data,
-// //     })
-// //   } catch (err) {
-// //     console.error("Hosted Payment Flow Error:", err.response?.data || err.message)
-// //     res.status(500).json({
-// //       error: "Hosted payment flow failed",
-// //       details: err.response?.data || err.message,
-// //     })
-// //   }
-// // })
-
 // // // Keep the existing N-Genius webhook
 // // router.post("/ngenius/webhook", async (req, res) => {
 // //   try {
@@ -1009,6 +934,27 @@ import TamaraService from "../services/tamaraService.js"
 
 const router = express.Router()
 
+const appendQueryParams = (url, params = {}) => {
+  if (!url) return url
+  try {
+    const parsed = new URL(url)
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== "") {
+        parsed.searchParams.set(key, String(value))
+      }
+    })
+    return parsed.toString()
+  } catch (error) {
+    return url
+  }
+}
+
+const normalizeTamaraWebhookUrl = (url) => {
+  const normalized = String(url || "").trim()
+  if (!normalized) return normalized
+  return normalized.replace(/\/api\/webhooks\/tamara\/?$/i, "/api/payment/tamara/webhook")
+}
+
 // Middleware to optionally protect routes (sets req.user if token exists, allows guest if not)
 const optionalProtect = asyncHandler(async (req, res, next) => {
   let token
@@ -1082,10 +1028,11 @@ router.post("/tamara/checkout", optionalProtect, async (req, res) => {
       items_count: items.length,
     })
 
-    const baseUrl =
-      process.env.NODE_ENV === "production"
-        ? "https://grabatoz.ae"
-        : process.env.NGROK_URL || "https://your-ngrok-url.ngrok.io" // Replace with your ngrok URL for testing
+    const frontendBaseUrl = process.env.FRONTEND_URL || "https://www.graba2z.ae"
+    const requestBaseUrl = `${req.protocol}://${req.get("host")}`
+    const notificationUrl = normalizeTamaraWebhookUrl(
+      merchant_url?.notification || `${requestBaseUrl}/api/payment/tamara/webhook`,
+    )
 
     const tamaraPayload = {
       total_amount: {
@@ -1138,10 +1085,10 @@ router.post("/tamara/checkout", optionalProtect, async (req, res) => {
       country_code: country_code || "AE",
       description: description || `Order for ${items.length} items from Graba2z`,
       merchant_url: {
-        cancel: merchant_url?.cancel || `${baseUrl}/payment/cancel`,
-        failure: merchant_url?.failure || `${baseUrl}/payment/cancel`,
-        success: merchant_url?.success || `${baseUrl}/payment/success`,
-        notification: `${baseUrl}/api/webhooks/tamara`, // This must be publicly accessible
+        cancel: merchant_url?.cancel || `${frontendBaseUrl}/payment/cancel`,
+        failure: merchant_url?.failure || `${frontendBaseUrl}/payment/cancel`,
+        success: merchant_url?.success || `${frontendBaseUrl}/payment/success`,
+        notification: notificationUrl,
       },
       payment_type: payment_type || "PAY_BY_INSTALMENTS",
       instalments: instalments || 3,
@@ -1589,8 +1536,7 @@ router.post("/tamara/authorize/:orderId", protect, async (req, res) => {
   }
 })
 
-// Tabby Payment Routes - Supports both authenticated and guest checkout
-router.post("/tabby/sessions", optionalProtect, async (req, res) => {
+const handleTabbyCheckout = async (req, res) => {
   try {
     const tabbyConfig = {
       headers: {
@@ -1609,7 +1555,12 @@ router.post("/tabby/sessions", optionalProtect, async (req, res) => {
       error: error.response?.data || error.message,
     })
   }
-})
+}
+
+// Tabby Payment Routes - Supports both authenticated and guest checkout
+router.post("/tabby/sessions", optionalProtect, handleTabbyCheckout)
+// Backward-compatible alias used by some clients
+router.post("/tabby/checkout", optionalProtect, handleTabbyCheckout)
 
 router.post("/tabby/webhook", async (req, res) => {
   try {
@@ -1623,13 +1574,18 @@ router.post("/tabby/webhook", async (req, res) => {
       dbOrder = await Order.findById(referenceId)
     }
     if (dbOrder) {
+      const normalizedStatus = String(status || "").toUpperCase()
+      const paidStatuses = new Set(["AUTHORIZED", "AUTHORISED", "CAPTURED", "PAID", "CLOSED"])
+      const isPaid = paidStatuses.has(normalizedStatus)
+
       dbOrder.paymentResult = {
         ...dbOrder.paymentResult,
-        status: status,
+        status: normalizedStatus || status,
+        tabby_payment_id: id,
         update_time: new Date().toISOString(),
       }
-      dbOrder.isPaid = status === "AUTHORIZED"
-      dbOrder.paidAt = status === "AUTHORIZED" ? new Date() : null
+      dbOrder.isPaid = isPaid
+      dbOrder.paidAt = isPaid ? dbOrder.paidAt || new Date() : null
       await dbOrder.save()
     }
 
@@ -1642,7 +1598,14 @@ router.post("/tabby/webhook", async (req, res) => {
 
 // N-Genius Payment Routes
 router.post("/ngenius/card", async (req, res) => {
-  const { amount, currencyCode = "AED" } = req.body
+  const {
+    amount,
+    currencyCode = "AED",
+    orderId,
+    redirectUrl,
+    cancelUrl,
+    paymentMethod = "card",
+  } = req.body
 
   if (!amount) {
     return res.status(400).json({ error: "Amount is required" })
@@ -1655,7 +1618,7 @@ router.post("/ngenius/card", async (req, res) => {
     // Step 1: Get access token
     const tokenRes = await axios.post(
       `${process.env.NGENIUS_API_URL}/identity/auth/access-token`,
-      {}, // required: empty object, not null
+      {},
       {
         headers: {
           Authorization: `Basic ${basicToken}`,
@@ -1669,18 +1632,27 @@ router.post("/ngenius/card", async (req, res) => {
       return res.status(500).json({ error: "Access token not received" })
     }
 
-    console.log("Access token:", accessToken.slice(0, 12) + "...")
+    const defaultFrontendUrl = process.env.FRONTEND_URL || "https://www.graba2z.ae"
+    const redirectWithParams = appendQueryParams(redirectUrl || `${defaultFrontendUrl}/payment/success`, {
+      orderId,
+      payment_method: paymentMethod,
+      amount,
+    })
+    const cancelWithParams = appendQueryParams(cancelUrl || `${defaultFrontendUrl}/payment/cancel`, {
+      orderId,
+      payment_method: paymentMethod,
+    })
 
-    // Step 2: Create order
+    // Step 2: Create payment order
     const orderPayload = {
       action: "PURCHASE",
       amount: {
         currencyCode,
-        value: Math.round(amount * 100), // AED 10 → 1000 fils
+        value: Math.round(amount * 100),
       },
       merchantAttributes: {
-        redirectUrl: process.env.FRONTEND_URL ? `${process.env.FRONTEND_URL}/payment/success` : "https://graba2z.ae/payment/success", // ✅ required
-        cancelUrl: process.env.FRONTEND_URL ? `${process.env.FRONTEND_URL}/payment/cancel` : "https://graba2z.ae/payment/cancel", // optional
+        redirectUrl: redirectWithParams,
+        cancelUrl: cancelWithParams,
       },
     }
 
@@ -1697,14 +1669,34 @@ router.post("/ngenius/card", async (req, res) => {
     )
 
     const { _links } = orderRes.data
-    const redirectUrl = _links?.payment?.href
+    const paymentUrl = _links?.payment?.href
+    const ngeniusReference = orderRes.data?.reference || orderRes.data?._id
 
-    if (!redirectUrl) {
+    if (!paymentUrl) {
       return res.status(500).json({ error: "No redirect URL found in response" })
     }
 
+    if (orderId) {
+      try {
+        const order = await Order.findById(orderId)
+        if (order) {
+          order.paymentResult = {
+            ...order.paymentResult,
+            id: orderRes.data?._id || order.paymentResult?.id,
+            ngenius_order_ref: ngeniusReference,
+            status: orderRes.data?.state || "PENDING",
+            update_time: new Date().toISOString(),
+          }
+          await order.save()
+        }
+      } catch (dbError) {
+        console.error("Failed to save N-Genius reference on order:", dbError.message)
+      }
+    }
+
     res.status(200).json({
-      paymentUrl: redirectUrl,
+      paymentUrl,
+      reference: ngeniusReference,
       orderData: orderRes.data,
     })
   } catch (err) {
@@ -1720,20 +1712,32 @@ router.post("/ngenius/card", async (req, res) => {
 router.post("/ngenius/webhook", async (req, res) => {
   try {
     const { orderReference, state, amount, orderId } = req.body
+    const ngeniusRef = orderReference || req.body?.reference || req.body?.order?.reference
+    const fallbackOrderId = orderId || req.body?.order_id || req.body?.merchantOrderId
+    const normalizedState = String(state || "").toUpperCase()
+    const paidStates = new Set(["PURCHASED", "CAPTURED", "AUTHORIZED", "AUTHORISED", "PAID"])
 
     // Find and update order (support both old and new reference)
-    let order = await Order.findOne({ "paymentResult.ngenius_order_ref": orderReference })
-    if (!order && orderId) {
-      order = await Order.findById(orderId)
+    let order = null
+    if (ngeniusRef) {
+      order = await Order.findOne({ "paymentResult.ngenius_order_ref": ngeniusRef })
+    }
+    if (!order && fallbackOrderId) {
+      order = await Order.findById(fallbackOrderId)
     }
     if (order) {
       order.paymentResult = {
         ...order.paymentResult,
-        status: state,
+        ngenius_order_ref: ngeniusRef || order.paymentResult?.ngenius_order_ref,
+        status: normalizedState || state,
         update_time: new Date().toISOString(),
       }
-      order.isPaid = state === "PURCHASED"
-      order.paidAt = state === "PURCHASED" ? new Date() : null
+      order.isPaid = paidStates.has(normalizedState)
+      if (order.isPaid) {
+        order.paidAt = order.paidAt || new Date()
+      } else if (["FAILED", "DECLINED", "CANCELED", "CANCELLED", "EXPIRED"].includes(normalizedState)) {
+        order.paidAt = null
+      }
       await order.save()
     }
 

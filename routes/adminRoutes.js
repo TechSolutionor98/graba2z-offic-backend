@@ -1322,6 +1322,38 @@ router.put(
   }),
 )
 
+// @desc    Update order payment status only
+// @route   PUT /api/admin/orders/:id/payment
+// @access  Private/Admin
+router.put(
+  "/orders/:id/payment",
+  protect,
+  admin,
+  asyncHandler(async (req, res) => {
+    const order = await Order.findById(req.params.id)
+
+    if (!order) {
+      res.status(404)
+      throw new Error("Order not found")
+    }
+
+    const { isPaid } = req.body
+    if (isPaid === undefined) {
+      res.status(400)
+      throw new Error("isPaid is required")
+    }
+
+    order.isPaid = Boolean(isPaid)
+    order.paidAt = order.isPaid ? order.paidAt || new Date() : null
+    if (req.body.paymentMethod) {
+      order.paymentMethod = req.body.paymentMethod
+    }
+
+    const updatedOrder = await order.save()
+    res.json(updatedOrder)
+  }),
+)
+
 // @desc    Send order notification email
 // @route   POST /api/admin/orders/:id/notify
 // @access  Private/Admin
