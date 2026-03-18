@@ -1,15 +1,57 @@
 import express from 'express';
 import { protect, admin } from '../middleware/authMiddleware.js';
+import { cacheMiddleware } from '../middleware/cacheMiddleware.js';
 import OfferProduct from '../models/offerProductModel.js';
 
 const router = express.Router();
+const OFFER_PRODUCT_SELECT = [
+  'name',
+  'nameAr',
+  'slug',
+  'sku',
+  'price',
+  'offerPrice',
+  'discount',
+  'oldPrice',
+  'image',
+  'stockStatus',
+  'stockStatusAr',
+  'countInStock',
+  'rating',
+  'numReviews',
+  'brand',
+  'parentCategory',
+  'category',
+  'subCategory',
+  'subCategory2',
+  'subCategory3',
+  'subCategory4',
+  'createdAt',
+  'isActive',
+].join(' ');
+const BRAND_SELECT = 'name nameAr logo slug isActive';
+const CATEGORY_SELECT = 'name nameAr image slug isActive';
+const SUBCATEGORY_SELECT = 'name nameAr image slug category parentSubCategory level isActive';
 
 // Get all products for a specific offer page
-router.get('/page/:slug', async (req, res) => {
+router.get('/page/:slug', cacheMiddleware('offers', { keyPrefix: 'offer-products-page' }), async (req, res) => {
   try {
     const offerProducts = await OfferProduct.find({ offerPageSlug: req.params.slug })
-      .populate('product')
-      .sort({ order: 1 });
+      .sort({ order: 1 })
+      .populate({
+        path: 'product',
+        select: OFFER_PRODUCT_SELECT,
+        populate: [
+          { path: 'brand', select: BRAND_SELECT },
+          { path: 'parentCategory', select: CATEGORY_SELECT },
+          { path: 'category', select: SUBCATEGORY_SELECT },
+          { path: 'subCategory', select: SUBCATEGORY_SELECT },
+          { path: 'subCategory2', select: SUBCATEGORY_SELECT },
+          { path: 'subCategory3', select: SUBCATEGORY_SELECT },
+          { path: 'subCategory4', select: SUBCATEGORY_SELECT },
+        ],
+      })
+      .lean();
     res.json(offerProducts);
   } catch (error) {
     res.status(500).json({ message: error.message });
