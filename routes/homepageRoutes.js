@@ -29,7 +29,7 @@ const router = express.Router()
  */
 router.get(
   "/",
-  cacheMiddleware('homeSections', { ttl: 300 }), // Cache for 5 minutes
+  cacheMiddleware("homeSections", { ttl: 300, keyPrefix: "v2-banner-fields" }), // Cache for 5 minutes
   asyncHandler(async (req, res) => {
     const startTime = Date.now()
 
@@ -56,7 +56,9 @@ router.get(
 
       // Banners - active only
       Banner.find({ isActive: true })
-        .select('title titleAr subtitle subtitleAr image mobileImage link buttonLink position category sortOrder buttonText buttonTextAr')
+        .select(
+          'title titleAr subtitle subtitleAr image mobileImage link buttonLink position section category sortOrder buttonText buttonTextAr deviceType',
+        )
         .populate('category', 'name nameAr slug')
         .sort({ sortOrder: 1, createdAt: -1 })
         .lean(),
