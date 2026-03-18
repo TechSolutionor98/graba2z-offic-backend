@@ -142,6 +142,7 @@ class CacheService {
   constructor() {
     this.client = null
     this.memoryCache = new MemoryCache(CACHE_CONFIG.MAX_MEMORY_ITEMS)
+    this.REDIS_COMMAND_TIMEOUT_MS = Number(process.env.REDIS_COMMAND_TIMEOUT_MS || 250)
     this.isRedisConnected = false
     this.useRedis = false
     this.stats = {
@@ -218,6 +219,29 @@ class CacheService {
   }
 
   /**
+   * Run a Redis operation with a hard timeout so cache issues don't slow API responses.
+   */
+  async runRedisCommand(commandPromise, timeoutMessage = 'Redis command timeout') {
+    return Promise.race([
+      commandPromise,
+      new Promise((_, reject) => {
+        setTimeout(() => reject(new Error(timeoutMessage)), this.REDIS_COMMAND_TIMEOUT_MS)
+      }),
+    ])
+  }
+
+  /**
+   * Disable Redis usage and immediately fall back to memory cache.
+   */
+  fallbackToMemory(reason) {
+    if (this.useRedis || this.isRedisConnected) {
+      console.warn(`Cache: Falling back to memory cache (${reason})`)
+    }
+    this.useRedis = false
+    this.isRedisConnected = false
+  }
+
+  /**
    * Generate cache key with prefix
    */
   generateKey(type, identifier = '') {
@@ -233,13 +257,21 @@ class CacheService {
     const fullKey = key.startsWith(CACHE_CONFIG.PREFIX) ? key : `${CACHE_CONFIG.PREFIX}${key}`
     
     try {
-      const client = this.getClient()
       let data
       
       if (this.useRedis && this.isRedisConnected) {
-        data = await client.get(fullKey)
-        data = data ? JSON.parse(data) : null
+        try {
+          const redisValue = await this.runRedisCommand(
+            this.client.get(fullKey),
+            `Redis GET timeout after ${this.REDIS_COMMAND_TIMEOUT_MS}ms`,
+          )
+          data = redisValue ? JSON.parse(redisValue) : null
+        } catch (redisError) {
+          this.fallbackToMemory(redisError.message)
+          data = await this.memoryCache.get(fullKey)
+        }
       } else {
+        const client = this.getClient()
         data = await client.get(fullKey)
       }
       
@@ -265,11 +297,18 @@ class CacheService {
     const ttl = customTtl || CACHE_CONFIG.DEFAULT_TTL
     
     try {
-      const client = this.getClient()
-      
       if (this.useRedis && this.isRedisConnected) {
-        await client.setEx(fullKey, ttl, JSON.stringify(data))
+        try {
+          await this.runRedisCommand(
+            this.client.setEx(fullKey, ttl, JSON.stringify(data)),
+            `Redis SET timeout after ${this.REDIS_COMMAND_TIMEOUT_MS}ms`,
+          )
+        } catch (redisError) {
+          this.fallbackToMemory(redisError.message)
+          await this.memoryCache.set(fullKey, data, ttl)
+        }
       } else {
+        const client = this.getClient()
         await client.set(fullKey, data, ttl)
       }
       

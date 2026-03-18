@@ -66,11 +66,13 @@ export const cacheMiddleware = (entityType, options = {}) => {
       const originalJson = res.json.bind(res)
       
       // Override json method to cache response
-      res.json = async (data) => {
+      res.json = (data) => {
         // Only cache successful responses
         if (res.statusCode >= 200 && res.statusCode < 300) {
           const cacheTtl = ttl || helper?.getTTL() || CACHE_CONFIG.DEFAULT_TTL
-          await cacheService.set(cacheKey, data, cacheTtl)
+          cacheService.set(cacheKey, data, cacheTtl).catch((error) => {
+            console.error('Cache set error:', error.message)
+          })
           res.set('X-Cache', 'MISS')
           res.set('X-Cache-Key', cacheKey)
         }
@@ -228,10 +230,12 @@ export const withCache = (entityType, handler, options = {}) => {
       const originalJson = res.json.bind(res)
       
       // Override json method to cache response
-      res.json = async (data) => {
+      res.json = (data) => {
         if (res.statusCode >= 200 && res.statusCode < 300) {
           const cacheTtl = ttl || helper?.getTTL() || CACHE_CONFIG.DEFAULT_TTL
-          await cacheService.set(cacheKey, data, cacheTtl)
+          cacheService.set(cacheKey, data, cacheTtl).catch((error) => {
+            console.error('Cache set error:', error.message)
+          })
           res.set('X-Cache', 'MISS')
         }
         return originalJson(data)

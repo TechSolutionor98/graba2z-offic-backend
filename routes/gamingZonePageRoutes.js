@@ -59,72 +59,54 @@ router.get('/slug/:slug', async (req, res) => {
 // Get products for a gaming zone page (auto-fetched based on selected categories)
 router.get('/slug/:slug/products', async (req, res) => {
   try {
-    console.log('\n🎮 Gaming Zone Products API called for:', req.params.slug);
-    
     // Get all categories for this gaming zone page
-    const gamingZoneCategories = await GamingZoneCategory.find({ 
+    const gamingZoneCategories = await GamingZoneCategory.find({
       gamingZonePageSlug: req.params.slug,
-      isActive: true 
-    });
-
-    console.log('📋 Gaming Zone Categories found:', gamingZoneCategories.length);
-    gamingZoneCategories.forEach(gc => {
-      console.log(`  - Category: ${gc.category}, Type: ${gc.categoryType}`);
+      isActive: true,
     });
 
     if (!gamingZoneCategories || gamingZoneCategories.length === 0) {
-      console.log('⚠️ No active categories found for this gaming zone');
       return res.json({ products: [], currentPage: 1, totalPages: 0, totalProducts: 0 });
     }
 
     // Extract category IDs
     const categoryIds = gamingZoneCategories.map(gc => gc.category);
-    console.log('🎯 Category IDs to search:', categoryIds);
 
     // Build query to find all products that match the selected categories
-    let productQuery = {
+    const productQuery = {
       isDeleted: { $ne: true },
-      isActive: true
+      isActive: true,
+      $or: categoryIds.flatMap(catId => [
+        { parentCategory: catId },
+        { category: catId },
+        { subCategory2: catId },
+        { subCategory3: catId },
+        { subCategory4: catId },
+      ]),
     };
 
-    // Build the OR condition to match ANY of the category levels
-    const orConditions = [];
-    
-    // For each selected category, check if it matches ANY level in products
-    categoryIds.forEach(catId => {
-      orConditions.push({ parentCategory: catId });
-      orConditions.push({ category: catId });
-      orConditions.push({ subCategory2: catId });
-      orConditions.push({ subCategory3: catId });
-      orConditions.push({ subCategory4: catId });
-    });
-
-    if (orConditions.length > 0) {
-      productQuery.$or = orConditions;
-    }
-
-    console.log('🔍 Product query:', JSON.stringify(productQuery, null, 2));
-
     // Fetch products with pagination support
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 20;
+    const page = Math.max(parseInt(req.query.page) || 1, 1);
+    const requestedLimit = parseInt(req.query.limit) || 20;
+    const limit = Math.min(Math.max(requestedLimit, 1), 10000);
     const skip = (page - 1) * limit;
 
     const products = await Product.find(productQuery)
-      .populate('brand')
-      .populate('parentCategory')
-      .populate('category')
-      .populate('subCategory2')
-      .populate('subCategory3')
-      .populate('subCategory4')
+      .select(
+        "name nameAr slug sku price offerPrice discount image stockStatus stockStatusAr countInStock brand parentCategory category subCategory2 subCategory3 subCategory4 rating numReviews createdAt",
+      )
+      .populate('brand', 'name nameAr slug logo')
+      .populate('parentCategory', 'name nameAr slug')
+      .populate('category', 'name nameAr slug')
+      .populate('subCategory2', 'name nameAr slug')
+      .populate('subCategory3', 'name nameAr slug')
+      .populate('subCategory4', 'name nameAr slug')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
       .lean();
 
     const totalProducts = await Product.countDocuments(productQuery);
-
-    console.log(`✅ Found ${totalProducts} products, returning page ${page} with ${products.length} products`);
 
     res.json({
       products,
@@ -133,7 +115,7 @@ router.get('/slug/:slug/products', async (req, res) => {
       totalProducts,
     });
   } catch (error) {
-    console.error('❌ Error fetching gaming zone products:', error);
+    console.error('Error fetching gaming zone products:', error);
     res.status(500).json({ message: error.message });
   }
 });
@@ -211,3 +193,4 @@ router.delete('/:id', protect, admin, async (req, res) => {
 });
 
 export default router;
+

@@ -124,7 +124,9 @@ router.get(
     const heroBanners = banners.filter(b => b.position === 'hero')
     const promotionalBanners = banners.filter(b => b.position === 'promotional')
     const mobileBanners = banners.filter(b => b.position === 'mobile')
-    const homeBanners = banners.filter(b => b.position === 'home')
+    const homeBanners = banners.filter(
+      (b) => typeof b.position === "string" && b.position.toLowerCase().startsWith("home"),
+    )
 
     const responseTime = Date.now() - startTime
 
