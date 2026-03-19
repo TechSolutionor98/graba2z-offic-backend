@@ -955,6 +955,61 @@ const normalizeTamaraWebhookUrl = (url) => {
   return normalized.replace(/\/api\/webhooks\/tamara\/?$/i, "/api/payment/tamara/webhook")
 }
 
+const NGENIUS_PAID_STATES = new Set(["PURCHASED", "CAPTURED", "AUTHORIZED", "AUTHORISED", "PAID"])
+const NGENIUS_FAILED_STATES = new Set(["FAILED", "DECLINED", "CANCELED", "CANCELLED", "EXPIRED"])
+
+const getNgeniusBasicToken = () =>
+  process.env.NGENIUS_BASIC_TOKEN ||
+  "Njk1NWExNDItMjA3ZC00MWZiLTk5NjQtZTM5OWY5MmVjMjRmOjhmZGM1NThhLTM0ZWYtNDFjMC05M2NjLTk5OWNhZjM5ZTA2OQ=="
+
+const getNgeniusAccessToken = async () => {
+  const tokenRes = await axios.post(
+    `${process.env.NGENIUS_API_URL}/identity/auth/access-token`,
+    {},
+    {
+      headers: {
+        Authorization: `Basic ${getNgeniusBasicToken()}`,
+        "Content-Type": "application/vnd.ni-identity.v1+json",
+      },
+    },
+  )
+
+  const accessToken = tokenRes.data?.access_token
+  if (!accessToken) {
+    throw new Error("Access token not received")
+  }
+
+  return accessToken
+}
+
+const extractNgeniusState = (payload = {}) => {
+  const state =
+    payload?.state ||
+    payload?.order?.state ||
+    payload?._embedded?.payment?.[0]?.state ||
+    payload?.payment?.state ||
+    payload?.transaction?.state ||
+    payload?.event?.state
+
+  return String(state || "").trim().toUpperCase()
+}
+
+const extractNgeniusReference = (payload = {}) =>
+  payload?.orderReference ||
+  payload?.reference ||
+  payload?.order?.reference ||
+  payload?.event?.orderReference ||
+  payload?._embedded?.order?.[0]?.reference
+
+const extractNgeniusOrderId = (payload = {}) =>
+  payload?._id ||
+  payload?.id ||
+  payload?.orderId ||
+  payload?.order?.id ||
+  payload?.order?._id ||
+  payload?.event?.orderId ||
+  payload?.event?._id
+
 // Middleware to optionally protect routes (sets req.user if token exists, allows guest if not)
 const optionalProtect = asyncHandler(async (req, res, next) => {
   let token
@@ -1612,25 +1667,7 @@ router.post("/ngenius/card", async (req, res) => {
   }
 
   try {
-    const basicToken =
-      "Njk1NWExNDItMjA3ZC00MWZiLTk5NjQtZTM5OWY5MmVjMjRmOjhmZGM1NThhLTM0ZWYtNDFjMC05M2NjLTk5OWNhZjM5ZTA2OQ=="
-
-    // Step 1: Get access token
-    const tokenRes = await axios.post(
-      `${process.env.NGENIUS_API_URL}/identity/auth/access-token`,
-      {},
-      {
-        headers: {
-          Authorization: `Basic ${basicToken}`,
-          "Content-Type": "application/vnd.ni-identity.v1+json",
-        },
-      },
-    )
-
-    const accessToken = tokenRes.data.access_token
-    if (!accessToken) {
-      return res.status(500).json({ error: "Access token not received" })
-    }
+    const accessToken = await getNgeniusAccessToken()
 
     const defaultFrontendUrl = process.env.FRONTEND_URL || "https://www.graba2z.ae"
     const redirectWithParams = appendQueryParams(redirectUrl || `${defaultFrontendUrl}/payment/success`, {
@@ -1708,19 +1745,94 @@ router.post("/ngenius/card", async (req, res) => {
   }
 })
 
+router.post("/ngenius/verify/:orderId", async (req, res) => {
+  try {
+    const { orderId } = req.params
+    const order = await Order.findById(orderId)
+
+    if (!order) {
+      return res.status(404).json({ success: false, message: "Order not found" })
+    }
+
+    const ngeniusOrderId = order.paymentResult?.id || req.body?.ngeniusOrderId || req.query?.ngeniusOrderId
+    if (!ngeniusOrderId) {
+      return res.status(400).json({
+        success: false,
+        message: "N-Genius order ID not found for this order",
+      })
+    }
+
+    const accessToken = await getNgeniusAccessToken()
+    const statusRes = await axios.get(
+      `${process.env.NGENIUS_API_URL}/transactions/outlets/${process.env.NG_OUTLET_ID}/orders/${ngeniusOrderId}`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/vnd.ni-payment.v2+json",
+          Accept: "application/vnd.ni-payment.v2+json",
+        },
+      },
+    )
+
+    const payload = statusRes.data || {}
+    const normalizedState = extractNgeniusState(payload)
+    const ngeniusRef = extractNgeniusReference(payload) || order.paymentResult?.ngenius_order_ref
+    const normalizedNgeniusOrderId = extractNgeniusOrderId(payload) || order.paymentResult?.id
+
+    order.paymentResult = {
+      ...order.paymentResult,
+      ...(normalizedNgeniusOrderId ? { id: normalizedNgeniusOrderId } : {}),
+      ...(ngeniusRef ? { ngenius_order_ref: ngeniusRef } : {}),
+      ...(normalizedState ? { status: normalizedState } : {}),
+      update_time: new Date().toISOString(),
+      webhook_data: payload,
+    }
+
+    if (normalizedState && NGENIUS_PAID_STATES.has(normalizedState)) {
+      order.isPaid = true
+      order.paidAt = order.paidAt || new Date()
+    } else if (normalizedState && NGENIUS_FAILED_STATES.has(normalizedState)) {
+      order.isPaid = false
+      order.paidAt = null
+    }
+
+    await order.save()
+
+    res.status(200).json({
+      success: true,
+      orderId: order._id,
+      ngeniusOrderId: normalizedNgeniusOrderId,
+      reference: ngeniusRef,
+      status: normalizedState || order.paymentResult?.status,
+      isPaid: order.isPaid,
+      paidAt: order.paidAt,
+    })
+  } catch (error) {
+    console.error("N-Genius verify error:", error.response?.data || error.message)
+    res.status(500).json({
+      success: false,
+      message: "Failed to verify N-Genius payment status",
+      error: error.response?.data || error.message,
+    })
+  }
+})
+
 // Keep the existing N-Genius webhook
 router.post("/ngenius/webhook", async (req, res) => {
   try {
-    const { orderReference, state, amount, orderId } = req.body
-    const ngeniusRef = orderReference || req.body?.reference || req.body?.order?.reference
-    const fallbackOrderId = orderId || req.body?.order_id || req.body?.merchantOrderId
-    const normalizedState = String(state || "").toUpperCase()
-    const paidStates = new Set(["PURCHASED", "CAPTURED", "AUTHORIZED", "AUTHORISED", "PAID"])
+    const payload = req.body || {}
+    const ngeniusRef = extractNgeniusReference(payload)
+    const normalizedState = extractNgeniusState(payload)
+    const ngeniusOrderId = extractNgeniusOrderId(payload)
+    const fallbackOrderId = payload?.orderId || payload?.order_id || payload?.merchantOrderId
 
     // Find and update order (support both old and new reference)
     let order = null
     if (ngeniusRef) {
       order = await Order.findOne({ "paymentResult.ngenius_order_ref": ngeniusRef })
+    }
+    if (!order && ngeniusOrderId) {
+      order = await Order.findOne({ "paymentResult.id": ngeniusOrderId })
     }
     if (!order && fallbackOrderId) {
       order = await Order.findById(fallbackOrderId)
@@ -1728,16 +1840,21 @@ router.post("/ngenius/webhook", async (req, res) => {
     if (order) {
       order.paymentResult = {
         ...order.paymentResult,
-        ngenius_order_ref: ngeniusRef || order.paymentResult?.ngenius_order_ref,
-        status: normalizedState || state,
+        ...(ngeniusOrderId ? { id: ngeniusOrderId } : {}),
+        ...(ngeniusRef ? { ngenius_order_ref: ngeniusRef } : {}),
+        ...(normalizedState ? { status: normalizedState } : {}),
         update_time: new Date().toISOString(),
+        webhook_data: payload,
       }
-      order.isPaid = paidStates.has(normalizedState)
-      if (order.isPaid) {
+
+      if (normalizedState && NGENIUS_PAID_STATES.has(normalizedState)) {
+        order.isPaid = true
         order.paidAt = order.paidAt || new Date()
-      } else if (["FAILED", "DECLINED", "CANCELED", "CANCELLED", "EXPIRED"].includes(normalizedState)) {
+      } else if (normalizedState && NGENIUS_FAILED_STATES.has(normalizedState)) {
+        order.isPaid = false
         order.paidAt = null
       }
+
       await order.save()
     }
 
