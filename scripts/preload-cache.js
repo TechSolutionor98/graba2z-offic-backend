@@ -46,6 +46,7 @@ const timeoutMs = toNumber(
   15000,
 )
 const verifyHits = toBoolean(readArg("verify-hits", "false"), false)
+const includeBuyerProtection = !toBoolean(readArg("skip-buyer-protection", "false"), false)
 
 console.log("Starting cache warmup...")
 console.log(`Base URL: ${baseUrl}`)
@@ -53,6 +54,14 @@ console.log(`Product list limit: ${productListLimit}`)
 console.log(`Buyer protection sample size: ${productSampleSize}`)
 console.log(`Request timeout: ${timeoutMs}ms`)
 console.log(`Verify second pass hits: ${verifyHits ? "yes" : "no"}`)
+console.log(`Warm buyer protection: ${includeBuyerProtection ? "yes" : "no"}`)
+
+const progressLabel = (phase) => {
+  if (phase === "warm") return "Warm"
+  if (phase === "buyer-protection") return "BuyerProtection"
+  if (phase === "verify") return "Verify"
+  return "Step"
+}
 
 try {
   const result = await warmServerCache({
@@ -61,7 +70,20 @@ try {
     productSampleSize,
     timeoutMs,
     verifyHits,
-    includeBuyerProtection: true,
+    includeBuyerProtection,
+    onProgress: (event) => {
+      if (event.step === "start") {
+        console.log(`[${progressLabel(event.phase)} ${event.index}/${event.total}] ${event.label} -> ${event.path}`)
+        return
+      }
+
+      const statusText = event.ok ? `OK ${event.status}` : `ERR ${event.status || "0"}`
+      const cacheText = event.cache ? ` | X-Cache=${event.cache}` : ""
+      const errorText = event.error ? ` | ${event.error}` : ""
+      console.log(
+        `[${progressLabel(event.phase)} ${event.index}/${event.total}] ${statusText} in ${event.durationMs}ms${cacheText}${errorText}`,
+      )
+    },
   })
 
   console.log("\nWarmup summary")

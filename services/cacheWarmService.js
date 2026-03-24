@@ -123,6 +123,7 @@ export const warmServerCache = async (options = {}) => {
     productSampleSize = Number(process.env.CACHE_WARM_SAMPLE_SIZE || 12),
     includeBuyerProtection = true,
     verifyHits = false,
+    onProgress = null,
   } = options
 
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl)
@@ -133,9 +134,32 @@ export const warmServerCache = async (options = {}) => {
   const results = []
   const requests = baseWarmRequests(productListLimit)
   let productsResponse = null
+  const emitProgress = typeof onProgress === "function" ? onProgress : () => {}
 
-  for (const request of requests) {
+  for (let index = 0; index < requests.length; index += 1) {
+    const request = requests[index]
+    emitProgress({
+      phase: "warm",
+      step: "start",
+      index: index + 1,
+      total: requests.length,
+      label: request.label,
+      path: request.path,
+    })
     const response = await makeRequest(normalizedBaseUrl, request, timeoutMs)
+    emitProgress({
+      phase: "warm",
+      step: "done",
+      index: index + 1,
+      total: requests.length,
+      label: request.label,
+      path: request.path,
+      status: response.status,
+      ok: response.ok,
+      durationMs: response.durationMs,
+      cache: response.cache,
+      error: response.error || null,
+    })
     results.push({
       label: request.label,
       ...response,
@@ -149,8 +173,30 @@ export const warmServerCache = async (options = {}) => {
   if (includeBuyerProtection && productsResponse?.ok) {
     const protectionRequests = collectBuyerProtectionWarmRequests(productsResponse, productSampleSize)
 
-    for (const request of protectionRequests) {
+    for (let index = 0; index < protectionRequests.length; index += 1) {
+      const request = protectionRequests[index]
+      emitProgress({
+        phase: "buyer-protection",
+        step: "start",
+        index: index + 1,
+        total: protectionRequests.length,
+        label: request.label,
+        path: request.path,
+      })
       const response = await makeRequest(normalizedBaseUrl, request, timeoutMs)
+      emitProgress({
+        phase: "buyer-protection",
+        step: "done",
+        index: index + 1,
+        total: protectionRequests.length,
+        label: request.label,
+        path: request.path,
+        status: response.status,
+        ok: response.ok,
+        durationMs: response.durationMs,
+        cache: response.cache,
+        error: response.error || null,
+      })
       results.push({
         label: request.label,
         ...response,
@@ -161,8 +207,30 @@ export const warmServerCache = async (options = {}) => {
   let verification = null
   if (verifyHits) {
     const verificationResults = []
-    for (const request of requests) {
+    for (let index = 0; index < requests.length; index += 1) {
+      const request = requests[index]
+      emitProgress({
+        phase: "verify",
+        step: "start",
+        index: index + 1,
+        total: requests.length,
+        label: request.label,
+        path: request.path,
+      })
       const response = await makeRequest(normalizedBaseUrl, request, timeoutMs)
+      emitProgress({
+        phase: "verify",
+        step: "done",
+        index: index + 1,
+        total: requests.length,
+        label: request.label,
+        path: request.path,
+        status: response.status,
+        ok: response.ok,
+        durationMs: response.durationMs,
+        cache: response.cache,
+        error: response.error || null,
+      })
       verificationResults.push({
         label: request.label,
         ...response,
