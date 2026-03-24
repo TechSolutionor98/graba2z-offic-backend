@@ -1,8 +1,16 @@
 import fetch from "node-fetch"
 
 const DEFAULT_TIMEOUT_MS = Number(process.env.CACHE_WARM_TIMEOUT_MS || 15000)
+const DEFAULT_PER_CATEGORY_PRODUCT_LIMIT = Number(process.env.CACHE_WARM_PER_CATEGORY_PRODUCT_LIMIT || 12)
+const DEFAULT_PRODUCT_LIST_LIMIT = Number(process.env.CACHE_WARM_PRODUCT_LIMIT || 120)
+const DEFAULT_PRODUCT_SAMPLE_SIZE = Number(process.env.CACHE_WARM_SAMPLE_SIZE || 12)
+const DEFAULT_BANNER_POSITIONS = ["hero", "promotional", "mobile"]
 
 const normalizeBaseUrl = (baseUrl) => String(baseUrl || "").replace(/\/+$/, "")
+const toPositiveInt = (value, fallbackValue) => {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallbackValue
+}
 
 const withTimeoutSignal = (timeoutMs) => {
   const controller = new AbortController()
@@ -61,27 +69,91 @@ const makeRequest = async (baseUrl, request, timeoutMs) => {
   }
 }
 
-const baseWarmRequests = (productListLimit) => [
-  { label: "Homepage payload", method: "GET", path: "/api/homepage" },
-  { label: "Products (shop cache)", method: "GET", path: `/api/products?limit=${productListLimit}` },
-  { label: "Products page 1", method: "GET", path: "/api/products/paginated?page=1&limit=20" },
-  { label: "Featured products", method: "GET", path: "/api/products?featured=true&limit=40" },
-  { label: "Settings", method: "GET", path: "/api/settings" },
-  { label: "Categories", method: "GET", path: "/api/categories" },
-  { label: "Category slider", method: "GET", path: "/api/categories/slider" },
-  { label: "Category tree", method: "GET", path: "/api/categories/tree" },
-  { label: "Brands", method: "GET", path: "/api/brands" },
-  { label: "Home sections", method: "GET", path: "/api/home-sections" },
-  { label: "Active home sections", method: "GET", path: "/api/home-sections/active" },
-  { label: "Banners", method: "GET", path: "/api/banners" },
-  { label: "Buyer protection list", method: "GET", path: "/api/buyer-protection" },
+const buildProductsMainPath = (warmAllProducts, productListLimit) => {
+  if (warmAllProducts) return "/api/products"
+  const normalizedLimit = toPositiveInt(productListLimit, DEFAULT_PRODUCT_LIST_LIMIT)
+  return `/api/products?limit=${normalizedLimit}`
+}
+
+const baseWarmRequests = ({ warmAllProducts, productListLimit }) => [
+  { id: "homepage", label: "Homepage payload", method: "GET", path: "/api/homepage" },
+  { id: "products-main", label: warmAllProducts ? "Products (all)" : "Products (shop cache)", method: "GET", path: buildProductsMainPath(warmAllProducts, productListLimit) },
+  { id: "products-paginated", label: "Products page 1", method: "GET", path: "/api/products/paginated?page=1&limit=20" },
+  { id: "products-featured", label: "Featured products", method: "GET", path: "/api/products?featured=true&limit=40" },
+  { id: "settings", label: "Settings", method: "GET", path: "/api/settings" },
+  { id: "categories", label: "Categories", method: "GET", path: "/api/categories" },
+  { id: "category-slider", label: "Category slider", method: "GET", path: "/api/categories/slider" },
+  { id: "category-tree", label: "Category tree", method: "GET", path: "/api/categories/tree" },
+  { id: "subcategories-all", label: "Subcategories (all)", method: "GET", path: "/api/subcategories" },
+  { id: "brands", label: "Brands", method: "GET", path: "/api/brands" },
+  { id: "home-sections", label: "Home sections", method: "GET", path: "/api/home-sections" },
+  { id: "home-sections-active", label: "Active home sections", method: "GET", path: "/api/home-sections/active" },
+  { id: "banners-all", label: "Banners", method: "GET", path: "/api/banners" },
+  { id: "banners-active", label: "Banners active=true", method: "GET", path: "/api/banners?active=true" },
+  { id: "buyer-protection-list", label: "Buyer protection list", method: "GET", path: "/api/buyer-protection" },
 ]
+
+const collectCategoryFanoutRequests = (categoriesResponse, options = {}) => {
+  const {
+    includeSubcategoriesByCategory = true,
+    includeProductsByCategory = true,
+    perCategoryProductLimit = DEFAULT_PER_CATEGORY_PRODUCT_LIMIT,
+  } = options
+
+  const categories = Array.isArray(categoriesResponse?.data) ? categoriesResponse.data : []
+  const productLimit = toPositiveInt(perCategoryProductLimit, DEFAULT_PER_CATEGORY_PRODUCT_LIMIT)
+  const requests = []
+
+  for (const category of categories) {
+    const categoryId = category?._id
+    if (!categoryId) continue
+    const categoryName = category.name || category.slug || categoryId
+
+    if (includeSubcategoriesByCategory) {
+      requests.push({
+        id: `subcategories-by-category-${categoryId}`,
+        label: `Subcategories by category (${categoryName})`,
+        method: "GET",
+        path: `/api/subcategories?category=${categoryId}`,
+      })
+    }
+
+    if (includeProductsByCategory) {
+      requests.push({
+        id: `products-by-category-${categoryId}`,
+        label: `Products by category (${categoryName})`,
+        method: "GET",
+        path: `/api/products?category=${categoryId}&limit=${productLimit}`,
+      })
+    }
+  }
+
+  return requests
+}
+
+const collectBannerPositionRequests = (positions = DEFAULT_BANNER_POSITIONS) => {
+  const uniquePositions = Array.from(
+    new Set(
+      (Array.isArray(positions) ? positions : DEFAULT_BANNER_POSITIONS)
+        .map((position) => String(position || "").trim())
+        .filter(Boolean),
+    ),
+  )
+
+  return uniquePositions.map((position) => ({
+    id: `banners-position-${position}`,
+    label: `Banners position=${position}`,
+    method: "GET",
+    path: `/api/banners?active=true&position=${encodeURIComponent(position)}`,
+  }))
+}
 
 const collectBuyerProtectionWarmRequests = (productsResponse, productSampleSize) => {
   const products = Array.isArray(productsResponse?.data) ? productsResponse.data : []
+  const sampleSize = toPositiveInt(productSampleSize, DEFAULT_PRODUCT_SAMPLE_SIZE)
   const sampled = products
     .filter((product) => product?._id)
-    .slice(0, productSampleSize)
+    .slice(0, sampleSize)
 
   return sampled.map((product) => ({
     label: `Buyer protection by product (${product._id})`,
@@ -115,40 +187,36 @@ const summarizeResults = (results) => {
   }
 }
 
-export const warmServerCache = async (options = {}) => {
-  const {
-    baseUrl,
-    timeoutMs = DEFAULT_TIMEOUT_MS,
-    productListLimit = Number(process.env.CACHE_WARM_PRODUCT_LIMIT || 120),
-    productSampleSize = Number(process.env.CACHE_WARM_SAMPLE_SIZE || 12),
-    includeBuyerProtection = true,
-    verifyHits = false,
-    onProgress = null,
-  } = options
-
-  const normalizedBaseUrl = normalizeBaseUrl(baseUrl)
-  if (!normalizedBaseUrl) {
-    throw new Error("A valid baseUrl is required for cache warmup")
-  }
-
-  const results = []
-  const requests = baseWarmRequests(productListLimit)
-  let productsResponse = null
-  const emitProgress = typeof onProgress === "function" ? onProgress : () => {}
-
+const executeRequests = async ({
+  phase,
+  requests,
+  baseUrl,
+  timeoutMs,
+  emitProgress,
+  onResponse,
+  sink,
+}) => {
   for (let index = 0; index < requests.length; index += 1) {
     const request = requests[index]
+
     emitProgress({
-      phase: "warm",
+      phase,
       step: "start",
       index: index + 1,
       total: requests.length,
       label: request.label,
       path: request.path,
     })
-    const response = await makeRequest(normalizedBaseUrl, request, timeoutMs)
+
+    const response = await makeRequest(baseUrl, request, timeoutMs)
+    const result = {
+      id: request.id || null,
+      label: request.label,
+      ...response,
+    }
+
     emitProgress({
-      phase: "warm",
+      phase,
       step: "done",
       index: index + 1,
       total: requests.length,
@@ -160,82 +228,120 @@ export const warmServerCache = async (options = {}) => {
       cache: response.cache,
       error: response.error || null,
     })
-    results.push({
-      label: request.label,
-      ...response,
-    })
 
-    if (request.path.startsWith("/api/products?limit=")) {
-      productsResponse = response
+    sink.push(result)
+    if (typeof onResponse === "function") {
+      onResponse(request, result)
     }
+  }
+}
+
+export const warmServerCache = async (options = {}) => {
+  const {
+    baseUrl,
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+    warmAllProducts = String(process.env.CACHE_WARM_ALL_PRODUCTS || "true") !== "false",
+    productListLimit = DEFAULT_PRODUCT_LIST_LIMIT,
+    productSampleSize = DEFAULT_PRODUCT_SAMPLE_SIZE,
+    includeCategoryFanout = String(process.env.CACHE_WARM_CATEGORY_FANOUT || "true") !== "false",
+    includeProductsByCategory = true,
+    includeSubcategoriesByCategory = true,
+    perCategoryProductLimit = DEFAULT_PER_CATEGORY_PRODUCT_LIMIT,
+    includeBannerPositions = true,
+    bannerPositions = DEFAULT_BANNER_POSITIONS,
+    includeBuyerProtection = true,
+    verifyHits = false,
+    verifyBuyerProtection = true,
+    onProgress = null,
+  } = options
+
+  const normalizedBaseUrl = normalizeBaseUrl(baseUrl)
+  if (!normalizedBaseUrl) {
+    throw new Error("A valid baseUrl is required for cache warmup")
+  }
+
+  const results = []
+  const baseRequests = baseWarmRequests({ warmAllProducts, productListLimit })
+  const fanoutRequests = []
+  const buyerProtectionRequests = []
+  let productsResponse = null
+  let categoriesResponse = null
+  const emitProgress = typeof onProgress === "function" ? onProgress : () => {}
+
+  await executeRequests({
+    phase: "warm",
+    requests: baseRequests,
+    baseUrl: normalizedBaseUrl,
+    timeoutMs,
+    emitProgress,
+    sink: results,
+    onResponse: (request, response) => {
+      if (request.id === "products-main") {
+        productsResponse = response
+      }
+      if (request.id === "categories") {
+        categoriesResponse = response
+      }
+    },
+  })
+
+  if (includeCategoryFanout && categoriesResponse?.ok) {
+    fanoutRequests.push(
+      ...collectCategoryFanoutRequests(categoriesResponse, {
+        includeSubcategoriesByCategory,
+        includeProductsByCategory,
+        perCategoryProductLimit,
+      }),
+    )
+  }
+
+  if (includeBannerPositions) {
+    fanoutRequests.push(...collectBannerPositionRequests(bannerPositions))
+  }
+
+  if (fanoutRequests.length > 0) {
+    await executeRequests({
+      phase: "fanout",
+      requests: fanoutRequests,
+      baseUrl: normalizedBaseUrl,
+      timeoutMs,
+      emitProgress,
+      sink: results,
+    })
   }
 
   if (includeBuyerProtection && productsResponse?.ok) {
-    const protectionRequests = collectBuyerProtectionWarmRequests(productsResponse, productSampleSize)
+    buyerProtectionRequests.push(...collectBuyerProtectionWarmRequests(productsResponse, productSampleSize))
+  }
 
-    for (let index = 0; index < protectionRequests.length; index += 1) {
-      const request = protectionRequests[index]
-      emitProgress({
-        phase: "buyer-protection",
-        step: "start",
-        index: index + 1,
-        total: protectionRequests.length,
-        label: request.label,
-        path: request.path,
-      })
-      const response = await makeRequest(normalizedBaseUrl, request, timeoutMs)
-      emitProgress({
-        phase: "buyer-protection",
-        step: "done",
-        index: index + 1,
-        total: protectionRequests.length,
-        label: request.label,
-        path: request.path,
-        status: response.status,
-        ok: response.ok,
-        durationMs: response.durationMs,
-        cache: response.cache,
-        error: response.error || null,
-      })
-      results.push({
-        label: request.label,
-        ...response,
-      })
-    }
+  if (buyerProtectionRequests.length > 0) {
+    await executeRequests({
+      phase: "buyer-protection",
+      requests: buyerProtectionRequests,
+      baseUrl: normalizedBaseUrl,
+      timeoutMs,
+      emitProgress,
+      sink: results,
+    })
   }
 
   let verification = null
   if (verifyHits) {
     const verificationResults = []
-    for (let index = 0; index < requests.length; index += 1) {
-      const request = requests[index]
-      emitProgress({
-        phase: "verify",
-        step: "start",
-        index: index + 1,
-        total: requests.length,
-        label: request.label,
-        path: request.path,
-      })
-      const response = await makeRequest(normalizedBaseUrl, request, timeoutMs)
-      emitProgress({
-        phase: "verify",
-        step: "done",
-        index: index + 1,
-        total: requests.length,
-        label: request.label,
-        path: request.path,
-        status: response.status,
-        ok: response.ok,
-        durationMs: response.durationMs,
-        cache: response.cache,
-        error: response.error || null,
-      })
-      verificationResults.push({
-        label: request.label,
-        ...response,
-      })
+    const verifyRequests = [...baseRequests, ...fanoutRequests]
+    if (verifyBuyerProtection) {
+      verifyRequests.push(...buyerProtectionRequests)
     }
+
+    await executeRequests({
+      phase: "verify",
+      requests: verifyRequests,
+      baseUrl: normalizedBaseUrl,
+      timeoutMs,
+      emitProgress,
+      sink: verificationResults,
+    })
+
     verification = {
       summary: summarizeResults(verificationResults),
       results: verificationResults,

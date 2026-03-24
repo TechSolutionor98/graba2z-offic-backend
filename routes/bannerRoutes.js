@@ -20,11 +20,8 @@ const debugBanners = (...args) => {
 // @access  Public
 router.get(
   "/",
+  cacheMiddleware("banners"),
   asyncHandler(async (req, res) => {
-    // Banners need to reflect admin edits immediately.
-    // Avoid server/proxy caching here (especially important on serverless environments).
-    res.set('Cache-Control', 'no-store, max-age=0, must-revalidate')
-
     const { position, category, active } = req.query
 
     const query = {}

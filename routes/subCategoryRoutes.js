@@ -483,6 +483,7 @@ import { protect, admin } from "../middleware/authMiddleware.js"
 import { deleteLocalFile, isCloudinaryUrl } from "../config/multer.js"
 import { logActivity } from "../middleware/permissionMiddleware.js"
 import { translateEnToAr } from "../utils/translateWithFallback.js"
+import { cacheMiddleware } from "../middleware/cacheMiddleware.js"
 
 const router = express.Router()
 
@@ -698,6 +699,7 @@ router.get(
 // @access  Public
 router.get(
   "/",
+  cacheMiddleware("subCategories", { keyPrefix: "list" }),
   asyncHandler(async (req, res) => {
     const { category, parentSubCategory, level } = req.query;
     let filter = { isActive: true, isDeleted: { $ne: true } };
@@ -756,6 +758,7 @@ router.get(
 // @access  Public
 router.get(
   "/children/:parentId",
+  cacheMiddleware("subCategories", { keyPrefix: "children" }),
   asyncHandler(async (req, res) => {
     const children = await SubCategory.find({
       parentSubCategory: req.params.parentId,
@@ -1405,6 +1408,7 @@ router.get(
 // @access  Public
 router.get(
   "/category/:categoryId",
+  cacheMiddleware("subCategories", { keyPrefix: "byCategory" }),
   asyncHandler(async (req, res) => {
     const subcategories = await SubCategory.find({
       category: req.params.categoryId,

@@ -6,6 +6,74 @@ import cacheService, { cacheHelpers } from "../services/cacheService.js"
 import warmServerCache from "../services/cacheWarmService.js"
 
 const router = express.Router()
+let isAutoWarmRunning = false
+
+const parseBoolean = (value, fallback = false) => {
+  if (typeof value === "boolean") return value
+  if (typeof value !== "string") return fallback
+  return ["1", "true", "yes", "y", "on"].includes(value.toLowerCase())
+}
+
+const getAutoWarmOptions = (req) => {
+  const fallbackBaseUrl = `${req.protocol}://${req.get("host")}`
+  const bannerPositions = String(process.env.CACHE_WARM_BANNER_POSITIONS || "hero,promotional,mobile")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean)
+
+  return {
+    baseUrl: process.env.CACHE_WARM_BASE_URL || fallbackBaseUrl,
+    warmAllProducts: parseBoolean(process.env.CACHE_WARM_ALL_PRODUCTS ?? "true", true),
+    productListLimit: Number(process.env.CACHE_WARM_PRODUCT_LIMIT || 120),
+    productSampleSize: Number(process.env.CACHE_WARM_SAMPLE_SIZE || 12),
+    includeCategoryFanout: parseBoolean(process.env.CACHE_WARM_CATEGORY_FANOUT ?? "true", true),
+    includeProductsByCategory: true,
+    includeSubcategoriesByCategory: true,
+    perCategoryProductLimit: Number(process.env.CACHE_WARM_PER_CATEGORY_PRODUCT_LIMIT || 12),
+    includeBannerPositions: true,
+    bannerPositions,
+    includeBuyerProtection: parseBoolean(process.env.CACHE_WARM_INCLUDE_BUYER_PROTECTION ?? "true", true),
+    verifyHits: false,
+    verifyBuyerProtection: false,
+    timeoutMs: Number(process.env.CACHE_WARM_TIMEOUT_MS || 15000),
+    onProgress: (event) => {
+      if (event.step === "start") {
+        console.log(`[AutoWarm:${event.phase}] ${event.index}/${event.total} START ${event.path}`)
+        return
+      }
+      const state = event.ok ? `OK ${event.status}` : `ERR ${event.status || 0}`
+      const cacheText = event.cache ? ` X-Cache=${event.cache}` : ""
+      const errorText = event.error ? ` ${event.error}` : ""
+      console.log(
+        `[AutoWarm:${event.phase}] ${event.index}/${event.total} ${state} ${event.durationMs}ms${cacheText}${errorText}`,
+      )
+    },
+  }
+}
+
+const runAutoWarmAfterReset = (req) => {
+  const enabled = parseBoolean(process.env.CACHE_AUTO_WARM_ON_RESET ?? "true", true)
+  if (!enabled) return
+  if (isAutoWarmRunning) {
+    console.log("AutoWarm: skipped because a previous warmup is still running")
+    return
+  }
+
+  isAutoWarmRunning = true
+  setImmediate(async () => {
+    try {
+      console.log("AutoWarm: starting background cache warmup after reset")
+      const result = await warmServerCache(getAutoWarmOptions(req))
+      console.log(
+        `AutoWarm: completed (ok=${result.summary.ok}, failed=${result.summary.failed}, avg=${result.summary.avgDurationMs}ms)`,
+      )
+    } catch (error) {
+      console.error("AutoWarm: failed:", error.message)
+    } finally {
+      isAutoWarmRunning = false
+    }
+  })
+}
 
 const recordCacheReset = async ({ userId, reason = "Cache reset" }) => {
   let cacheData = await CacheVersion.findOne({})
@@ -134,6 +202,8 @@ router.post(
       resetAt: cacheData.resetAt,
       flushedKeys,
     })
+
+    runAutoWarmAfterReset(req)
   })
 )
 
@@ -250,16 +320,54 @@ router.post(
   admin,
   asyncHandler(async (req, res) => {
     const baseUrl = req.body?.baseUrl || `${req.protocol}://${req.get("host")}`
+    const warmAllProducts = req.body?.warmAllProducts !== undefined
+      ? Boolean(req.body.warmAllProducts)
+      : String(process.env.CACHE_WARM_ALL_PRODUCTS || "true") !== "false"
     const productListLimit = Number(req.body?.productListLimit || process.env.CACHE_WARM_PRODUCT_LIMIT || 120)
     const productSampleSize = Number(req.body?.productSampleSize || process.env.CACHE_WARM_SAMPLE_SIZE || 12)
+    const includeCategoryFanout = req.body?.includeCategoryFanout !== undefined
+      ? Boolean(req.body.includeCategoryFanout)
+      : String(process.env.CACHE_WARM_CATEGORY_FANOUT || "true") !== "false"
+    const includeProductsByCategory = req.body?.includeProductsByCategory !== undefined
+      ? Boolean(req.body.includeProductsByCategory)
+      : true
+    const includeSubcategoriesByCategory = req.body?.includeSubcategoriesByCategory !== undefined
+      ? Boolean(req.body.includeSubcategoriesByCategory)
+      : true
+    const perCategoryProductLimit = Number(
+      req.body?.perCategoryProductLimit || process.env.CACHE_WARM_PER_CATEGORY_PRODUCT_LIMIT || 12,
+    )
+    const includeBannerPositions = req.body?.includeBannerPositions !== undefined
+      ? Boolean(req.body.includeBannerPositions)
+      : true
+    const bannerPositions = Array.isArray(req.body?.bannerPositions) && req.body.bannerPositions.length > 0
+      ? req.body.bannerPositions
+      : String(process.env.CACHE_WARM_BANNER_POSITIONS || "hero,promotional,mobile")
+          .split(",")
+          .map((item) => item.trim())
+          .filter(Boolean)
     const verifyHits = Boolean(req.body?.verifyHits)
+    const verifyBuyerProtection = req.body?.verifyBuyerProtection !== undefined
+      ? Boolean(req.body.verifyBuyerProtection)
+      : true
+    const includeBuyerProtection = req.body?.includeBuyerProtection !== undefined
+      ? Boolean(req.body.includeBuyerProtection)
+      : true
 
     const warmupResult = await warmServerCache({
       baseUrl,
+      warmAllProducts,
       productListLimit,
       productSampleSize,
+      includeCategoryFanout,
+      includeProductsByCategory,
+      includeSubcategoriesByCategory,
+      perCategoryProductLimit,
+      includeBannerPositions,
+      bannerPositions,
       verifyHits,
-      includeBuyerProtection: true,
+      verifyBuyerProtection,
+      includeBuyerProtection,
     })
 
     res.json({

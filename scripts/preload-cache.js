@@ -47,17 +47,55 @@ const timeoutMs = toNumber(
 )
 const verifyHits = toBoolean(readArg("verify-hits", "false"), false)
 const includeBuyerProtection = !toBoolean(readArg("skip-buyer-protection", "false"), false)
+const warmAllProducts = toBoolean(
+  readArg("all-products", process.env.CACHE_WARM_ALL_PRODUCTS === "false" ? "false" : "true"),
+  true,
+)
+const includeCategoryFanout = !toBoolean(readArg("skip-category-fanout", "false"), false)
+const includeProductsByCategory = !toBoolean(readArg("skip-products-by-category", "false"), false)
+const includeSubcategoriesByCategory = !toBoolean(readArg("skip-subcategories-by-category", "false"), false)
+const perCategoryProductLimit = toNumber(
+  readArg("per-category-product-limit", process.env.CACHE_WARM_PER_CATEGORY_PRODUCT_LIMIT || 12),
+  12,
+)
+const includeBannerPositions = !toBoolean(readArg("skip-banner-positions", "false"), false)
+const bannerPositions = String(
+  readArg("banner-positions", process.env.CACHE_WARM_BANNER_POSITIONS || "hero,promotional,mobile"),
+)
+  .split(",")
+  .map((item) => item.trim())
+  .filter(Boolean)
+const verifyBuyerProtection = toBoolean(readArg("verify-buyer-protection", "true"), true)
 
 console.log("Starting cache warmup...")
 console.log(`Base URL: ${baseUrl}`)
-console.log(`Product list limit: ${productListLimit}`)
+console.log(`Warm all products: ${warmAllProducts ? "yes" : "no"}`)
+if (!warmAllProducts) {
+  console.log(`Product list limit: ${productListLimit}`)
+}
 console.log(`Buyer protection sample size: ${productSampleSize}`)
+console.log(`Category fanout: ${includeCategoryFanout ? "yes" : "no"}`)
+if (includeCategoryFanout) {
+  console.log(`Products by category: ${includeProductsByCategory ? "yes" : "no"}`)
+  if (includeProductsByCategory) {
+    console.log(`Per-category product limit: ${perCategoryProductLimit}`)
+  }
+  console.log(`Subcategories by category: ${includeSubcategoriesByCategory ? "yes" : "no"}`)
+}
+console.log(`Banner positions fanout: ${includeBannerPositions ? "yes" : "no"}`)
+if (includeBannerPositions) {
+  console.log(`Banner positions: ${bannerPositions.join(", ") || "none"}`)
+}
 console.log(`Request timeout: ${timeoutMs}ms`)
 console.log(`Verify second pass hits: ${verifyHits ? "yes" : "no"}`)
+if (verifyHits) {
+  console.log(`Verify buyer protection requests: ${verifyBuyerProtection ? "yes" : "no"}`)
+}
 console.log(`Warm buyer protection: ${includeBuyerProtection ? "yes" : "no"}`)
 
 const progressLabel = (phase) => {
   if (phase === "warm") return "Warm"
+  if (phase === "fanout") return "Fanout"
   if (phase === "buyer-protection") return "BuyerProtection"
   if (phase === "verify") return "Verify"
   return "Step"
@@ -66,10 +104,18 @@ const progressLabel = (phase) => {
 try {
   const result = await warmServerCache({
     baseUrl,
+    warmAllProducts,
     productListLimit,
     productSampleSize,
+    includeCategoryFanout,
+    includeProductsByCategory,
+    includeSubcategoriesByCategory,
+    perCategoryProductLimit,
+    includeBannerPositions,
+    bannerPositions,
     timeoutMs,
     verifyHits,
+    verifyBuyerProtection,
     includeBuyerProtection,
     onProgress: (event) => {
       if (event.step === "start") {
