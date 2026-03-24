@@ -9,7 +9,8 @@
     "dev": "nodemon server.js",
     "update-sitemap": "node scripts/update-sitemap.js",
     "fix-redirects": "node scripts/fix-redirects.js",
-    "cache:clear": "node -e \"import('./services/cacheService.js').then(m => m.default.initialize().then(() => m.default.flushAll().then(() => process.exit(0))))\""
+    "cache:clear": "node -e \"import('./services/cacheService.js').then(m => m.default.initialize().then(() => m.default.flushAll().then(() => process.exit(0))))\"",
+    "cache:warm": "node scripts/preload-cache.js"
   },
   "dependencies": {
     "@getbrevo/brevo": "^2.2.0",

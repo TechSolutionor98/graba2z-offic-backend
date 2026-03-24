@@ -3,8 +3,42 @@ import asyncHandler from "express-async-handler"
 import CacheVersion from "../models/cacheVersionModel.js"
 import { protect, admin } from "../middleware/authMiddleware.js"
 import cacheService, { cacheHelpers } from "../services/cacheService.js"
+import warmServerCache from "../services/cacheWarmService.js"
 
 const router = express.Router()
+
+const recordCacheReset = async ({ userId, reason = "Cache reset" }) => {
+  let cacheData = await CacheVersion.findOne({})
+  if (!cacheData) {
+    cacheData = new CacheVersion({ version: 1 })
+  }
+
+  const newVersion = (cacheData.version || 1) + 1
+  const resetTime = new Date()
+
+  if (!cacheData.resetHistory) {
+    cacheData.resetHistory = []
+  }
+
+  cacheData.resetHistory.unshift({
+    version: newVersion,
+    resetAt: resetTime,
+    resetBy: userId,
+    reason,
+  })
+
+  if (cacheData.resetHistory.length > 20) {
+    cacheData.resetHistory = cacheData.resetHistory.slice(0, 20)
+  }
+
+  cacheData.version = newVersion
+  cacheData.resetAt = resetTime
+  cacheData.resetBy = userId
+
+  await cacheData.save()
+
+  return cacheData
+}
 
 // @desc    Get current cache version
 // @route   GET /api/cache/version
@@ -79,7 +113,7 @@ router.get(
   })
 )
 
-// @desc    Reset cache for all users (client-side cache version)
+// @desc    Reset cache for all users and flush server-side cache
 // @route   POST /api/cache/reset
 // @access  Private/Admin
 router.post(
@@ -87,42 +121,18 @@ router.post(
   protect,
   admin,
   asyncHandler(async (req, res) => {
-    let cacheData = await CacheVersion.findOne({})
-
-    if (!cacheData) {
-      cacheData = new CacheVersion({ version: 1 })
-    }
-
-    // Increment cache version
-    const newVersion = (cacheData.version || 1) + 1
-    const resetTime = new Date()
-
-    // Add to history
-    if (!cacheData.resetHistory) {
-      cacheData.resetHistory = []
-    }
-    cacheData.resetHistory.unshift({
-      version: newVersion,
-      resetAt: resetTime,
-      resetBy: req.user._id,
+    const flushedKeys = await cacheService.flushAll()
+    const cacheData = await recordCacheReset({
+      userId: req.user._id,
+      reason: "Admin reset cache button",
     })
-
-    // Keep only last 20 reset records
-    if (cacheData.resetHistory.length > 20) {
-      cacheData.resetHistory = cacheData.resetHistory.slice(0, 20)
-    }
-
-    cacheData.version = newVersion
-    cacheData.resetAt = resetTime
-    cacheData.resetBy = req.user._id
-
-    await cacheData.save()
 
     res.json({
       success: true,
-      message: "Cache reset successfully! All users will get fresh content on their next visit.",
+      message: "Cache reset successfully. Server cache was flushed and all users will receive fresh content.",
       version: cacheData.version,
       resetAt: cacheData.resetAt,
+      flushedKeys,
     })
   })
 )
@@ -136,35 +146,16 @@ router.post(
   admin,
   asyncHandler(async (req, res) => {
     const result = await cacheService.flushAll()
-    
-    // Also update cache version for client-side
-    let cacheData = await CacheVersion.findOne({})
-    if (!cacheData) {
-      cacheData = new CacheVersion({ version: 1 })
-    }
-    
-    const newVersion = (cacheData.version || 1) + 1
-    cacheData.version = newVersion
-    cacheData.resetAt = new Date()
-    cacheData.resetBy = req.user._id
-    
-    if (!cacheData.resetHistory) {
-      cacheData.resetHistory = []
-    }
-    cacheData.resetHistory.unshift({
-      version: newVersion,
-      resetAt: cacheData.resetAt,
-      resetBy: req.user._id,
-      reason: 'Full cache flush',
+    const cacheData = await recordCacheReset({
+      userId: req.user._id,
+      reason: "Full cache flush",
     })
-    
-    await cacheData.save()
     
     res.json({
       success: true,
       message: "All server-side cache has been flushed successfully!",
       result,
-      clientCacheVersion: newVersion,
+      clientCacheVersion: cacheData.version,
     })
   })
 )
@@ -258,12 +249,23 @@ router.post(
   protect,
   admin,
   asyncHandler(async (req, res) => {
-    // This endpoint can be used to pre-populate cache with frequently accessed data
-    // Implementation depends on specific needs
-    
+    const baseUrl = req.body?.baseUrl || `${req.protocol}://${req.get("host")}`
+    const productListLimit = Number(req.body?.productListLimit || process.env.CACHE_WARM_PRODUCT_LIMIT || 120)
+    const productSampleSize = Number(req.body?.productSampleSize || process.env.CACHE_WARM_SAMPLE_SIZE || 12)
+    const verifyHits = Boolean(req.body?.verifyHits)
+
+    const warmupResult = await warmServerCache({
+      baseUrl,
+      productListLimit,
+      productSampleSize,
+      verifyHits,
+      includeBuyerProtection: true,
+    })
+
     res.json({
       success: true,
-      message: "Cache warming initiated. Critical data will be cached as it's accessed.",
+      message: "Cache warmup completed.",
+      ...warmupResult,
     })
   })
 )

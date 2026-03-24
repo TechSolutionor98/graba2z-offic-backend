@@ -22,6 +22,10 @@ const cacheVersionSchema = mongoose.Schema(
           type: mongoose.Schema.Types.ObjectId,
           ref: "User",
         },
+        reason: {
+          type: String,
+          default: "Cache reset",
+        },
       },
     ],
   },

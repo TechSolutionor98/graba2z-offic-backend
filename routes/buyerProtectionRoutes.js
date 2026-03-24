@@ -3,14 +3,24 @@ import asyncHandler from "express-async-handler"
 import BuyerProtection from "../models/buyerProtectionModel.js"
 import Product from "../models/productModel.js"
 import { protect, admin } from "../middleware/authMiddleware.js"
+import cacheService from "../services/cacheService.js"
+import { cacheMiddleware, invalidateCache } from "../middleware/cacheMiddleware.js"
 
 const router = express.Router()
+const BUYER_PROTECTION_FOR_PRODUCT_TTL = Number(process.env.BUYER_PROTECTION_CACHE_TTL || 1800)
+
+const buildForProductCacheKey = (productId, productPrice) => {
+  const numericPrice = Number(productPrice)
+  const normalizedPrice = Number.isFinite(numericPrice) ? numericPrice.toFixed(2) : "0.00"
+  return `buyerProtection:forProduct:${productId}:${normalizedPrice}`
+}
 
 // @desc    Get all buyer protection plans
 // @route   GET /api/buyer-protection
 // @access  Public
 router.get(
   "/",
+  cacheMiddleware("buyerProtection", { keyPrefix: "list" }),
   asyncHandler(async (req, res) => {
     const protections = await BuyerProtection.find({ isActive: true })
       .populate("parentCategories", "name")
@@ -49,6 +59,7 @@ router.get(
 // @access  Public
 router.get(
   "/:id",
+  cacheMiddleware("buyerProtection", { keyPrefix: "byId" }),
   asyncHandler(async (req, res) => {
     const protection = await BuyerProtection.findById(req.params.id)
       .populate("parentCategories", "name")
@@ -75,11 +86,20 @@ router.post(
   asyncHandler(async (req, res) => {
     const { productId, productPrice } = req.body
 
-    console.log('For-product request:', { productId, productPrice })
-
     if (!productId || !productPrice) {
       res.status(400)
       throw new Error("Product ID and price are required")
+    }
+
+    // Read-style POST endpoint: skip global mutation-based cache invalidation.
+    req.skipAutoCacheInvalidation = true
+
+    const cacheKey = buildForProductCacheKey(productId, productPrice)
+    const cachedResponse = await cacheService.get(cacheKey)
+    if (cachedResponse) {
+      res.set("X-Cache", "HIT")
+      res.set("X-Cache-Key", cacheKey)
+      return res.json(cachedResponse)
     }
 
     // Get the product to check its categories
@@ -97,11 +117,6 @@ router.post(
       .populate("subCategories3", "name")
       .populate("subCategories4", "name")
       .populate("specificProducts", "name slug price")
-
-    console.log('Found protections:', allProtections.length)
-    allProtections.forEach(p => {
-      console.log(`Protection: ${p.name}, Type: ${p.pricingType}, Price: ${p.price}, Percentage: ${p.pricePercentage}`)
-    })
 
     // Filter protections based on applicationType
     const applicableProtections = allProtections.filter((protection) => {
@@ -158,42 +173,28 @@ router.post(
     const protectionsWithPrices = applicableProtections.map((protection) => {
       const protectionObj = protection.toObject()
 
-      console.log(`Calculating price for ${protectionObj.name}:`, {
-        pricingType: protectionObj.pricingType,
-        pricePercentage: protectionObj.pricePercentage,
-        productPrice,
-        fixedPrice: protectionObj.price
-      })
-
       if (protectionObj.pricingType === "percentage" && protectionObj.pricePercentage) {
         let calculatedPrice = (productPrice * protectionObj.pricePercentage) / 100
-
-        console.log(`Raw calculated: ${calculatedPrice}`)
 
         // Apply min/max bounds
         if (protectionObj.minPrice && calculatedPrice < protectionObj.minPrice) {
           calculatedPrice = protectionObj.minPrice
-          console.log(`Applied minPrice: ${calculatedPrice}`)
         }
         if (protectionObj.maxPrice && calculatedPrice > protectionObj.maxPrice) {
           calculatedPrice = protectionObj.maxPrice
-          console.log(`Applied maxPrice: ${calculatedPrice}`)
         }
 
         protectionObj.calculatedPrice = Math.round(calculatedPrice * 100) / 100 // Round to 2 decimals
-        console.log(`Final calculatedPrice: ${protectionObj.calculatedPrice}`)
       } else {
         protectionObj.calculatedPrice = protectionObj.price || 0
-        console.log(`Using fixed price: ${protectionObj.calculatedPrice}`)
       }
 
       return protectionObj
     })
 
-    console.log('Returning protections with prices:', protectionsWithPrices.map(p => ({
-      name: p.name,
-      calculatedPrice: p.calculatedPrice
-    })))
+    await cacheService.set(cacheKey, protectionsWithPrices, BUYER_PROTECTION_FOR_PRODUCT_TTL)
+    res.set("X-Cache", "MISS")
+    res.set("X-Cache-Key", cacheKey)
 
     res.json(protectionsWithPrices)
   }),
@@ -282,6 +283,8 @@ router.post(
       .populate("subCategories3", "name")
       .populate("subCategories4", "name")
       .populate("specificProducts", "name slug price")
+
+    await invalidateCache("buyerProtection")
     
     res.status(201).json(populatedProtection)
   }),
@@ -383,6 +386,8 @@ router.put(
         .populate("subCategories3", "name")
         .populate("subCategories4", "name")
         .populate("specificProducts", "name slug price")
+
+      await invalidateCache("buyerProtection")
       
       res.json(updatedProtection)
     } else {
@@ -404,6 +409,7 @@ router.delete(
 
     if (protection) {
       await protection.deleteOne()
+      await invalidateCache("buyerProtection")
       res.json({ message: "Protection plan removed" })
     } else {
       res.status(404)

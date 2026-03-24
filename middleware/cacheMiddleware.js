@@ -168,7 +168,7 @@ export const attachCacheService = (req, res, next) => {
  * @param {string[]} options.excludePaths - URL prefixes to skip
  */
 export const autoInvalidateAllCacheOnMutation = (options = {}) => {
-  const { excludePaths = ["/api/cache"] } = options
+  const { excludePaths = ["/api/cache", "/api/buyer-protection/for-product"] } = options
 
   return (req, res, next) => {
     if (!["POST", "PUT", "PATCH", "DELETE"].includes(req.method)) {
@@ -183,6 +183,9 @@ export const autoInvalidateAllCacheOnMutation = (options = {}) => {
 
     res.on("finish", () => {
       if (res.statusCode < 200 || res.statusCode >= 300) {
+        return
+      }
+      if (req.skipAutoCacheInvalidation === true) {
         return
       }
 
