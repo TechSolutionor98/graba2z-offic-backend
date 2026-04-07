@@ -160,6 +160,23 @@ function determineGoogleCategory(parentCategory, subCategory) {
   return "Electronics"
 }
 
+const resolveFeedLanguage = (req) => {
+  const rawLang = String(req.query.lang || "en").toLowerCase()
+  return rawLang === "ar" ? "ar" : "en"
+}
+
+const buildProductUrl = (slug, lang = "en") => {
+  const localePrefix = lang === "ar" ? "ae-ar" : "ae-en"
+  return `https://www.grabatoz.ae/${localePrefix}/product/${slug}`
+}
+
+const getLocalizedValue = (doc, field, lang = "en") => {
+  if (!doc) return ""
+  if (lang !== "ar") return doc[field] || ""
+  const arabicField = `${field}Ar`
+  return doc[arabicField] || doc[field] || ""
+}
+
 // @desc    Get product count for debugging
 // @route   GET /api/google-merchant/count
 // @access  Public
@@ -235,8 +252,9 @@ router.get(
       const page = Number.parseInt(req.query.page) || 1
       const limit = Number.parseInt(req.query.limit) || 0 // 0 means no limit
       const skip = limit > 0 ? (page - 1) * limit : 0
-      const includeZeroPrice = req.query.includeZeroPrice === 'true'
-      const includeOutOfStock = req.query.includeOutOfStock !== 'false' // Default true
+      const includeZeroPrice = req.query.includeZeroPrice === "true"
+      const includeOutOfStock = req.query.includeOutOfStock !== "false" // Default true
+      const feedLanguage = resolveFeedLanguage(req)
 
       // Build query - include products that are active AND have valid data for Google
       const query = {
@@ -327,7 +345,7 @@ router.get(
         title: "GrabA2Z Products",
         link: "https://www.grabatoz.ae",
         description: "GrabA2Z Product Feed for Google Merchant Center",
-        language: "en",
+        language: feedLanguage,
         lastBuildDate: new Date().toISOString(),
         totalProducts: totalCount,
         returnedProducts: products.length,
@@ -360,7 +378,7 @@ router.get(
 
           // Escape & in slug for valid URLs
           const cleanSlug = (product.slug || product._id.toString()).replace(/&/g, '%26')
-          const productUrl = `https://www.grabatoz.ae/product/${cleanSlug}`
+          const productUrl = buildProductUrl(cleanSlug, feedLanguage)
           const imageUrl = product.image
             ? product.image.startsWith("http")
               ? product.image
@@ -370,16 +388,23 @@ router.get(
           // Use the improved availability logic
           const availability = determineAvailability(product)
           availabilityStats[availability.replace(" ", "").replace("of", "Of")]++
+          if (!includeOutOfStock && availability === "out of stock") {
+            skippedCount++
+            continue
+          }
 
-          // Handle pricing - set minimum 1 AED for zero-price products (Google requires valid price)
+          // Handle pricing
           let price = 0
           if (product.offerPrice && product.offerPrice > 0) {
             price = product.offerPrice
           } else if (product.price && product.price > 0) {
             price = product.price
-          } else {
-            // For zero-priced items, set 1 AED minimum for Google Merchant
+          } else if (includeZeroPrice) {
+            // Legacy fallback for explicit includeZeroPrice debug mode
             price = 1
+          } else {
+            skippedCount++
+            continue
           }
 
           const salePrice =
@@ -387,17 +412,24 @@ router.get(
               ? product.offerPrice
               : null
 
-          const cleanDescription = truncateDescription(
-            product.description || product.shortDescription || product.name || "No description available"
-          )
+          const localizedName = getLocalizedValue(product, "name", feedLanguage) || product.name
+          const localizedDescription = getLocalizedValue(product, "description", feedLanguage)
+            || getLocalizedValue(product, "shortDescription", feedLanguage)
+            || product.description
+            || product.shortDescription
+            || localizedName
+            || "No description available"
+          const cleanDescription = truncateDescription(localizedDescription)
 
           // Truncate title to Google's 150 character limit
-          const truncatedTitle = truncateTitle(product.name)
+          const truncatedTitle = truncateTitle(localizedName)
 
-          const googleProductCategory = determineGoogleCategory(product.parentCategory?.name, product.category?.name)
+          const parentCategoryName = getLocalizedValue(product.parentCategory, "name", feedLanguage) || product.parentCategory?.name
+          const categoryName = getLocalizedValue(product.category, "name", feedLanguage) || product.category?.name
+          const googleProductCategory = determineGoogleCategory(parentCategoryName, categoryName)
           const productType =
-            (product.parentCategory?.name || "Uncategorized") +
-            (product.category?.name ? ` > ${product.category.name}` : "")
+            (parentCategoryName || "Uncategorized") +
+            (categoryName ? ` > ${categoryName}` : "")
 
           const additionalImages = []
           if (product.galleryImages && product.galleryImages.length > 0) {
@@ -428,7 +460,7 @@ router.get(
             google_product_category: googleProductCategory,
             product_type: productType,
             item_group_id: product._id.toString(),
-            brand: product.brand?.name || "Generic",
+            brand: getLocalizedValue(product.brand, "name", feedLanguage) || product.brand?.name || "Generic",
             gtin: hasGtin ? product.gtin : "",
             mpn: hasMpn ? product.sku : product._id.toString(),
             identifier_exists: identifierExists ? "yes" : "no",
@@ -441,7 +473,7 @@ router.get(
             custom_labels: {
               custom_label_0: product.featured ? "Featured" : "",
               custom_label_1: product.tags && product.tags.length > 0 ? product.tags.slice(0, 3).join(", ") : "",
-              custom_label_2: product.parentCategory?.name || "",
+              custom_label_2: parentCategoryName || "",
               custom_label_3: availability,
             },
             stock_quantity: product.countInStock || 0,
@@ -496,11 +528,17 @@ router.get(
       const page = Number.parseInt(req.query.page) || 1
       const limit = Number.parseInt(req.query.limit) || 0 // 0 means no limit
       const skip = limit > 0 ? (page - 1) * limit : 0
+      const includeZeroPrice = req.query.includeZeroPrice === "true"
+      const feedLanguage = resolveFeedLanguage(req)
 
       // Build query - include ALL active products
       const query = {
         name: { $exists: true, $ne: '' },
         $or: [{ isActive: true }, { isActive: { $exists: false } }]
+      }
+
+      if (!includeZeroPrice) {
+        query.$and = [{ $or: [{ price: { $gt: 0 } }, { offerPrice: { $gt: 0 } }] }]
       }
 
       console.log("Fetching products for XML with query:", JSON.stringify(query))
@@ -578,7 +616,7 @@ router.get(
     <title><![CDATA[GrabA2Z Products]]></title>
     <link>https://www.grabatoz.ae</link>
     <description><![CDATA[GrabA2Z Product Feed for Google Merchant Center - Total: ${totalCount} products]]></description>
-    <language>en</language>
+    <language>${feedLanguage}</language>
     <lastBuildDate>${new Date().toUTCString()}</lastBuildDate>
 `
 
@@ -599,7 +637,7 @@ router.get(
 
           // Escape & in slug for valid XML URLs
           const cleanSlug = (product.slug || product._id.toString()).replace(/&/g, '%26')
-          const productUrl = `https://www.grabatoz.ae/product/${cleanSlug}`
+          const productUrl = buildProductUrl(cleanSlug, feedLanguage)
           
           // Escape & in image URLs for valid XML
           let imageUrl = product.image
@@ -613,15 +651,17 @@ router.get(
           const availability = determineAvailability(product)
           availabilityStats[availability.replace(" ", "").replace("of", "Of")]++
 
-          // Handle pricing - set minimum 1 AED for zero-price products (Google requires valid price)
+          // Handle pricing
           let price = 0
           if (product.offerPrice && product.offerPrice > 0) {
             price = product.offerPrice
           } else if (product.price && product.price > 0) {
             price = product.price
-          } else {
-            // For zero-priced items, set 1 AED minimum for Google Merchant
+          } else if (includeZeroPrice) {
+            // Legacy fallback for explicit includeZeroPrice debug mode
             price = 1
+          } else {
+            continue
           }
 
           const salePrice =
@@ -630,17 +670,24 @@ router.get(
               : null
 
           // Clean and limit description
-          const cleanDescription = truncateDescription(
-            product.description || product.shortDescription || product.name || "No description available"
-          )
+          const localizedName = getLocalizedValue(product, "name", feedLanguage) || product.name
+          const localizedDescription = getLocalizedValue(product, "description", feedLanguage)
+            || getLocalizedValue(product, "shortDescription", feedLanguage)
+            || product.description
+            || product.shortDescription
+            || localizedName
+            || "No description available"
+          const cleanDescription = truncateDescription(localizedDescription)
 
           // Truncate title to Google's 150 character limit
-          const truncatedTitle = truncateTitle(product.name)
+          const truncatedTitle = truncateTitle(localizedName)
 
-          const googleProductCategory = determineGoogleCategory(product.parentCategory?.name, product.category?.name)
+          const parentCategoryName = getLocalizedValue(product.parentCategory, "name", feedLanguage) || product.parentCategory?.name
+          const categoryName = getLocalizedValue(product.category, "name", feedLanguage) || product.category?.name
+          const googleProductCategory = determineGoogleCategory(parentCategoryName, categoryName)
           const productType =
-            (product.parentCategory?.name || "Uncategorized") +
-            (product.category?.name ? ` > ${product.category.name}` : "")
+            (parentCategoryName || "Uncategorized") +
+            (categoryName ? ` > ${categoryName}` : "")
 
           // Check if product has valid identifiers (GTIN or brand+MPN)
           const hasGtin = product.gtin && product.gtin.trim() !== ''
@@ -665,9 +712,10 @@ router.get(
       <g:availability>${availability}</g:availability>
       <g:condition>new</g:condition>`
 
-          if (product.brand?.name) {
+          const brandName = getLocalizedValue(product.brand, "name", feedLanguage) || product.brand?.name
+          if (brandName) {
             xml += `
-      <g:brand><![CDATA[${cleanForCDATA(product.brand.name)}]]></g:brand>`
+      <g:brand><![CDATA[${cleanForCDATA(brandName)}]]></g:brand>`
           } else {
             xml += `
       <g:brand><![CDATA[Generic]]></g:brand>`
@@ -831,6 +879,8 @@ router.get(
       const page = Number.parseInt(req.query.page) || 1
       const limit = Number.parseInt(req.query.limit) || 0 // 0 means no limit
       const skip = limit > 0 ? (page - 1) * limit : 0
+      const includeZeroPrice = req.query.includeZeroPrice === "true"
+      const feedLanguage = resolveFeedLanguage(req)
 
       console.log(`Generating XML feed for brand: ${brandName}`)
 
@@ -853,6 +903,10 @@ router.get(
         name: { $exists: true, $ne: '' },
         brand: brand._id,
         $or: [{ isActive: true }, { isActive: { $exists: false } }]
+      }
+
+      if (!includeZeroPrice) {
+        query.$and = [{ $or: [{ price: { $gt: 0 } }, { offerPrice: { $gt: 0 } }] }]
       }
 
       console.log("Fetching products for brand XML with query:", JSON.stringify(query))
@@ -929,7 +983,7 @@ router.get(
     <title><![CDATA[GrabA2Z ${brand.name} Products]]></title>
     <link>https://www.grabatoz.ae</link>
     <description><![CDATA[GrabA2Z ${brand.name} Product Feed - Total: ${totalCount} products]]></description>
-    <language>en</language>
+    <language>${feedLanguage}</language>
     <lastBuildDate>${new Date().toUTCString()}</lastBuildDate>
 `
 
@@ -950,7 +1004,7 @@ router.get(
 
           // Escape & in slug for valid XML URLs
           const cleanSlug = (product.slug || product._id.toString()).replace(/&/g, '%26')
-          const productUrl = `https://www.grabatoz.ae/product/${cleanSlug}`
+          const productUrl = buildProductUrl(cleanSlug, feedLanguage)
           
           // Escape & in image URLs for valid XML
           let imageUrl = product.image
@@ -972,8 +1026,10 @@ router.get(
             price = product.offerPrice
           } else if (product.price && product.price > 0) {
             price = product.price
-          } else {
+          } else if (includeZeroPrice) {
             price = 1
+          } else {
+            continue
           }
 
           const salePrice =
@@ -982,17 +1038,24 @@ router.get(
               : null
 
           // Clean and limit description
-          const cleanDescription = truncateDescription(
-            product.description || product.shortDescription || product.name || "No description available"
-          )
+          const localizedName = getLocalizedValue(product, "name", feedLanguage) || product.name
+          const localizedDescription = getLocalizedValue(product, "description", feedLanguage)
+            || getLocalizedValue(product, "shortDescription", feedLanguage)
+            || product.description
+            || product.shortDescription
+            || localizedName
+            || "No description available"
+          const cleanDescription = truncateDescription(localizedDescription)
 
           // Truncate title
-          const truncatedTitle = truncateTitle(product.name)
+          const truncatedTitle = truncateTitle(localizedName)
 
-          const googleProductCategory = determineGoogleCategory(product.parentCategory?.name, product.category?.name)
+          const parentCategoryName = getLocalizedValue(product.parentCategory, "name", feedLanguage) || product.parentCategory?.name
+          const categoryName = getLocalizedValue(product.category, "name", feedLanguage) || product.category?.name
+          const googleProductCategory = determineGoogleCategory(parentCategoryName, categoryName)
           const productType =
-            (product.parentCategory?.name || "Uncategorized") +
-            (product.category?.name ? ` > ${product.category.name}` : "")
+            (parentCategoryName || "Uncategorized") +
+            (categoryName ? ` > ${categoryName}` : "")
 
           // Check if product has valid identifiers
           const hasGtin = product.gtin && product.gtin.trim() !== ''
@@ -1017,9 +1080,10 @@ router.get(
       <g:availability>${availability}</g:availability>
       <g:condition>new</g:condition>`
 
-          if (product.brand?.name) {
+          const brandName = getLocalizedValue(product.brand, "name", feedLanguage) || product.brand?.name
+          if (brandName) {
             xml += `
-      <g:brand><![CDATA[${cleanForCDATA(product.brand.name)}]]></g:brand>`
+      <g:brand><![CDATA[${cleanForCDATA(brandName)}]]></g:brand>`
           }
 
           if (product.gtin) {
