@@ -36,6 +36,17 @@ const normalizePath = (path = "") => {
   return path.startsWith("/") ? path : `/${path}`
 }
 
+const createRouteSlug = (value = "") => {
+  return value
+    .toString()
+    .toLowerCase()
+    .trim()
+    .replace(/[^\w\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "")
+}
+
 const withLocales = (path = "") => {
   const normalizedPath = normalizePath(path)
   return localePrefixes.map((prefix) => `${prefix}${normalizedPath}`)
@@ -61,8 +72,9 @@ const buildSubcategoryPath = (subCategory, categorySlugById, subById) => {
     if (!currentId || seen.has(currentId)) return null
     seen.add(currentId)
 
-    if (!current.slug) return null
-    segments.unshift(current.slug)
+    const routeSlug = createRouteSlug(current.name) || createRouteSlug(current.slug)
+    if (!routeSlug) return null
+    segments.unshift(routeSlug)
 
     const parentId = toId(current.parentSubCategory)
     if (!parentId) break
@@ -87,9 +99,9 @@ const buildSitemapXml = async () => {
   const [products, categories, subCategories, brands, blogs, blogCategories, offerPages, gamingZonePages] =
     await Promise.all([
       Product.find({ isActive: true, isDeleted: { $ne: true } }).select("slug updatedAt").lean(),
-      Category.find({ isActive: true, isDeleted: { $ne: true } }).select("_id slug updatedAt").lean(),
+      Category.find({ isActive: true, isDeleted: { $ne: true } }).select("_id slug name updatedAt").lean(),
       SubCategory.find({ isActive: true, isDeleted: { $ne: true } })
-        .select("_id slug updatedAt category parentSubCategory")
+        .select("_id slug name updatedAt category parentSubCategory")
         .lean(),
       Brand.find({ isActive: true, isDeleted: { $ne: true } }).select("slug name updatedAt").lean(),
       Blog.find({ status: "published" }).select("slug updatedAt").lean(),
@@ -158,13 +170,18 @@ const buildSitemapXml = async () => {
     })
   }
 
-  const categorySlugById = new Map(categories.filter((c) => c.slug).map((c) => [toId(c._id), c.slug]))
+  const categorySlugById = new Map(
+    categories
+      .map((category) => [toId(category._id), createRouteSlug(category.slug) || createRouteSlug(category.name)])
+      .filter(([, slug]) => Boolean(slug)),
+  )
   const subById = new Map(subCategories.map((s) => [toId(s._id), s]))
 
   for (const category of categories) {
-    if (!category.slug) continue
+    const categoryPathSlug = createRouteSlug(category.slug) || createRouteSlug(category.name)
+    if (!categoryPathSlug) continue
     addEntry({
-      path: `/product-category/${category.slug}`,
+      path: `/product-category/${categoryPathSlug}`,
       lastmod: category.updatedAt,
       changefreq: "weekly",
       priority: "0.7",
