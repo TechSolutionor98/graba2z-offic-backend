@@ -207,6 +207,75 @@ function escapeRegex(string) {
   return string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }
 
+function normalizeAdminStockStatus(value) {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[-\s]+/g, " ")
+
+  if (normalized === "in stock" || normalized === "instock") return "In Stock"
+  if (normalized === "out of stock" || normalized === "outofstock") return "Out of Stock"
+  if (normalized === "preorder" || normalized === "pre order") return "PreOrder"
+  return null
+}
+
+function buildAdminStockStatusMatcher(normalizedStockStatus) {
+  if (normalizedStockStatus === "In Stock") return /^in\s*-?\s*stock$/i
+  if (normalizedStockStatus === "Out of Stock") return /^out\s*-?\s*of\s*-?\s*stock$/i
+  if (normalizedStockStatus === "PreOrder") return /^pre\s*-?\s*order$/i
+  return null
+}
+
+function buildAdminStockStatusQuery(normalizedStockStatus) {
+  if (!normalizedStockStatus) return null
+
+  if (normalizedStockStatus === "In Stock") {
+    return {
+      $or: [
+        { stockStatus: /^in\s*-?\s*stock$/i },
+        { stockStatus: /^available(\s*product)?$/i },
+        { stockStatus: { $exists: false }, countInStock: { $gt: 0 } },
+        { stockStatus: null, countInStock: { $gt: 0 } },
+        { stockStatus: "", countInStock: { $gt: 0 } },
+      ],
+    }
+  }
+
+  if (normalizedStockStatus === "Out of Stock") {
+    return {
+      $or: [
+        { stockStatus: /^out\s*-?\s*of\s*-?\s*stock$/i },
+        { stockStatus: /^stock\s*out$/i },
+        { stockStatus: { $exists: false }, countInStock: { $lte: 0 } },
+        { stockStatus: null, countInStock: { $lte: 0 } },
+        { stockStatus: "", countInStock: { $lte: 0 } },
+      ],
+    }
+  }
+
+  if (normalizedStockStatus === "PreOrder") {
+    return {
+      $or: [{ stockStatus: /^pre\s*-?\s*order$/i }],
+    }
+  }
+
+  const fallbackMatcher = buildAdminStockStatusMatcher(normalizedStockStatus)
+  if (!fallbackMatcher) return null
+  return { $or: [{ stockStatus: fallbackMatcher }] }
+}
+
+function resolveAdminStockStatusFromQuery(query = {}) {
+  const rawValue =
+    query.stockStatus ??
+    query.stockstatus ??
+    query.status ??
+    query.stock_status
+
+  if (rawValue === undefined || rawValue === null) return null
+  const normalized = normalizeAdminStockStatus(rawValue)
+  return normalized || null
+}
+
 // @desc    Fetch all products (Admin only - includes inactive)
 // @route   GET /api/products/admin
 // @access  Private/Admin
@@ -214,6 +283,7 @@ router.get("/admin", protect, admin, async (req, res) => {
   try {
     const { search, category, subcategory, subCategory2, subCategory3, subCategory4, parentCategory, brand, isActive, onHold, limit = 20, page = 1 } = req.query
     const query = {}
+    const andConditions = []
     const orConditions = []
 
     if (category) query.category = category
@@ -234,6 +304,13 @@ router.get("/admin", protect, admin, async (req, res) => {
       query.onHold = onHold === "true" || onHold === true
     }
 
+    // Add stock status filter if provided
+    const normalizedStockStatus = resolveAdminStockStatusFromQuery(req.query)
+    if (normalizedStockStatus) {
+      const stockStatusCondition = buildAdminStockStatusQuery(normalizedStockStatus)
+      if (stockStatusCondition) andConditions.push(stockStatusCondition)
+    }
+
     if (typeof search === "string" && search.trim() !== "") {
       const safeSearch = escapeRegex(search)
       const regex = new RegExp(safeSearch, "i")
@@ -249,14 +326,14 @@ router.get("/admin", protect, admin, async (req, res) => {
         { brand: { $in: brandIds } },
       )
     }
-    if (orConditions.length > 0) {
-      query.$or = orConditions
-    }
+    if (orConditions.length > 0) andConditions.push({ $or: orConditions })
+
+    const finalQuery = andConditions.length > 0 ? { ...query, $and: andConditions } : query
 
     // Get total count for pagination
-    const totalCount = await Product.countDocuments(query)
+    const totalCount = await Product.countDocuments(finalQuery)
 
-    let productsQuery = Product.find(query)
+    let productsQuery = Product.find(finalQuery)
       .populate("brand", "name nameAr slug")
       .populate("category", "name nameAr slug")
       .populate("subCategory", "name nameAr slug")
@@ -290,6 +367,7 @@ router.get("/admin/count", protect, admin, async (req, res) => {
   try {
     const { search, category, subcategory, subCategory2, subCategory3, subCategory4, parentCategory, brand, isActive, onHold } = req.query
     const query = {}
+    const andConditions = []
     const orConditions = []
 
     if (category) query.category = category
@@ -310,6 +388,13 @@ router.get("/admin/count", protect, admin, async (req, res) => {
       query.onHold = onHold === "true" || onHold === true
     }
 
+    // Add stock status filter if provided
+    const normalizedStockStatus = resolveAdminStockStatusFromQuery(req.query)
+    if (normalizedStockStatus) {
+      const stockStatusCondition = buildAdminStockStatusQuery(normalizedStockStatus)
+      if (stockStatusCondition) andConditions.push(stockStatusCondition)
+    }
+
     if (typeof search === "string" && search.trim() !== "") {
       const safeSearch = escapeRegex(search)
       const regex = new RegExp(safeSearch, "i")
@@ -325,12 +410,12 @@ router.get("/admin/count", protect, admin, async (req, res) => {
         { brand: { $in: brandIds } },
       )
     }
-    if (orConditions.length > 0) {
-      query.$or = orConditions
-    }
+    if (orConditions.length > 0) andConditions.push({ $or: orConditions })
+
+    const finalQuery = andConditions.length > 0 ? { ...query, $and: andConditions } : query
 
     // Get only the count - much faster than fetching products
-    const totalCount = await Product.countDocuments(query)
+    const totalCount = await Product.countDocuments(finalQuery)
     res.json({ totalCount })
   } catch (error) {
     console.error(error)
@@ -711,7 +796,7 @@ router.put(
   }),
 )
 
-// @desc    Bulk update product status (active/inactive/onhold)
+// @desc    Bulk update product status (stock status and/or active/onhold flags)
 // @route   PUT /api/products/bulk-status
 // @access  Private/Admin
 router.put(
@@ -722,7 +807,7 @@ router.put(
     try {
       console.log('Bulk status update request received:', req.body)
       
-      const { productIds, isActive, onHold } = req.body
+      const { productIds, isActive, onHold, stockStatus } = req.body
 
       if (!productIds || !Array.isArray(productIds) || productIds.length === 0) {
         res.status(400)
@@ -740,9 +825,20 @@ router.put(
         updateData.onHold = onHold
       }
 
+      if (stockStatus !== undefined && stockStatus !== null && String(stockStatus).trim() !== "") {
+        const normalizedStockStatus = normalizeAdminStockStatus(stockStatus)
+        if (!normalizedStockStatus) {
+          res.status(400)
+          throw new Error("Invalid stockStatus value. Allowed values: In Stock, Out of Stock, PreOrder")
+        }
+        updateData.stockStatus = normalizedStockStatus
+        const translatedStockStatus = await translateText(normalizedStockStatus)
+        updateData.stockStatusAr = translatedStockStatus || normalizedStockStatus
+      }
+
       if (Object.keys(updateData).length === 0) {
         res.status(400)
-        throw new Error("At least one status field (isActive or onHold) is required")
+        throw new Error("At least one status field (stockStatus, isActive, or onHold) is required")
       }
 
       console.log('Updating products with status:', updateData)
@@ -761,7 +857,9 @@ router.put(
 
       // Determine status message
       let statusMessage = ""
-      if (updateData.onHold === true) {
+      if (updateData.stockStatus) {
+        statusMessage = `set stock status to ${updateData.stockStatus === "PreOrder" ? "Pre Order" : updateData.stockStatus}`
+      } else if (updateData.onHold === true) {
         statusMessage = "hidden from shop"
       } else if (updateData.isActive === true) {
         statusMessage = "activated"
