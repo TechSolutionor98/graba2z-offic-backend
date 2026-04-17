@@ -29,7 +29,7 @@ const router = express.Router()
  */
 router.get(
   "/",
-  cacheMiddleware("homeSections", { ttl: 300, keyPrefix: "v2-banner-fields" }), // Cache for 5 minutes
+  cacheMiddleware("homeSections", { ttl: 300, keyPrefix: "v3-home-product-categories" }), // Cache for 5 minutes
   asyncHandler(async (req, res) => {
     const startTime = Date.now()
 
@@ -78,9 +78,16 @@ router.get(
         featured: true,
         hideFromShop: { $ne: true }
       })
-        .select('name nameAr slug sku price offerPrice discount image stockStatus stockStatusAr countInStock brand category rating numReviews')
+        .select(
+          'name nameAr slug sku price offerPrice discount image stockStatus stockStatusAr countInStock brand category subCategory parentCategory subCategory2 subCategory3 subCategory4 rating numReviews',
+        )
         .populate('brand', 'name nameAr slug')
         .populate('category', 'name nameAr slug')
+        .populate('subCategory', 'name nameAr slug')
+        .populate('parentCategory', 'name nameAr slug')
+        .populate('subCategory2', 'name nameAr slug')
+        .populate('subCategory3', 'name nameAr slug')
+        .populate('subCategory4', 'name nameAr slug')
         .sort({ 
           // In-stock products first
           stockStatus: 1,
@@ -107,8 +114,16 @@ router.get(
         hideFromShop: { $ne: true },
         brand: brandId
       })
-        .select('name nameAr slug sku price offerPrice discount image stockStatus stockStatusAr countInStock brand')
+        .select(
+          'name nameAr slug sku price offerPrice discount image stockStatus stockStatusAr countInStock brand category subCategory parentCategory subCategory2 subCategory3 subCategory4 rating numReviews',
+        )
         .populate('brand', 'name nameAr slug')
+        .populate('category', 'name nameAr slug')
+        .populate('subCategory', 'name nameAr slug')
+        .populate('parentCategory', 'name nameAr slug')
+        .populate('subCategory2', 'name nameAr slug')
+        .populate('subCategory3', 'name nameAr slug')
+        .populate('subCategory4', 'name nameAr slug')
         .sort({ stockStatus: 1, createdAt: -1 })
         .limit(4)
         .lean()
@@ -179,9 +194,16 @@ router.get(
 
     const [products, total] = await Promise.all([
       Product.find(query)
-        .select('name nameAr slug sku price offerPrice discount image stockStatus stockStatusAr countInStock brand category rating numReviews')
+        .select(
+          'name nameAr slug sku price offerPrice discount image stockStatus stockStatusAr countInStock brand category subCategory parentCategory subCategory2 subCategory3 subCategory4 rating numReviews',
+        )
         .populate('brand', 'name nameAr slug')
         .populate('category', 'name nameAr slug')
+        .populate('subCategory', 'name nameAr slug')
+        .populate('parentCategory', 'name nameAr slug')
+        .populate('subCategory2', 'name nameAr slug')
+        .populate('subCategory3', 'name nameAr slug')
+        .populate('subCategory4', 'name nameAr slug')
         .sort({ stockStatus: 1, createdAt: -1 })
         .skip(skip)
         .limit(parseInt(limit))
