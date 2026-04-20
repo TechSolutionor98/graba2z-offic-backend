@@ -483,11 +483,35 @@ import { protect, admin } from "../middleware/authMiddleware.js"
 import { deleteLocalFile, isCloudinaryUrl } from "../config/multer.js"
 import { logActivity } from "../middleware/permissionMiddleware.js"
 import { translateEnToAr } from "../utils/translateWithFallback.js"
-import { cacheMiddleware } from "../middleware/cacheMiddleware.js"
+import { cacheMiddleware, invalidateCache } from "../middleware/cacheMiddleware.js"
 
 const router = express.Router()
 
 const translateText = translateEnToAr
+
+const normalizeSlug = (value = "") =>
+  String(value)
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+
+const buildUniqueSubCategorySlug = async (baseSlug, excludeId = null) => {
+  let nextSlug = baseSlug
+  let counter = 1
+
+  while (
+    await SubCategory.findOne({
+      slug: nextSlug,
+      ...(excludeId ? { _id: { $ne: excludeId } } : {}),
+    })
+  ) {
+    nextSlug = `${baseSlug}-${counter}`
+    counter += 1
+  }
+
+  return nextSlug
+}
 
 // Helper function to extract media URLs from HTML description (TipTap content)
 const extractMediaUrlsFromHtml = (html) => {
@@ -830,32 +854,24 @@ router.post(
         throw new Error("Subcategory with this name already exists")
       }
 
-      // Generate slug if not provided
-      let baseSlug = slug || name.trim().toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-+|-+$/g, "")
-      
-      // Build the full context-aware slug
-      // For level 1: category-slug-subcategory-name
-      // For level 2+: parent-slug-subcategory-name
-      let contextPrefix = ""
-      if (parentSubCategory && parentSub) {
-        // For nested subcategories, use parent's slug as prefix
-        contextPrefix = `${parentSub.slug}-`
-      } else if (parentCategory) {
-        // For level 1 subcategories, use category slug as prefix
-        contextPrefix = `${parentCategory.slug}-`
-      }
-      
-      let subCategorySlug = `${contextPrefix}${baseSlug}`
+      const normalizedName = name.trim()
+      const manualSlug = normalizeSlug(slug || "")
+      const autoSlug = normalizeSlug(normalizedName)
 
-      // Check if slug already exists and make it unique
-      let slugExists = await SubCategory.findOne({ slug: subCategorySlug, isDeleted: { $ne: true } })
-      let counter = 1
-      while (slugExists) {
-        subCategorySlug = `${contextPrefix}${baseSlug}-${counter}`
-        slugExists = await SubCategory.findOne({ slug: subCategorySlug, isDeleted: { $ne: true } })
-        counter++
+      if (!autoSlug) {
+        res.status(400)
+        throw new Error("Unable to generate a valid slug from subcategory name")
+      }
+
+      let subCategorySlug = manualSlug
+      if (manualSlug) {
+        const existingSlug = await SubCategory.findOne({ slug: manualSlug })
+        if (existingSlug) {
+          res.status(400)
+          throw new Error("Subcategory slug already exists")
+        }
+      } else {
+        subCategorySlug = await buildUniqueSubCategorySlug(autoSlug)
       }
 
       // Determine level automatically if not provided
@@ -865,11 +881,11 @@ router.post(
       }
 
       // Translate only user-facing fields
-      const nameAr = await translateText(name.trim());
+      const nameAr = await translateText(normalizedName);
       const descriptionAr = await translateText(description || "");
 
       const subcategory = new SubCategory({
-        name: name.trim(),
+        name: normalizedName,
         nameAr,
         description: description || "",
         descriptionAr,
@@ -909,6 +925,8 @@ router.post(
       
       // Log activity
       await logActivity(req, "CREATE", "SUBCATEGORIES", `Created subcategory: ${createdSubCategory.name}`, createdSubCategory._id, createdSubCategory.name)
+
+      await invalidateCache(["categories", "subCategories", "products"])
       
       console.log('Subcategory created successfully:', responseData)
       res.status(201).json(responseData)
@@ -948,6 +966,7 @@ router.put(
       console.log('Updating subcategory with data:', req.body)
 
       const subcategory = await SubCategory.findById(req.params.id)
+      const normalizedName = name?.trim()
 
       if (!subcategory || subcategory.isDeleted) {
         res.status(404)
@@ -955,10 +974,10 @@ router.put(
       }
 
       // Check if another subcategory with same name exists (excluding current)
-      if (name && name.trim() !== subcategory.name) {
+      if (normalizedName && normalizedName !== subcategory.name) {
         const parentSubCategoryId = parentSubCategory !== undefined ? parentSubCategory : subcategory.parentSubCategory
         const existingSubCategory = await SubCategory.findOne({
-          name: { $regex: new RegExp(`^${name.trim()}$`, "i") },
+          name: { $regex: new RegExp(`^${normalizedName}$`, "i") },
           category: category || subcategory.category,
           parentSubCategory: parentSubCategoryId || null,
           _id: { $ne: req.params.id },
@@ -995,54 +1014,37 @@ router.put(
         }
       }
 
-      // Handle slug update
       let newSlug = subcategory.slug
-      const shouldUpdateSlug = (slug && slug !== subcategory.slug) || (name && name.trim() !== subcategory.name)
-      
-      if (shouldUpdateSlug) {
-        // Generate base slug
-        let baseSlug = slug || (name ? name.trim().toLowerCase()
-          .replace(/[^a-z0-9]+/g, "-")
-          .replace(/^-+|-+$/g, "") : subcategory.slug.split('-').pop())
-        
-        // Build context prefix based on parent
-        let contextPrefix = ""
-        const updatedParentSubCategory = parentSubCategory !== undefined ? parentSubCategory : subcategory.parentSubCategory
-        const updatedCategory = category || subcategory.category
-        
-        if (updatedParentSubCategory) {
-          const parentSub = await SubCategory.findById(updatedParentSubCategory)
-          if (parentSub) {
-            contextPrefix = `${parentSub.slug}-`
-          }
-        } else {
-          const parentCat = await Category.findById(updatedCategory)
-          if (parentCat && parentCat.slug) {
-            contextPrefix = `${parentCat.slug}-`
-          }
+      if (slug !== undefined) {
+        const normalizedManualSlug = normalizeSlug(slug || "")
+        if (!normalizedManualSlug) {
+          res.status(400)
+          throw new Error("Subcategory slug is required")
         }
-        
-        newSlug = `${contextPrefix}${baseSlug}`
-        
-        // Check if new slug already exists and make it unique
-        let slugExists = await SubCategory.findOne({ 
-          slug: newSlug, 
-          _id: { $ne: req.params.id },
-          isDeleted: { $ne: true }
-        })
-        let counter = 1
-        while (slugExists) {
-          newSlug = `${contextPrefix}${baseSlug}-${counter}`
-          slugExists = await SubCategory.findOne({ 
-            slug: newSlug, 
+
+        if (normalizedManualSlug !== subcategory.slug) {
+          const existingSlug = await SubCategory.findOne({
+            slug: normalizedManualSlug,
             _id: { $ne: req.params.id },
-            isDeleted: { $ne: true }
           })
-          counter++
+
+          if (existingSlug) {
+            res.status(400)
+            throw new Error("Subcategory slug already exists")
+          }
+
+          newSlug = normalizedManualSlug
+        } else if (normalizedName && normalizedName !== subcategory.name) {
+          const autoSlug = normalizeSlug(normalizedName)
+          if (!autoSlug) {
+            res.status(400)
+            throw new Error("Unable to generate a valid slug from subcategory name")
+          }
+          newSlug = await buildUniqueSubCategorySlug(autoSlug, req.params.id)
         }
       }
 
-      subcategory.name = name?.trim() || subcategory.name
+      subcategory.name = normalizedName || subcategory.name
       subcategory.description = description !== undefined ? description : subcategory.description
       subcategory.seoContent = seoContent !== undefined ? seoContent : subcategory.seoContent
       subcategory.metaTitle = metaTitle !== undefined ? metaTitle : subcategory.metaTitle
@@ -1085,6 +1087,8 @@ router.put(
       
       // Log activity
       await logActivity(req, "UPDATE", "SUBCATEGORIES", `Updated subcategory: ${updatedSubCategory.name}`, updatedSubCategory._id, updatedSubCategory.name)
+
+      await invalidateCache(["categories", "subCategories", "products"])
       
       console.log('Subcategory updated successfully:', responseData)
       res.json(responseData)

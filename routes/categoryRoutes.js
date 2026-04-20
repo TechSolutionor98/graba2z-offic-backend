@@ -13,6 +13,30 @@ const router = express.Router()
 
 const translateText = translateEnToAr
 
+const normalizeSlug = (value = "") =>
+  String(value)
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+
+const buildUniqueCategorySlug = async (baseSlug, excludeId = null) => {
+  let nextSlug = baseSlug
+  let counter = 1
+
+  while (
+    await Category.findOne({
+      slug: nextSlug,
+      ...(excludeId ? { _id: { $ne: excludeId } } : {}),
+    })
+  ) {
+    nextSlug = `${baseSlug}-${counter}`
+    counter += 1
+  }
+
+  return nextSlug
+}
+
 // Helper function to extract media URLs from HTML description (TipTap content)
 const extractMediaUrlsFromHtml = (html) => {
   const urls = []
@@ -465,15 +489,32 @@ router.post(
       throw new Error("Category with this name already exists")
     }
 
-    // Generate slug if not provided
-    const categorySlug = slug || name.trim().toLowerCase().replace(/\s+/g, "-")
+    const normalizedName = name.trim()
+    const manualSlug = normalizeSlug(slug || "")
+    const autoSlug = normalizeSlug(normalizedName)
+
+    if (!autoSlug) {
+      res.status(400)
+      throw new Error("Unable to generate a valid slug from category name")
+    }
+
+    let categorySlug = manualSlug
+    if (manualSlug) {
+      const existingSlug = await Category.findOne({ slug: manualSlug })
+      if (existingSlug) {
+        res.status(400)
+        throw new Error("Category slug already exists")
+      }
+    } else {
+      categorySlug = await buildUniqueCategorySlug(autoSlug)
+    }
 
     // Translate only user-facing fields
-    const nameAr = await translateText(name.trim());
+    const nameAr = await translateText(normalizedName);
     const descriptionAr = await translateText(description || "");
 
     const category = new Category({
-      name: name.trim(),
+      name: normalizedName,
       nameAr,
       description: description || "",
       descriptionAr,
@@ -527,10 +568,14 @@ router.put(
     const category = await Category.findById(req.params.id)
 
     if (category) {
+      const previousName = category.name
+      const previousSlug = category.slug
+      const normalizedName = name?.trim()
+
       // Check if another category with same name exists (excluding current)
-      if (name && name.trim() !== category.name) {
+      if (normalizedName && normalizedName !== category.name) {
         const existingCategory = await Category.findOne({
-          name: { $regex: new RegExp(`^${name.trim()}$`, "i") },
+          name: { $regex: new RegExp(`^${normalizedName}$`, "i") },
           _id: { $ne: req.params.id },
         })
 
@@ -540,7 +585,39 @@ router.put(
         }
       }
 
-      category.name = name?.trim() || category.name
+      let nextSlug = category.slug
+      const manualSlugProvided = slug !== undefined
+
+      if (manualSlugProvided) {
+        const normalizedManualSlug = normalizeSlug(slug || "")
+        if (!normalizedManualSlug) {
+          res.status(400)
+          throw new Error("Category slug is required")
+        }
+
+        if (normalizedManualSlug !== category.slug) {
+          const existingSlug = await Category.findOne({
+            slug: normalizedManualSlug,
+            _id: { $ne: req.params.id },
+          })
+
+          if (existingSlug) {
+            res.status(400)
+            throw new Error("Category slug already exists")
+          }
+
+          nextSlug = normalizedManualSlug
+        } else if (normalizedName && normalizedName !== category.name) {
+          const autoSlug = normalizeSlug(normalizedName)
+          if (!autoSlug) {
+            res.status(400)
+            throw new Error("Unable to generate a valid slug from category name")
+          }
+          nextSlug = await buildUniqueCategorySlug(autoSlug, req.params.id)
+        }
+      }
+
+      category.name = normalizedName || category.name
       category.description = description !== undefined ? description : category.description
       category.seoContent = seoContent !== undefined ? seoContent : category.seoContent
       category.metaTitle = metaTitle !== undefined ? metaTitle : category.metaTitle
@@ -548,7 +625,7 @@ router.put(
       category.customSchema = customSchema !== undefined ? customSchema : category.customSchema
       category.redirectUrl = redirectUrl !== undefined ? redirectUrl : category.redirectUrl
       category.image = image !== undefined ? image : category.image
-      category.slug = slug || category.slug
+      category.slug = nextSlug
       category.isActive = isActive !== undefined ? isActive : category.isActive
       category.showInSlider = showInSlider !== undefined ? showInSlider : category.showInSlider
 
@@ -561,7 +638,6 @@ router.put(
       category.metaTitleAr = "";
       category.metaDescriptionAr = "";
 
-      const previousName = category.name
       const updatedCategory = await category.save()
       
       // Log activity
@@ -573,8 +649,8 @@ router.put(
           description: `Updated category: ${updatedCategory.name}`,
           targetId: updatedCategory._id.toString(),
           targetName: updatedCategory.name,
-          previousData: { name: previousName },
-          newData: { name, isActive },
+          previousData: { name: previousName, slug: previousSlug },
+          newData: { name: updatedCategory.name, slug: updatedCategory.slug, isActive: updatedCategory.isActive },
           req,
         })
       }
