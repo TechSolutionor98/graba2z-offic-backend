@@ -496,14 +496,22 @@ const normalizeSlug = (value = "") =>
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
 
-const buildUniqueSubCategorySlug = async (baseSlug, excludeId = null) => {
+const buildSlugScopeQuery = ({ category, parentSubCategory, level, excludeId = null }) => ({
+  category,
+  parentSubCategory: parentSubCategory || null,
+  level,
+  isDeleted: { $ne: true },
+  ...(excludeId ? { _id: { $ne: excludeId } } : {}),
+})
+
+const buildUniqueSubCategorySlug = async (baseSlug, { category, parentSubCategory, level, excludeId = null }) => {
   let nextSlug = baseSlug
   let counter = 1
 
   while (
     await SubCategory.findOne({
+      ...buildSlugScopeQuery({ category, parentSubCategory, level, excludeId }),
       slug: nextSlug,
-      ...(excludeId ? { _id: { $ne: excludeId } } : {}),
     })
   ) {
     nextSlug = `${baseSlug}-${counter}`
@@ -511,6 +519,74 @@ const buildUniqueSubCategorySlug = async (baseSlug, excludeId = null) => {
   }
 
   return nextSlug
+}
+
+const buildDuplicateKeyMessage = (keyPattern = {}) => {
+  const duplicateFields = Object.keys(keyPattern || {})
+
+  if (duplicateFields.length === 1 && duplicateFields[0] === "slug") {
+    return "Subcategory slug already exists because of a legacy global slug index. Please run subcategory slug index migration."
+  }
+
+  if (duplicateFields.includes("slug")) {
+    return "Subcategory slug already exists under the same parent and level"
+  }
+
+  const field = duplicateFields[0] || "Field"
+  return `${field} already exists. Please use a different value.`
+}
+
+const logSubCategoryRequestFailure = (action, context, error) => {
+  console.error(`[SubCategory:${action}] failed`, {
+    context,
+    message: error?.message,
+    code: error?.code,
+    keyPattern: error?.keyPattern,
+    keyValue: error?.keyValue,
+  })
+}
+
+const syncProductSnapshotsForSubCategory = async (subCategoryDoc) => {
+  const subCategoryId = subCategoryDoc?._id
+  const nextName = subCategoryDoc?.name || ""
+  const nextSlug = subCategoryDoc?.slug || ""
+
+  if (!subCategoryId) return []
+
+  const syncOperations = [
+    {
+      label: "level1",
+      query: { $or: [{ category: subCategoryId }, { subCategory: subCategoryId }] },
+      set: { categoryName: nextName, categorySlug: nextSlug },
+    },
+    {
+      label: "level2",
+      query: { subCategory2: subCategoryId },
+      set: { subCategory2Name: nextName, subCategory2Slug: nextSlug },
+    },
+    {
+      label: "level3",
+      query: { subCategory3: subCategoryId },
+      set: { subCategory3Name: nextName, subCategory3Slug: nextSlug },
+    },
+    {
+      label: "level4",
+      query: { subCategory4: subCategoryId },
+      set: { subCategory4Name: nextName, subCategory4Slug: nextSlug },
+    },
+  ]
+
+  const results = []
+  for (const operation of syncOperations) {
+    const updateResult = await Product.updateMany(operation.query, { $set: operation.set })
+    results.push({
+      label: operation.label,
+      matchedCount: updateResult.matchedCount,
+      modifiedCount: updateResult.modifiedCount,
+    })
+  }
+
+  return results
 }
 
 // Helper function to extract media URLs from HTML description (TipTap content)
@@ -804,10 +880,19 @@ router.post(
   protect,
   admin,
   asyncHandler(async (req, res) => {
+    let failureContext = {}
     try {
       const { name, description, seoContent, metaTitle, metaDescription, customSchema, redirectUrl, category, parentSubCategory, level, image, slug } = req.body
+      const parsedLevel = level !== undefined && level !== null && level !== "" ? Number(level) : undefined
 
       console.log('Creating subcategory with data:', req.body)
+      failureContext = {
+        category: category || null,
+        parentSubCategory: parentSubCategory || null,
+        level: parsedLevel ?? null,
+        slug: slug || null,
+        name: name || null,
+      }
 
       if (!name || name.trim() === "") {
         res.status(400)
@@ -834,29 +919,48 @@ router.post(
           res.status(400)
           throw new Error("Parent subcategory not found")
         }
-        // Ensure level is appropriate (parent level + 1)
-        if (level && level <= parentSub.level) {
+        if (String(parentSub.category) !== String(category)) {
           res.status(400)
-          throw new Error("Level must be greater than parent subcategory level")
+          throw new Error("Selected parent subcategory does not belong to the selected category")
+        }
+        // Ensure level is exactly parent level + 1
+        if (parsedLevel !== undefined && parsedLevel !== parentSub.level + 1) {
+          res.status(400)
+          throw new Error("Level must be exactly one level deeper than parent subcategory")
         }
       }
 
-      // Check if subcategory with same name already exists in this category/parent
+      // Determine level automatically if not provided
+      let subcategoryLevel = parsedLevel || 1
+      if (parentSubCategory && parsedLevel === undefined) {
+        subcategoryLevel = parentSub.level + 1
+      }
+      failureContext.level = subcategoryLevel
+
+      if (subcategoryLevel > 1 && !parentSubCategory) {
+        res.status(400)
+        throw new Error(`Parent subcategory is required for level ${subcategoryLevel}`)
+      }
+
+      // Check if subcategory with same name already exists in this category/parent/level scope
       const existingSubCategory = await SubCategory.findOne({
         name: { $regex: new RegExp(`^${name.trim()}$`, "i") },
         category: category,
         parentSubCategory: parentSubCategory || null,
+        level: subcategoryLevel,
         isDeleted: { $ne: true }
       })
 
       if (existingSubCategory) {
         res.status(400)
-        throw new Error("Subcategory with this name already exists")
+        throw new Error("Subcategory with this name already exists under the same parent")
       }
 
       const normalizedName = name.trim()
       const manualSlug = normalizeSlug(slug || "")
       const autoSlug = normalizeSlug(normalizedName)
+      failureContext.slug = manualSlug || autoSlug || null
+      failureContext.name = normalizedName
 
       if (!autoSlug) {
         res.status(400)
@@ -865,19 +969,24 @@ router.post(
 
       let subCategorySlug = manualSlug
       if (manualSlug) {
-        const existingSlug = await SubCategory.findOne({ slug: manualSlug })
+        const existingSlug = await SubCategory.findOne({
+          ...buildSlugScopeQuery({
+            category,
+            parentSubCategory: parentSubCategory || null,
+            level: subcategoryLevel,
+          }),
+          slug: manualSlug,
+        })
         if (existingSlug) {
           res.status(400)
-          throw new Error("Subcategory slug already exists")
+          throw new Error("Subcategory slug already exists under the same parent and level")
         }
       } else {
-        subCategorySlug = await buildUniqueSubCategorySlug(autoSlug)
-      }
-
-      // Determine level automatically if not provided
-      let subcategoryLevel = level || 1
-      if (parentSubCategory && !level) {
-        subcategoryLevel = parentSub.level + 1
+        subCategorySlug = await buildUniqueSubCategorySlug(autoSlug, {
+          category,
+          parentSubCategory: parentSubCategory || null,
+          level: subcategoryLevel,
+        })
       }
 
       // Translate only user-facing fields
@@ -931,6 +1040,7 @@ router.post(
       console.log('Subcategory created successfully:', responseData)
       res.status(201).json(responseData)
     } catch (error) {
+      logSubCategoryRequestFailure("CREATE", failureContext, error)
       console.error('Error creating subcategory:', error)
       
       // Handle Mongoose validation errors
@@ -942,9 +1052,8 @@ router.post(
       
       // Handle duplicate key errors
       if (error.code === 11000) {
-        const field = Object.keys(error.keyPattern)[0]
         res.status(400)
-        throw new Error(`${field} already exists. Please use a different value.`)
+        throw new Error(buildDuplicateKeyMessage(error.keyPattern))
       }
       
       throw error
@@ -960,10 +1069,20 @@ router.put(
   protect,
   admin,
   asyncHandler(async (req, res) => {
+    let failureContext = { id: req.params.id }
     try {
       const { name, description, seoContent, metaTitle, metaDescription, customSchema, redirectUrl, category, parentSubCategory, level, image, slug, isActive, showInSlider } = req.body
+      const parsedLevel = level !== undefined && level !== null && level !== "" ? Number(level) : undefined
 
       console.log('Updating subcategory with data:', req.body)
+      failureContext = {
+        id: req.params.id,
+        category: category || null,
+        parentSubCategory: parentSubCategory || null,
+        level: parsedLevel ?? null,
+        slug: slug || null,
+        name: name || null,
+      }
 
       const subcategory = await SubCategory.findById(req.params.id)
       const normalizedName = name?.trim()
@@ -973,20 +1092,28 @@ router.put(
         throw new Error("Subcategory not found")
       }
 
+      const targetLevel = parsedLevel !== undefined ? parsedLevel : subcategory.level
+      const targetCategory = category || subcategory.category
+      const targetParentSubCategory =
+        parentSubCategory !== undefined ? parentSubCategory || null : subcategory.parentSubCategory || null
+      failureContext.category = String(targetCategory || "")
+      failureContext.parentSubCategory = targetParentSubCategory ? String(targetParentSubCategory) : null
+      failureContext.level = targetLevel
+
       // Check if another subcategory with same name exists (excluding current)
       if (normalizedName && normalizedName !== subcategory.name) {
-        const parentSubCategoryId = parentSubCategory !== undefined ? parentSubCategory : subcategory.parentSubCategory
         const existingSubCategory = await SubCategory.findOne({
           name: { $regex: new RegExp(`^${normalizedName}$`, "i") },
-          category: category || subcategory.category,
-          parentSubCategory: parentSubCategoryId || null,
+          category: targetCategory,
+          parentSubCategory: targetParentSubCategory,
+          level: targetLevel,
           _id: { $ne: req.params.id },
           isDeleted: { $ne: true }
         })
 
         if (existingSubCategory) {
           res.status(400)
-          throw new Error("Subcategory with this name already exists")
+          throw new Error("Subcategory with this name already exists under the same parent")
         }
       }
 
@@ -1000,18 +1127,27 @@ router.put(
       }
 
       // Validate parent subcategory if provided
-      if (parentSubCategory) {
-        const parentSub = await SubCategory.findById(parentSubCategory)
+      if (targetParentSubCategory) {
+        const parentSub = await SubCategory.findById(targetParentSubCategory)
         if (!parentSub) {
           res.status(400)
           throw new Error("Parent subcategory not found")
         }
-        // Ensure level is appropriate (parent level + 1)
-        const newLevel = level !== undefined ? level : subcategory.level
-        if (newLevel <= parentSub.level) {
+        if (String(parentSub.category) !== String(targetCategory)) {
           res.status(400)
-          throw new Error("Level must be greater than parent subcategory level")
+          throw new Error("Selected parent subcategory does not belong to the selected category")
         }
+        // Ensure level is exactly parent level + 1
+        const newLevel = targetLevel
+        if (newLevel !== parentSub.level + 1) {
+          res.status(400)
+          throw new Error("Level must be exactly one level deeper than parent subcategory")
+        }
+      }
+
+      if (targetLevel > 1 && !targetParentSubCategory) {
+        res.status(400)
+        throw new Error(`Parent subcategory is required for level ${targetLevel}`)
       }
 
       let newSlug = subcategory.slug
@@ -1024,13 +1160,18 @@ router.put(
 
         if (normalizedManualSlug !== subcategory.slug) {
           const existingSlug = await SubCategory.findOne({
+            ...buildSlugScopeQuery({
+              category: targetCategory,
+              parentSubCategory: targetParentSubCategory,
+              level: targetLevel,
+              excludeId: req.params.id,
+            }),
             slug: normalizedManualSlug,
-            _id: { $ne: req.params.id },
           })
 
           if (existingSlug) {
             res.status(400)
-            throw new Error("Subcategory slug already exists")
+            throw new Error("Subcategory slug already exists under the same parent and level")
           }
 
           newSlug = normalizedManualSlug
@@ -1040,9 +1181,27 @@ router.put(
             res.status(400)
             throw new Error("Unable to generate a valid slug from subcategory name")
           }
-          newSlug = await buildUniqueSubCategorySlug(autoSlug, req.params.id)
+          newSlug = await buildUniqueSubCategorySlug(autoSlug, {
+            category: targetCategory,
+            parentSubCategory: targetParentSubCategory,
+            level: targetLevel,
+            excludeId: req.params.id,
+          })
         }
+      } else if (normalizedName && normalizedName !== subcategory.name) {
+        const autoSlug = normalizeSlug(normalizedName)
+        if (!autoSlug) {
+          res.status(400)
+          throw new Error("Unable to generate a valid slug from subcategory name")
+        }
+        newSlug = await buildUniqueSubCategorySlug(autoSlug, {
+          category: targetCategory,
+          parentSubCategory: targetParentSubCategory,
+          level: targetLevel,
+          excludeId: req.params.id,
+        })
       }
+      failureContext.slug = newSlug || null
 
       subcategory.name = normalizedName || subcategory.name
       subcategory.description = description !== undefined ? description : subcategory.description
@@ -1053,7 +1212,7 @@ router.put(
       subcategory.redirectUrl = redirectUrl !== undefined ? redirectUrl : subcategory.redirectUrl
       subcategory.category = category || subcategory.category
       subcategory.parentSubCategory = parentSubCategory !== undefined ? parentSubCategory : subcategory.parentSubCategory
-      subcategory.level = level !== undefined ? level : subcategory.level
+      subcategory.level = targetLevel
       subcategory.image = image !== undefined ? image : subcategory.image
       subcategory.slug = newSlug
       subcategory.isActive = isActive !== undefined ? isActive : subcategory.isActive
@@ -1070,6 +1229,12 @@ router.put(
 
       console.log('Saving updated subcategory:', subcategory)
       const updatedSubCategory = await subcategory.save()
+
+      const snapshotSyncResults = await syncProductSnapshotsForSubCategory(updatedSubCategory)
+      console.log("Synced linked products for subcategory update:", {
+        subCategoryId: String(updatedSubCategory._id),
+        results: snapshotSyncResults,
+      })
       
       // Populate with more fields to ensure data is returned properly
       await updatedSubCategory.populate("category", "name slug _id")
@@ -1093,6 +1258,7 @@ router.put(
       console.log('Subcategory updated successfully:', responseData)
       res.json(responseData)
     } catch (error) {
+      logSubCategoryRequestFailure("UPDATE", failureContext, error)
       console.error('Error updating subcategory:', error)
       
       // Handle Mongoose validation errors
@@ -1104,9 +1270,8 @@ router.put(
       
       // Handle duplicate key errors
       if (error.code === 11000) {
-        const field = Object.keys(error.keyPattern)[0]
         res.status(400)
-        throw new Error(`${field} already exists. Please use a different value.`)
+        throw new Error(buildDuplicateKeyMessage(error.keyPattern))
       }
       
       throw error

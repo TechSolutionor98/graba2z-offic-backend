@@ -639,6 +639,22 @@ router.put(
       category.metaDescriptionAr = "";
 
       const updatedCategory = await category.save()
+
+      // Keep denormalized product category snapshot fields in sync.
+      const productSyncResult = await Product.updateMany(
+        { parentCategory: updatedCategory._id },
+        {
+          $set: {
+            parentCategoryName: updatedCategory.name || "",
+            parentCategorySlug: updatedCategory.slug || "",
+          },
+        },
+      )
+      console.log("Synced linked products for category update:", {
+        categoryId: String(updatedCategory._id),
+        matchedCount: productSyncResult.matchedCount,
+        modifiedCount: productSyncResult.modifiedCount,
+      })
       
       // Log activity
       if (req.user) {

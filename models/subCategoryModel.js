@@ -15,7 +15,6 @@ const subCategorySchema = mongoose.Schema(
     slug: {
       type: String,
       required: true,
-      unique: true,
       lowercase: true,
     },
     description: {
@@ -121,6 +120,11 @@ const subCategorySchema = mongoose.Schema(
 // Add index for better performance
 subCategorySchema.index({ isDeleted: 1, isActive: 1, category: 1 })
 subCategorySchema.index({ parentSubCategory: 1, level: 1 })
+// Slug must be unique only among sibling nodes (same parent + same level scope), not globally.
+subCategorySchema.index(
+  { category: 1, parentSubCategory: 1, level: 1, slug: 1, isDeleted: 1 },
+  { unique: true, name: "uniq_subcategory_slug_per_parent_level_scope" },
+)
 
 const SubCategory = mongoose.model("SubCategory", subCategorySchema)
 

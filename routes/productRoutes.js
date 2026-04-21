@@ -202,6 +202,25 @@ const normalizeOptionalUniqueField = (value) => {
   return normalized !== "" ? normalized : undefined
 }
 
+const buildCategorySnapshotFromDocs = ({
+  parentCategoryDoc = null,
+  level1SubCategoryDoc = null,
+  level2SubCategoryDoc = null,
+  level3SubCategoryDoc = null,
+  level4SubCategoryDoc = null,
+} = {}) => ({
+  parentCategoryName: parentCategoryDoc?.name || "",
+  parentCategorySlug: parentCategoryDoc?.slug || "",
+  categoryName: level1SubCategoryDoc?.name || "",
+  categorySlug: level1SubCategoryDoc?.slug || "",
+  subCategory2Name: level2SubCategoryDoc?.name || "",
+  subCategory2Slug: level2SubCategoryDoc?.slug || "",
+  subCategory3Name: level3SubCategoryDoc?.name || "",
+  subCategory3Slug: level3SubCategoryDoc?.slug || "",
+  subCategory4Name: level4SubCategoryDoc?.name || "",
+  subCategory4Slug: level4SubCategoryDoc?.slug || "",
+})
+
 // Helper to escape regex special characters
 function escapeRegex(string) {
   return string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
@@ -687,6 +706,11 @@ router.put(
       console.log('Bulk move request received:', req.body)
       
       const { productIds, parentCategory, category, subCategory2, subCategory3, subCategory4 } = req.body
+      let parentCategoryDoc = null
+      let level1SubCategoryDoc = null
+      let level2SubCategoryDoc = null
+      let level3SubCategoryDoc = null
+      let level4SubCategoryDoc = null
 
       if (!productIds || !Array.isArray(productIds) || productIds.length === 0) {
         res.status(400)
@@ -699,40 +723,40 @@ router.put(
       }
 
       // Verify parent category exists
-      const parentCategoryExists = await Category.findById(parentCategory)
-      if (!parentCategoryExists) {
+      parentCategoryDoc = await Category.findById(parentCategory).select("name slug")
+      if (!parentCategoryDoc) {
         res.status(400)
         throw new Error("Invalid parent category")
       }
 
       // Verify subcategories if provided (only if not null/empty)
       if (category && category !== '') {
-        const categoryExists = await SubCategory.findById(category)
-        if (!categoryExists) {
+        level1SubCategoryDoc = await SubCategory.findById(category).select("name slug")
+        if (!level1SubCategoryDoc) {
           res.status(400)
           throw new Error("Invalid subcategory level 1")
         }
       }
 
       if (subCategory2 && subCategory2 !== '') {
-        const subCategory2Exists = await SubCategory.findById(subCategory2)
-        if (!subCategory2Exists) {
+        level2SubCategoryDoc = await SubCategory.findById(subCategory2).select("name slug")
+        if (!level2SubCategoryDoc) {
           res.status(400)
           throw new Error("Invalid subcategory level 2")
         }
       }
 
       if (subCategory3 && subCategory3 !== '') {
-        const subCategory3Exists = await SubCategory.findById(subCategory3)
-        if (!subCategory3Exists) {
+        level3SubCategoryDoc = await SubCategory.findById(subCategory3).select("name slug")
+        if (!level3SubCategoryDoc) {
           res.status(400)
           throw new Error("Invalid subcategory level 3")
         }
       }
 
       if (subCategory4 && subCategory4 !== '') {
-        const subCategory4Exists = await SubCategory.findById(subCategory4)
-        if (!subCategory4Exists) {
+        level4SubCategoryDoc = await SubCategory.findById(subCategory4).select("name slug")
+        if (!level4SubCategoryDoc) {
           res.status(400)
           throw new Error("Invalid subcategory level 4")
         }
@@ -741,6 +765,13 @@ router.put(
       // Prepare update object - only set fields that have values
       const updateData = {
         parentCategory,
+        ...buildCategorySnapshotFromDocs({
+          parentCategoryDoc,
+          level1SubCategoryDoc,
+          level2SubCategoryDoc,
+          level3SubCategoryDoc,
+          level4SubCategoryDoc,
+        }),
       }
 
       if (category && category !== '') {
@@ -1019,11 +1050,16 @@ router.post(
   admin,
   asyncHandler(async (req, res) => {
     const { parentCategory, category, subCategory2, subCategory3, subCategory4, ...productData } = req.body
+    let parentCategoryDoc = null
+    let level1SubCategoryDoc = null
+    let level2SubCategoryDoc = null
+    let level3SubCategoryDoc = null
+    let level4SubCategoryDoc = null
 
     // Verify parentCategory exists
     if (parentCategory) {
-      const parentCategoryExists = await Category.findById(parentCategory)
-      if (!parentCategoryExists) {
+      parentCategoryDoc = await Category.findById(parentCategory).select("name slug")
+      if (!parentCategoryDoc) {
         res.status(400)
         throw new Error("Invalid parent category")
       }
@@ -1034,8 +1070,8 @@ router.post(
 
     // Verify subcategory exists if provided
     if (category) {
-      const subCategoryExists = await SubCategory.findById(category)
-      if (!subCategoryExists) {
+      level1SubCategoryDoc = await SubCategory.findById(category).select("name slug")
+      if (!level1SubCategoryDoc) {
         res.status(400)
         throw new Error("Invalid subcategory")
       }
@@ -1043,8 +1079,8 @@ router.post(
 
     // Verify subCategory2 exists if provided
     if (subCategory2) {
-      const subCategory2Exists = await SubCategory.findById(subCategory2)
-      if (!subCategory2Exists) {
+      level2SubCategoryDoc = await SubCategory.findById(subCategory2).select("name slug")
+      if (!level2SubCategoryDoc) {
         res.status(400)
         throw new Error("Invalid subcategory level 2")
       }
@@ -1052,8 +1088,8 @@ router.post(
 
     // Verify subCategory3 exists if provided
     if (subCategory3) {
-      const subCategory3Exists = await SubCategory.findById(subCategory3)
-      if (!subCategory3Exists) {
+      level3SubCategoryDoc = await SubCategory.findById(subCategory3).select("name slug")
+      if (!level3SubCategoryDoc) {
         res.status(400)
         throw new Error("Invalid subcategory level 3")
       }
@@ -1061,8 +1097,8 @@ router.post(
 
     // Verify subCategory4 exists if provided
     if (subCategory4) {
-      const subCategory4Exists = await SubCategory.findById(subCategory4)
-      if (!subCategory4Exists) {
+      level4SubCategoryDoc = await SubCategory.findById(subCategory4).select("name slug")
+      if (!level4SubCategoryDoc) {
         res.status(400)
         throw new Error("Invalid subcategory level 4")
       }
@@ -1185,6 +1221,13 @@ router.post(
       subCategory2: subCategory2 || undefined,
       subCategory3: subCategory3 || undefined,
       subCategory4: subCategory4 || undefined,
+      ...buildCategorySnapshotFromDocs({
+        parentCategoryDoc,
+        level1SubCategoryDoc,
+        level2SubCategoryDoc,
+        level3SubCategoryDoc,
+        level4SubCategoryDoc,
+      }),
       createdBy: req.user._id,
     })
 
@@ -1325,6 +1368,21 @@ router.put(
         }
       }
 
+      const targetParentCategoryId = parentCategory || product.parentCategory
+      const targetCategoryId = category ? category : product.category
+      const targetSubCategory2Id = subCategory2 !== undefined ? subCategory2 || null : product.subCategory2
+      const targetSubCategory3Id = subCategory3 !== undefined ? subCategory3 || null : product.subCategory3
+      const targetSubCategory4Id = subCategory4 !== undefined ? subCategory4 || null : product.subCategory4
+
+      const [parentCategoryDoc, level1SubCategoryDoc, level2SubCategoryDoc, level3SubCategoryDoc, level4SubCategoryDoc] =
+        await Promise.all([
+          targetParentCategoryId ? Category.findById(targetParentCategoryId).select("name slug") : null,
+          targetCategoryId ? SubCategory.findById(targetCategoryId).select("name slug") : null,
+          targetSubCategory2Id ? SubCategory.findById(targetSubCategory2Id).select("name slug") : null,
+          targetSubCategory3Id ? SubCategory.findById(targetSubCategory3Id).select("name slug") : null,
+          targetSubCategory4Id ? SubCategory.findById(targetSubCategory4Id).select("name slug") : null,
+        ])
+
       // Check if slug is unique (excluding current product)
       if (slug && slug !== product.slug) {
         const cleanSlug = sanitizeSlug(slug)
@@ -1430,6 +1488,16 @@ router.put(
       if (subCategory3 !== undefined) product.subCategory3 = subCategory3
       if (subCategory4 !== undefined) product.subCategory4 = subCategory4
   // product.slug already set above if slug was provided
+      Object.assign(
+        product,
+        buildCategorySnapshotFromDocs({
+          parentCategoryDoc,
+          level1SubCategoryDoc,
+          level2SubCategoryDoc,
+          level3SubCategoryDoc,
+          level4SubCategoryDoc,
+        }),
+      )
 
       const updatedProduct = await product.save()
       

@@ -73,11 +73,13 @@ import customSliderItemRoutes from "./routes/customSliderItemRoutes.js"
 import superAdminRoutes from "./routes/superAdminRoutes.js"
 import reportsRoutes from "./routes/reportsRoutes.js"
 import homepageRoutes from "./routes/homepageRoutes.js"
+import { ensureSubCategorySlugIndexes } from "./utils/ensureSubCategorySlugIndexes.js"
 
 dotenv.config()
 
 // Connect to databases - await both
 await connectDB()
+await ensureSubCategorySlugIndexes()
 await connectBlogDB()
 
 // Initialize cache service

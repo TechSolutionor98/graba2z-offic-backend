@@ -9,6 +9,10 @@
     "dev": "nodemon server.js",
     "update-sitemap": "node scripts/update-sitemap.js",
     "fix-redirects": "node scripts/fix-redirects.js",
+    "check:subcategory-slugs": "node scripts/check-subcategory-slug-indexes.js",
+    "check:subcategory-scope-conflicts": "node scripts/scan-subcategory-scope-conflicts.js",
+    "fix:subcategory-slugs": "node scripts/fix-subcategory-slugs-parent-scope.js",
+    "fix:subcategory-slugs:rebuild": "node scripts/fix-subcategory-slugs-parent-scope.js --rebuild",
     "cache:clear": "node -e \"import('./services/cacheService.js').then(m => m.default.initialize().then(() => m.default.flushAll().then(() => process.exit(0))))\"",
     "cache:warm": "node scripts/preload-cache.js"
   },
