@@ -8,6 +8,7 @@ import path from "path"
 import sharp from "sharp"
 
 const router = express.Router()
+const MAX_PRODUCT_IMAGES_PER_UPLOAD = 30
 
 const toUploadUrl = (absolutePath) => `/uploads/${absolutePath.split("uploads")[1].replace(/\\/g, "/")}`
 
@@ -21,8 +22,12 @@ const convertToWebpIfNeeded = async (file) => {
   const parsedPath = path.parse(file.path)
   const convertedPath = path.join(parsedPath.dir, `${parsedPath.name}.webp`)
 
-  await sharp(file.path).webp({ quality: 85 }).toFile(convertedPath)
-  await fs.unlink(file.path).catch(() => {})
+  try {
+    await sharp(file.path).webp({ quality: 85 }).toFile(convertedPath)
+    await fs.unlink(file.path).catch(() => {})
+  } catch (error) {
+    throw new Error(`Failed to convert "${file.originalname || file.filename}" to WebP: ${error.message}`)
+  }
 
   let convertedSize = file.size
   try {
@@ -39,6 +44,31 @@ const convertToWebpIfNeeded = async (file) => {
     mimetype: "image/webp",
     size: convertedSize,
   }
+}
+
+const handleProductImagesUpload = (req, res, next) => {
+  uploadProductImage.array("images", MAX_PRODUCT_IMAGES_PER_UPLOAD)(req, res, (err) => {
+    if (!err) return next()
+
+    if (err.code === "LIMIT_UNEXPECTED_FILE") {
+      return res.status(400).json({
+        success: false,
+        message: `You can upload up to ${MAX_PRODUCT_IMAGES_PER_UPLOAD} images at once.`,
+      })
+    }
+
+    if (err.code === "LIMIT_FILE_SIZE") {
+      return res.status(400).json({
+        success: false,
+        message: "Each image must be 10MB or smaller.",
+      })
+    }
+
+    return res.status(400).json({
+      success: false,
+      message: err.message || "Invalid image upload request.",
+    })
+  })
 }
 
 // @desc    Upload single image
@@ -223,7 +253,7 @@ router.post(
   "/product-images",
   protect,
   admin,
-  uploadProductImage.array("images", 10),
+  handleProductImagesUpload,
   async (req, res) => {
     try {
       if (!req.files || req.files.length === 0) {
