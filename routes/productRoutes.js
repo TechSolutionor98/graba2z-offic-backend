@@ -184,6 +184,108 @@ function remapRow(row) {
   return mapped
 }
 
+const SPECIFICATIONS_FALLBACK_KEY = "Specifications"
+
+const parseSpecificationSegment = (segment) => {
+  const raw = String(segment || "").trim()
+  if (!raw) return null
+
+  const colonIndex = raw.indexOf(":")
+  if (colonIndex > 0) {
+    const key = raw.slice(0, colonIndex).trim()
+    const value = raw.slice(colonIndex + 1).trim()
+    if (key && value) return { key, value }
+  }
+
+  const pipeIndex = raw.indexOf("|")
+  if (pipeIndex > 0) {
+    const key = raw.slice(0, pipeIndex).trim()
+    const value = raw.slice(pipeIndex + 1).trim()
+    if (key && value) return { key, value }
+  }
+
+  return { key: SPECIFICATIONS_FALLBACK_KEY, value: raw }
+}
+
+const parseCommaSeparatedSpecs = (raw) => {
+  const text = String(raw || "").trim()
+  if (!text) return []
+
+  const keyPattern = /([A-Za-z][A-Za-z0-9 _\-\/()&.+#]{0,60})\s*:/g
+  const matches = []
+  let match
+
+  while ((match = keyPattern.exec(text)) !== null) {
+    matches.push({
+      key: String(match[1] || "").trim(),
+      valueStart: keyPattern.lastIndex,
+      matchStart: match.index,
+    })
+  }
+
+  if (matches.length < 2) return []
+
+  const parsed = []
+  for (let i = 0; i < matches.length; i++) {
+    const current = matches[i]
+    const next = matches[i + 1]
+    const valueEnd = next ? next.matchStart : text.length
+    const value = text
+      .slice(current.valueStart, valueEnd)
+      .replace(/^[\s,;|]+|[\s,;|]+$/g, "")
+      .trim()
+
+    if (current.key && value) {
+      parsed.push({ key: current.key, value })
+    }
+  }
+
+  return parsed
+}
+
+function parseSpecificationsInput(input) {
+  if (input === undefined || input === null) return []
+
+  if (Array.isArray(input)) {
+    const parsed = []
+    for (const item of input) {
+      if (item && typeof item === "object" && !Array.isArray(item)) {
+        const key = String(item.key || "").trim()
+        const value = String(item.value || "").trim()
+        if (key && value) parsed.push({ key, value })
+      } else {
+        parsed.push(...parseSpecificationsInput(item))
+      }
+    }
+    return parsed
+  }
+
+  if (typeof input === "object") {
+    const key = String(input.key || "").trim()
+    const value = String(input.value || "").trim()
+    return key && value ? [{ key, value }] : []
+  }
+
+  const raw = String(input).replace(/\r\n/g, "\n").trim()
+  if (!raw) return []
+
+  // Preferred format: Key: Value; Key: Value (or one per line)
+  if (raw.includes(";") || raw.includes("\n")) {
+    const parsed = raw
+      .split(/[\n;]+/)
+      .map((segment) => parseSpecificationSegment(segment))
+      .filter(Boolean)
+    if (parsed.length > 0) return parsed
+  }
+
+  // Legacy CSV samples used comma-separated key/value entries.
+  const commaParsed = parseCommaSeparatedSpecs(raw)
+  if (commaParsed.length > 0) return commaParsed
+
+  const single = parseSpecificationSegment(raw)
+  return single ? [single] : []
+}
+
 // Robust slug generator: lowercases, converts & to 'and', removes quotes, replaces non-alphanumerics with '-',
 // collapses multiple dashes, and trims leading/trailing dashes.
 function generateSlug(name) {
@@ -224,6 +326,49 @@ const buildCategorySnapshotFromDocs = ({
 // Helper to escape regex special characters
 function escapeRegex(string) {
   return string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}
+
+const normalizeLookupValue = (value) =>
+  String(value || "")
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+
+const normalizeFieldKey = (key) =>
+  String(key || "")
+    .replace(/^\uFEFF/, "")
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "")
+
+const getBulkField = (row, keys) => {
+  if (!row || typeof row !== "object") return undefined
+
+  const normalizedRow = new Map()
+  for (const [rawKey, rawValue] of Object.entries(row)) {
+    const normalized = normalizeFieldKey(rawKey)
+    if (normalized && !normalizedRow.has(normalized)) normalizedRow.set(normalized, rawValue)
+  }
+
+  for (const key of keys) {
+    const normalizedKey = normalizeFieldKey(key)
+    if (!normalizedKey || !normalizedRow.has(normalizedKey)) continue
+
+    const rawValue = normalizedRow.get(normalizedKey)
+    if (rawValue === undefined || rawValue === null) continue
+
+    const cleaned = normalizeLookupValue(rawValue)
+    if (cleaned !== "") return cleaned
+  }
+
+  return undefined
+}
+
+const buildCaseInsensitiveExactRegex = (value) => {
+  const normalized = normalizeLookupValue(value)
+  if (!normalized) return null
+  return new RegExp(`^${escapeRegex(normalized)}$`, "i")
 }
 
 function normalizeAdminStockStatus(value) {
@@ -2086,16 +2231,8 @@ router.post(
         console.log('Original first row keys:', Object.keys(rows[0]))
       }
 
-      // Helper for flexible retrieval from mapped rows (cleans newlines and extra spaces)
-      const getField = (row, keys) => {
-        for (const k of keys) {
-          if (row[k] !== undefined && row[k] !== null) {
-            const cleaned = String(row[k]).replace(/\s+/g, ' ').trim()
-            if (cleaned !== "") return cleaned
-          }
-        }
-        return undefined
-      }
+      // Helper for flexible retrieval from mapped rows
+      const getField = (row, keys) => getBulkField(row, keys)
 
       // Collect unique top-levels for upfront creation
       const uniqueParentCategoryNames = new Set()
@@ -2125,7 +2262,17 @@ router.post(
       // Fetch existing records
       const existingParents = await Category.find({ name: { $in: Array.from(uniqueParentCategoryNames) } })
       const existingLevel1Subs = await SubCategory.find({ name: { $in: Array.from(uniqueLevel1Names) }, level: 1 })
-      const existingBrands = await Brand.find({ name: { $in: Array.from(uniqueBrandNames) } })
+      const normalizedBrandNames = Array.from(uniqueBrandNames)
+        .map((name) => normalizeLookupValue(name))
+        .filter(Boolean)
+      const brandNameRegexes = normalizedBrandNames.map((name) => buildCaseInsensitiveExactRegex(name)).filter(Boolean)
+      const brandSlugCandidates = normalizedBrandNames.map((name) => generateSlug(name))
+      const existingBrands =
+        normalizedBrandNames.length > 0
+          ? await Brand.find({
+              $or: [{ name: { $in: brandNameRegexes } }, { slug: { $in: brandSlugCandidates } }],
+            })
+          : []
       const existingTaxes = await Tax.find({ name: { $in: Array.from(uniqueTaxNames) } })
       const existingUnits = await Unit.find({ name: { $in: Array.from(uniqueUnitNames) } })
       const existingColors = await Color.find({ name: { $in: Array.from(uniqueColorNames) } })
@@ -2139,7 +2286,11 @@ router.post(
       const level1Map = new Map()
       existingLevel1Subs.forEach((s) => level1Map.set(s.name.trim().toLowerCase(), s._id))
       const brandMap = new Map()
-      existingBrands.forEach((b) => brandMap.set(b.name.trim().toLowerCase(), b._id))
+      existingBrands.forEach((b) => {
+        const normalizedName = normalizeLookupValue(b.name).toLowerCase()
+        if (normalizedName) brandMap.set(normalizedName, b._id)
+        if (b.slug) brandMap.set(String(b.slug).toLowerCase(), b._id)
+      })
       const taxMap = new Map()
       existingTaxes.forEach((t) => taxMap.set(t.name.trim().toLowerCase(), t._id))
       const unitMap = new Map()
@@ -2321,8 +2472,11 @@ router.post(
         let stockStatus = row.stockStatus || "In Stock"
         if (!allowedStockStatus.includes(stockStatus)) stockStatus = "In Stock"
         
-        console.log(`Row brand value: "${row.brand}", type: ${typeof row.brand}`)
-        const brandId = row.brand ? brandMap.get(String(row.brand).trim().toLowerCase()) : undefined
+        const rawBrand = getField(row, ["brand"]) || (row.brand ? normalizeLookupValue(row.brand) : "")
+        const brandId = rawBrand
+          ? brandMap.get(rawBrand.toLowerCase()) || brandMap.get(generateSlug(rawBrand))
+          : undefined
+        console.log(`Row brand value: "${row.brand}", normalized: "${rawBrand}", type: ${typeof row.brand}`)
         console.log(`Brand ID resolved: ${brandId}, brandMap has: ${Array.from(brandMap.entries()).map(([k,v]) => `${k}:${v}`).join(', ')}`)
         
         const taxId = row.tax ? taxMap.get(String(row.tax).trim().toLowerCase()) : undefined
@@ -2343,7 +2497,7 @@ router.post(
             level3: level3Data?.isNew ? 'new' : (level3Data?.id ? 'existing' : null),
             level4: level4Data?.isNew ? 'new' : (level4Data?.id ? 'existing' : null),
           },
-          brand: brandId,
+          brand: brandId || rawBrand || undefined,
           buyingPrice: Number.parseFloat(row.buyingPrice) || 0,
           price: Number.parseFloat(row.price) || 0,
           offerPrice: Number.parseFloat(row.offerPrice) || 0,
@@ -2360,7 +2514,7 @@ router.post(
           tags: row.tags ? String(row.tags).split(",").map((t) => t.trim()) : [],
           description: row.description || "",
           shortDescription: row.shortDescription || "",
-          specifications: row.specifications ? [{ key: "Specifications", value: row.specifications }] : [],
+          specifications: parseSpecificationsInput(row.specifications),
           details: row.details || "",
           countInStock: Number.parseInt(row.countInStock) || 0,
           isActive: true,
@@ -2404,7 +2558,7 @@ router.post(
               populated.subCategory4 = { _id: s4._id, name: s4.name + status, slug: s4.slug }
             }
           }
-          if (prod.brand) {
+          if (prod.brand && mongoose.Types.ObjectId.isValid(String(prod.brand))) {
             const b = await Brand.findById(prod.brand).select("name slug")
             if (b) populated.brand = { _id: b._id, name: b.name, slug: b.slug }
           }
@@ -2440,16 +2594,8 @@ router.post(
       return res.status(400).json({ message: "No CSV data provided" })
     }
 
-    // Helper for flexible column names (cleans newlines and extra spaces)
-    const getField = (row, keys) => {
-      for (const k of keys) {
-        if (row[k] !== undefined && row[k] !== null) {
-          const cleaned = String(row[k]).replace(/\s+/g, ' ').trim()
-          if (cleaned !== "") return cleaned
-        }
-      }
-      return undefined
-    }
+    // Helper for flexible column names
+    const getField = (row, keys) => getBulkField(row, keys)
 
     // Collect unique names (parent + level1 + brand/tax/unit) for upfront creation
     const uniqueParentCategoryNames = new Set()
@@ -2471,7 +2617,17 @@ router.post(
     // Fetch existing
     const existingParents = await Category.find({ name: { $in: Array.from(uniqueParentCategoryNames) } })
     const existingLevel1Subs = await SubCategory.find({ name: { $in: Array.from(uniqueLevel1Names) }, level: 1 })
-    const existingBrands = await Brand.find({ name: { $in: Array.from(uniqueBrandNames) } })
+    const normalizedBrandNames = Array.from(uniqueBrandNames)
+      .map((name) => normalizeLookupValue(name))
+      .filter(Boolean)
+    const brandNameRegexes = normalizedBrandNames.map((name) => buildCaseInsensitiveExactRegex(name)).filter(Boolean)
+    const brandSlugCandidates = normalizedBrandNames.map((name) => generateSlug(name))
+    const existingBrands =
+      normalizedBrandNames.length > 0
+        ? await Brand.find({
+            $or: [{ name: { $in: brandNameRegexes } }, { slug: { $in: brandSlugCandidates } }],
+          })
+        : []
     const existingTaxes = await Tax.find({ name: { $in: Array.from(uniqueTaxNames) } })
     const existingUnits = await Unit.find({ name: { $in: Array.from(uniqueUnitNames) } })
 
@@ -2481,7 +2637,11 @@ router.post(
     const level1Map = new Map()
     existingLevel1Subs.forEach((s) => level1Map.set(s.name.trim().toLowerCase(), s._id))
     const brandMap = new Map()
-    existingBrands.forEach((b) => brandMap.set(b.name.trim().toLowerCase(), b._id))
+    existingBrands.forEach((b) => {
+      const normalizedName = normalizeLookupValue(b.name).toLowerCase()
+      if (normalizedName) brandMap.set(normalizedName, b._id)
+      if (b.slug) brandMap.set(String(b.slug).toLowerCase(), b._id)
+    })
     const taxMap = new Map()
     existingTaxes.forEach((t) => taxMap.set(t.name.trim().toLowerCase(), t._id))
     const unitMap = new Map()
@@ -2700,7 +2860,10 @@ router.post(
 
       let stockStatus = row.stockStatus || "In Stock"
       if (!allowedStockStatus.includes(stockStatus)) stockStatus = "In Stock"
-      const brandId = row.brand ? brandMap.get(String(row.brand).trim().toLowerCase()) : undefined
+      const rawBrand = getField(row, ["brand"]) || ""
+      const brandId = rawBrand
+        ? brandMap.get(rawBrand.toLowerCase()) || brandMap.get(generateSlug(rawBrand))
+        : undefined
       const taxId = row.tax ? taxMap.get(String(row.tax).trim().toLowerCase()) : undefined
       const unitId = row.unit ? unitMap.get(String(row.unit).trim().toLowerCase()) : undefined
 
@@ -2727,7 +2890,7 @@ router.post(
           level3: level3Data?.isNew ? 'new' : (level3Data?.id ? 'existing' : null),
           level4: level4Data?.isNew ? 'new' : (level4Data?.id ? 'existing' : null),
         },
-        brand: brandId,
+        brand: brandId || rawBrand || undefined,
         buyingPrice: Number.parseFloat(row.buyingPrice) || 0,
         price,
         offerPrice,
@@ -2748,7 +2911,7 @@ router.post(
           : [],
         description: row.description || "",
         shortDescription: row.shortDescription || "",
-        specifications: row.specifications ? [{ key: "Specifications", value: row.specifications }] : [],
+        specifications: parseSpecificationsInput(row.specifications),
         details: row.details || "",
         countInStock: Number.parseInt(row.countInStock) || 0,
         isActive: true,
@@ -2791,7 +2954,7 @@ router.post(
             populated.subCategory4 = { _id: s4._id, name: s4.name + status, slug: s4.slug }
           }
         }
-        if (prod.brand) {
+        if (prod.brand && mongoose.Types.ObjectId.isValid(String(prod.brand))) {
           const b = await Brand.findById(prod.brand).select("name slug")
           if (b) populated.brand = { _id: b._id, name: b.name, slug: b.slug }
         }
@@ -2965,9 +3128,11 @@ router.post(
           tagsAr = await Promise.all(prod.tags.map(t => translateText(t)));
         }
 
+        const parsedSpecifications = parseSpecificationsInput(prod.specifications)
+
         // Translate specifications
-        if (prod.specifications && Array.isArray(prod.specifications)) {
-          for (const spec of prod.specifications) {
+        if (parsedSpecifications.length > 0) {
+          for (const spec of parsedSpecifications) {
             if (spec.key && !spec.keyAr) spec.keyAr = await translateText(spec.key);
             if (spec.value && !spec.valueAr) spec.valueAr = await translateText(spec.value);
           }
@@ -3006,7 +3171,7 @@ router.post(
           descriptionAr,
           shortDescription: prod.shortDescription || "",
           shortDescriptionAr,
-          specifications: prod.specifications || [],
+          specifications: parsedSpecifications,
           countInStock: prod.countInStock !== undefined ? prod.countInStock : 0,
           isActive: prod.isActive !== undefined ? Boolean(prod.isActive) : true,
           featured: prod.featured !== undefined ? Boolean(prod.featured) : false,
@@ -3159,18 +3324,26 @@ router.post(
         
         // Try by name
         if (nameValue && nameValue.trim() !== '') {
-          const found = await Model.findOne({ name: nameValue.trim() })
+          const normalizedName = normalizeLookupValue(nameValue)
+          const nameMatcher = buildCaseInsensitiveExactRegex(normalizedName)
+          let found = nameMatcher ? await Model.findOne({ name: nameMatcher }) : null
+
+          if (!found) {
+            const slug = generateSlug(normalizedName)
+            found = await Model.findOne({ slug })
+          }
+
           if (found) return found._id
           
           // Create new if requested
           if (createIfMissing) {
-            const slug = generateSlug(nameValue.trim())
+            const slug = generateSlug(normalizedName)
             
             // Translate name for Arabic field
-            const nameAr = await translateText(nameValue.trim());
+            const nameAr = await translateText(normalizedName);
             
             const newDoc = await Model.create({
-              name: nameValue.trim(),
+              name: normalizedName,
               nameAr,
               slug,
               isActive: true,
@@ -3348,7 +3521,7 @@ router.post(
             tags: row.tags ? String(row.tags).split(',').map(t => t.trim()).filter(Boolean) : [],
             description: row.description || '',
             shortDescription: row.shortDescription || '',
-            specifications: row.specifications || '',
+            specifications: parseSpecificationsInput(row.specifications),
             details: row.details || '',
             isActive: true,
           }
@@ -3362,6 +3535,13 @@ router.post(
           let tagsAr = [];
           if (productData.tags && Array.isArray(productData.tags)) {
             tagsAr = await Promise.all(productData.tags.map(t => translateText(t)));
+          }
+
+          if (productData.specifications && Array.isArray(productData.specifications)) {
+            for (const spec of productData.specifications) {
+              if (spec.key && !spec.keyAr) spec.keyAr = await translateText(spec.key)
+              if (spec.value && !spec.valueAr) spec.valueAr = await translateText(spec.value)
+            }
           }
 
           Object.assign(productData, {
@@ -3706,17 +3886,12 @@ router.post(
           tagsAr = await Promise.all(tagList.map(t => translateText(t)));
         }
 
-        // Translate specifications
-        const specifications = productData.specifications
-          ? [
-              {
-                key: "Specifications",
-                keyAr: await translateText("Specifications"),
-                value: String(productData.specifications).trim(),
-                valueAr: await translateText(String(productData.specifications).trim()),
-              },
-            ]
-          : [];
+        // Translate specifications (supports "Key: Value; Key: Value" format)
+        const specifications = parseSpecificationsInput(productData.specifications)
+        for (const spec of specifications) {
+          if (spec.key && !spec.keyAr) spec.keyAr = await translateText(spec.key)
+          if (spec.value && !spec.valueAr) spec.valueAr = await translateText(spec.value)
+        }
 
         // Create the product with proper ObjectId references
         const product = new Product({
