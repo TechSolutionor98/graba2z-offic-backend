@@ -110,14 +110,16 @@ const imageFileFilter = (req, file, cb) => {
   }
 }
 
-// File filter for product images (WebP only)
+// File filter for product images (accept common image formats; converted to WebP later)
 const productImageFileFilter = (req, file, cb) => {
   console.log("📁 Product image received:", file.originalname, file.mimetype)
 
-  if (file.mimetype === "image/webp") {
+  const allowedMimes = ["image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp"]
+
+  if (allowedMimes.includes(file.mimetype)) {
     cb(null, true)
   } else {
-    cb(new Error("Only WebP images are allowed for products!"), false)
+    cb(new Error("Only image files (JPEG, PNG, GIF, WebP) are allowed for products!"), false)
   }
 }
 
@@ -167,7 +169,7 @@ export const uploadBanner = multer({
   fileFilter: imageFileFilter,
 })
 
-// Create multer upload middleware for product images (WebP only)
+// Create multer upload middleware for product images
 export const uploadProductImage = multer({
   storage: productStorage,
   limits: {

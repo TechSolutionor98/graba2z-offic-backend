@@ -3,8 +3,43 @@ import { upload, uploadBanner, uploadProductImage, uploadVideo, deleteLocalFile,
 import { deleteFromCloudinary } from "../utils/cloudinary.js"
 import { protect, admin } from "../middleware/authMiddleware.js"
 import asyncHandler from "express-async-handler"
+import fs from "fs/promises"
+import path from "path"
+import sharp from "sharp"
 
 const router = express.Router()
+
+const toUploadUrl = (absolutePath) => `/uploads/${absolutePath.split("uploads")[1].replace(/\\/g, "/")}`
+
+const convertToWebpIfNeeded = async (file) => {
+  if (!file) return null
+
+  const ext = path.extname(file.filename || file.path || "").toLowerCase()
+  const isWebp = file.mimetype === "image/webp" || ext === ".webp"
+  if (isWebp) return file
+
+  const parsedPath = path.parse(file.path)
+  const convertedPath = path.join(parsedPath.dir, `${parsedPath.name}.webp`)
+
+  await sharp(file.path).webp({ quality: 85 }).toFile(convertedPath)
+  await fs.unlink(file.path).catch(() => {})
+
+  let convertedSize = file.size
+  try {
+    const stats = await fs.stat(convertedPath)
+    convertedSize = stats.size
+  } catch (_) {
+    // Keep original size if stat fails
+  }
+
+  return {
+    ...file,
+    path: convertedPath,
+    filename: path.basename(convertedPath),
+    mimetype: "image/webp",
+    size: convertedSize,
+  }
+}
 
 // @desc    Upload single image
 // @route   POST /api/upload/single
@@ -133,7 +168,7 @@ router.post(
   })
 );
 
-// @desc    Upload product image (WebP only)
+// @desc    Upload product image (auto-convert non-WebP files to WebP)
 // @route   POST /api/upload/product-image
 // @access  Private/Admin
 router.post(
@@ -145,7 +180,7 @@ router.post(
   protect,
   admin,
   uploadProductImage.single("image"),
-  (req, res) => {
+  async (req, res) => {
     try {
       console.log("📁 Product image upload attempt")
       
@@ -157,7 +192,8 @@ router.post(
         })
       }
 
-      const fileUrl = `/uploads/${req.file.path.split("uploads")[1].replace(/\\/g, "/")}`
+      const processedFile = await convertToWebpIfNeeded(req.file)
+      const fileUrl = toUploadUrl(processedFile.path)
 
       console.log("✅ Product image uploaded successfully:", fileUrl)
 
@@ -165,8 +201,8 @@ router.post(
         success: true,
         message: "Product image uploaded successfully",
         url: fileUrl,
-        publicId: req.file.filename,
-        filename: req.file.filename,
+        publicId: processedFile.filename,
+        filename: processedFile.filename,
         path: fileUrl,
       })
     } catch (error) {
@@ -180,7 +216,7 @@ router.post(
   }
 )
 
-// @desc    Upload multiple product images (WebP only)
+// @desc    Upload multiple product images (auto-convert non-WebP files to WebP)
 // @route   POST /api/upload/product-images
 // @access  Private/Admin
 router.post(
@@ -188,7 +224,7 @@ router.post(
   protect,
   admin,
   uploadProductImage.array("images", 10),
-  (req, res) => {
+  async (req, res) => {
     try {
       if (!req.files || req.files.length === 0) {
         return res.status(400).json({
@@ -197,8 +233,10 @@ router.post(
         })
       }
 
-      const files = req.files.map((file) => {
-        const fileUrl = `/uploads/${file.path.split("uploads")[1].replace(/\\/g, "/")}`
+      const processedFiles = await Promise.all(req.files.map((file) => convertToWebpIfNeeded(file)))
+
+      const files = processedFiles.map((file) => {
+        const fileUrl = toUploadUrl(file.path)
         return {
           url: fileUrl,
           publicId: file.filename,
