@@ -11,6 +11,8 @@ import { cacheMiddleware, invalidateCache } from "../middleware/cacheMiddleware.
 import multer from "multer"
 import XLSX from "xlsx"
 import fs from "fs"
+import path from "path"
+import { fileURLToPath } from "url"
 import Tax from "../models/taxModel.js"
 import Unit from "../models/unitModel.js"
 import Color from "../models/colorModel.js"
@@ -21,6 +23,8 @@ import mongoose from "mongoose"
 import { deleteLocalFile, isCloudinaryUrl } from "../config/multer.js"
 
 const router = express.Router()
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 const TRANSLATION_TIMEOUT_MS = Number(process.env.TRANSLATION_TIMEOUT_MS || 4000)
 const BING_TRANSLATION_TIMEOUT_MS = Number(process.env.BING_TRANSLATION_TIMEOUT_MS || 3000)
 const TRANSLATION_FAILURE_COOLDOWN_MS = Number(process.env.TRANSLATION_FAILURE_COOLDOWN_MS || 60000)
@@ -105,12 +109,95 @@ const translateText = async (text) => {
 
 // Multer setup for Excel parsing (use memory storage for Vercel compatibility)
 const excelUpload = multer({ storage: multer.memoryStorage() })
+const BULK_IMPORT_MAX_IMAGES = 200
+const PRODUCT_IMAGE_MIME_TYPES = ["image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp"]
+const bulkImportUploadsDir = path.join(__dirname, "..", "uploads")
+const bulkImportExcelDir = path.join(bulkImportUploadsDir, "others")
+const bulkImportProductsDir = path.join(bulkImportUploadsDir, "products")
+
+for (const directory of [bulkImportUploadsDir, bulkImportExcelDir, bulkImportProductsDir]) {
+  if (!fs.existsSync(directory)) {
+    fs.mkdirSync(directory, { recursive: true })
+  }
+}
+
+const bulkImportStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    if (file.fieldname === "images") return cb(null, bulkImportProductsDir)
+    return cb(null, bulkImportExcelDir)
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`
+    const extension = (path.extname(file.originalname || "") || "").toLowerCase()
+    const safeBaseName = (path.basename(file.originalname || "upload", extension) || "upload").replace(/[^a-zA-Z0-9]/g, "_")
+
+    if (file.fieldname === "images") {
+      return cb(null, `product-${safeBaseName}-${uniqueSuffix}${extension || ".jpg"}`)
+    }
+
+    return cb(null, `bulk-products-${safeBaseName}-${uniqueSuffix}${extension || ".xlsx"}`)
+  },
+})
+
+const bulkImportFileFilter = (req, file, cb) => {
+  if (file.fieldname === "file") {
+    const extension = (path.extname(file.originalname || "") || "").toLowerCase()
+    if (extension === ".xlsx" || extension === ".xls") return cb(null, true)
+    return cb(new Error("Bulk import file must be .xlsx or .xls"), false)
+  }
+
+  if (file.fieldname === "images") {
+    if (PRODUCT_IMAGE_MIME_TYPES.includes(file.mimetype)) return cb(null, true)
+    return cb(new Error("Only image files (JPEG, PNG, GIF, WebP) are allowed for bulk product images"), false)
+  }
+
+  return cb(new Error(`Unexpected upload field: ${file.fieldname}`), false)
+}
+
+const bulkImportUpload = multer({
+  storage: bulkImportStorage,
+  limits: {
+    fileSize: 10 * 1024 * 1024,
+    files: BULK_IMPORT_MAX_IMAGES + 1,
+  },
+  fileFilter: bulkImportFileFilter,
+})
+
+const handleBulkImportUpload = (req, res, next) => {
+  bulkImportUpload.fields([
+    { name: "file", maxCount: 1 },
+    { name: "images", maxCount: BULK_IMPORT_MAX_IMAGES },
+  ])(req, res, (err) => {
+    if (!err) return next()
+    if (err instanceof multer.MulterError) {
+      if (err.code === "LIMIT_UNEXPECTED_FILE") {
+        return res.status(400).json({
+          message: `You can upload up to ${BULK_IMPORT_MAX_IMAGES} product images at once.`,
+        })
+      }
+
+      if (err.code === "LIMIT_FILE_SIZE") {
+        return res.status(400).json({
+          message: "Each uploaded file must be 10MB or smaller.",
+        })
+      }
+    }
+
+    return res.status(400).json({
+      message: err.message || "Invalid bulk import upload request.",
+    })
+  })
+}
 
 // Helper: map Excel columns to backend keys (supports 4-level categories)
 const excelToBackendKey = {
   name: "name",
   slug: "slug",
   sku: "sku",
+  image: "images",
+  images: "images",
+  gallery_images: "images",
+  galleryimages: "images",
   // Category hierarchy
   category: "category", // Level 1
   subcategory: "category", // alias for level 1
@@ -363,6 +450,52 @@ const getBulkField = (row, keys) => {
   }
 
   return undefined
+}
+
+const toUploadUrl = (absolutePath) => {
+  const normalized = String(absolutePath || "").replace(/\\/g, "/")
+  const marker = "/uploads/"
+  const markerIndex = normalized.indexOf(marker)
+
+  if (markerIndex >= 0) {
+    return normalized.slice(markerIndex)
+  }
+
+  const fallbackRelative = path.relative(bulkImportUploadsDir, absolutePath).replace(/\\/g, "/")
+  return `/uploads/${fallbackRelative}`
+}
+
+const normalizeImageNameForLookup = (value) => {
+  const normalized = normalizeLookupValue(value)
+  if (!normalized) return ""
+  const fileNameOnly = normalized.replace(/\\/g, "/").split("/").pop() || ""
+  return fileNameOnly.toLowerCase()
+}
+
+const imageNameWithoutExtension = (value) => {
+  const normalizedName = normalizeImageNameForLookup(value)
+  if (!normalizedName) return ""
+  return normalizedName.replace(/\.[a-z0-9]+$/i, "")
+}
+
+const buildImageLookupKeys = (value) => {
+  const withExt = normalizeImageNameForLookup(value)
+  const withoutExt = imageNameWithoutExtension(value)
+  const keys = []
+
+  if (withExt) keys.push(withExt)
+  if (withoutExt && withoutExt !== withExt) keys.push(withoutExt)
+
+  return keys
+}
+
+const parseImageNameList = (rawValue) => {
+  if (rawValue === undefined || rawValue === null) return []
+
+  return String(rawValue)
+    .split(",")
+    .map((name) => name.trim())
+    .filter(Boolean)
 }
 
 const buildCaseInsensitiveExactRegex = (value) => {
@@ -3258,21 +3391,39 @@ router.post(
   "/bulk-import-with-id",
   protect,
   admin,
-  excelUpload.single("file"),
+  handleBulkImportUpload,
   asyncHandler(async (req, res) => {
     console.log("--- BULK IMPORT WITH OBJECTID START ---")
-    
-    if (!req.file) {
+
+    const excelFile = req.files?.file?.[0]
+    if (!excelFile) {
       return res.status(400).json({ message: "No file uploaded" })
     }
-    
+
     try {
-      // Read Excel from memory buffer
-      const workbook = XLSX.read(req.file.buffer, { type: "buffer" })
+      // Read Excel from uploaded file
+      const workbook = XLSX.readFile(excelFile.path)
       const sheetName = workbook.SheetNames[0]
       const sheet = workbook.Sheets[sheetName]
       const rows = XLSX.utils.sheet_to_json(sheet)
       console.log("Excel rows loaded:", rows.length)
+
+      const uploadedImageFiles = Array.isArray(req.files?.images) ? req.files.images : []
+      const uploadedImageLookup = new Map()
+
+      for (const file of uploadedImageFiles) {
+        const fileUrl = toUploadUrl(file.path)
+        const lookupKeys = [
+          ...buildImageLookupKeys(file.originalname),
+          ...buildImageLookupKeys(file.filename),
+        ]
+
+        for (const key of lookupKeys) {
+          if (key && !uploadedImageLookup.has(key)) {
+            uploadedImageLookup.set(key, fileUrl)
+          }
+        }
+      }
 
       const results = []
       let created = 0
@@ -3493,6 +3644,32 @@ router.post(
             req.user._id
           )
 
+          const imageNamesFromSheet = parseImageNameList(
+            getBulkField(row, ["images", "image", "gallery_images", "galleryImages"]),
+          )
+          const resolvedImageUrls = []
+          const missingImageNames = []
+
+          for (const imageName of imageNamesFromSheet) {
+            const lookupKeys = buildImageLookupKeys(imageName)
+            const matchedUrl = lookupKeys.find((key) => uploadedImageLookup.has(key))
+            if (matchedUrl) {
+              resolvedImageUrls.push(uploadedImageLookup.get(matchedUrl))
+            } else {
+              missingImageNames.push(imageName)
+            }
+          }
+
+          if (missingImageNames.length > 0) {
+            errors.push({
+              row: rowNum,
+              productName,
+              error: `Image file(s) not uploaded: ${missingImageNames.join(", ")}`,
+            })
+            failed++
+            continue
+          }
+
           // Prepare product data
           const productData = {
             name: productName.trim(),
@@ -3524,6 +3701,12 @@ router.post(
             specifications: parseSpecificationsInput(row.specifications),
             details: row.details || '',
             isActive: true,
+          }
+
+          if (resolvedImageUrls.length > 0) {
+            const uniqueImages = Array.from(new Set(resolvedImageUrls))
+            productData.image = uniqueImages[0]
+            productData.galleryImages = uniqueImages.slice(1)
           }
 
           // Translate product fields
@@ -3621,6 +3804,7 @@ router.post(
         created,
         updated,
         failed,
+        uploadedImages: uploadedImageFiles.length,
         results,
         errors,
       })
@@ -3630,6 +3814,10 @@ router.post(
         message: "Bulk import failed",
         error: error.message,
       })
+    } finally {
+      if (excelFile?.path) {
+        fs.unlink(excelFile.path, () => {})
+      }
     }
   }),
 )
