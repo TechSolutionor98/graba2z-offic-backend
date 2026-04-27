@@ -408,10 +408,10 @@ router.get(
 
           // Handle pricing
           let price = 0
-          if (product.offerPrice && product.offerPrice > 0) {
-            price = product.offerPrice
-          } else if (product.price && product.price > 0) {
+          if (product.price && product.price > 0) {
             price = product.price
+          } else if (product.offerPrice && product.offerPrice > 0) {
+            price = product.offerPrice
           } else if (includeZeroPrice) {
             // Legacy fallback for explicit includeZeroPrice debug mode
             price = 1
@@ -670,10 +670,10 @@ router.get(
 
           // Handle pricing
           let price = 0
-          if (product.offerPrice && product.offerPrice > 0) {
-            price = product.offerPrice
-          } else if (product.price && product.price > 0) {
+          if (product.price && product.price > 0) {
             price = product.price
+          } else if (product.offerPrice && product.offerPrice > 0) {
+            price = product.offerPrice
           } else if (includeZeroPrice) {
             // Legacy fallback for explicit includeZeroPrice debug mode
             price = 1
@@ -1043,10 +1043,10 @@ router.get(
 
           // Handle pricing
           let price = 0
-          if (product.offerPrice && product.offerPrice > 0) {
-            price = product.offerPrice
-          } else if (product.price && product.price > 0) {
+          if (product.price && product.price > 0) {
             price = product.price
+          } else if (product.offerPrice && product.offerPrice > 0) {
+            price = product.offerPrice
           } else if (includeZeroPrice) {
             price = 1
           } else {
