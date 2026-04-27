@@ -160,6 +160,17 @@ function determineGoogleCategory(parentCategory, subCategory) {
   return "Electronics"
 }
 
+// Helper to fix image URLs: use api.grabatoz.ae for /uploads/ paths, normalize double slashes
+const fixImageUrl = (url) => {
+  if (!url) return ''
+  // Normalize double (or more) slashes after the domain
+  let fixed = url.replace(/(https?:\/\/[^/]+)(\/+)/g, (_, domain, slashes) => domain + '/')
+  // Replace www.grabatoz.ae with api.grabatoz.ae for /uploads/ paths (images live on the API/VPS server)
+  fixed = fixed.replace('https://www.grabatoz.ae/uploads/', 'https://api.grabatoz.ae/uploads/')
+  fixed = fixed.replace('http://www.grabatoz.ae/uploads/', 'https://api.grabatoz.ae/uploads/')
+  return fixed
+}
+
 const resolveFeedLanguage = (req) => {
   const rawLang = String(req.query.lang || "en").toLowerCase()
   return rawLang === "ar" ? "ar" : "en"
@@ -379,11 +390,13 @@ router.get(
           // Escape & in slug for valid URLs
           const cleanSlug = (product.slug || product._id.toString()).replace(/&/g, '%26')
           const productUrl = buildProductUrl(cleanSlug, feedLanguage)
-          const imageUrl = product.image
-            ? product.image.startsWith("http")
-              ? product.image
-              : `https://www.grabatoz.ae${product.image}`
-            : "https://www.grabatoz.ae/placeholder.jpg"
+          const imageUrl = fixImageUrl(
+            product.image
+              ? product.image.startsWith("http")
+                ? product.image
+                : `https://api.grabatoz.ae${product.image}`
+              : "https://api.grabatoz.ae/placeholder.jpg"
+          )
 
           // Use the improved availability logic
           const availability = determineAvailability(product)
@@ -435,7 +448,9 @@ router.get(
           if (product.galleryImages && product.galleryImages.length > 0) {
             product.galleryImages.slice(0, 10).forEach((img) => {
               if (img) {
-                const additionalImageUrl = img.startsWith("http") ? img : `https://www.grabatoz.ae${img}`
+                const additionalImageUrl = fixImageUrl(
+                  img.startsWith("http") ? img : `https://api.grabatoz.ae${img}`
+                )
                 additionalImages.push(additionalImageUrl)
               }
             })
@@ -639,12 +654,14 @@ router.get(
           const cleanSlug = (product.slug || product._id.toString()).replace(/&/g, '%26')
           const productUrl = buildProductUrl(cleanSlug, feedLanguage)
           
-          // Escape & in image URLs for valid XML
-          let imageUrl = product.image
-            ? product.image.startsWith("http")
-              ? product.image
-              : `https://www.grabatoz.ae${product.image}`
-            : "https://www.grabatoz.ae/placeholder.jpg"
+          // Fix and escape image URLs for valid XML
+          let imageUrl = fixImageUrl(
+            product.image
+              ? product.image.startsWith("http")
+                ? product.image
+                : `https://api.grabatoz.ae${product.image}`
+              : "https://api.grabatoz.ae/placeholder.jpg"
+          )
           imageUrl = imageUrl.replace(/&/g, '&amp;')
 
           // Use the improved availability logic
@@ -755,7 +772,9 @@ router.get(
           if (product.galleryImages && product.galleryImages.length > 0) {
             product.galleryImages.slice(0, 10).forEach((img) => {
               if (img) {
-                let additionalImageUrl = img.startsWith("http") ? img : `https://www.grabatoz.ae${img}`
+                let additionalImageUrl = fixImageUrl(
+                  img.startsWith("http") ? img : `https://api.grabatoz.ae${img}`
+                )
                 // Escape & for valid XML
                 additionalImageUrl = additionalImageUrl.replace(/&/g, '&amp;')
                 xml += `
@@ -1006,12 +1025,14 @@ router.get(
           const cleanSlug = (product.slug || product._id.toString()).replace(/&/g, '%26')
           const productUrl = buildProductUrl(cleanSlug, feedLanguage)
           
-          // Escape & in image URLs for valid XML
-          let imageUrl = product.image
-            ? product.image.startsWith("http")
-              ? product.image
-              : `https://www.grabatoz.ae${product.image}`
-            : "https://www.grabatoz.ae/placeholder.jpg"
+          // Fix and escape image URLs for valid XML
+          let imageUrl = fixImageUrl(
+            product.image
+              ? product.image.startsWith("http")
+                ? product.image
+                : `https://api.grabatoz.ae${product.image}`
+              : "https://api.grabatoz.ae/placeholder.jpg"
+          )
           imageUrl = imageUrl.replace(/&/g, '&amp;')
 
           // Use the improved availability logic
@@ -1118,7 +1139,9 @@ router.get(
           if (product.galleryImages && product.galleryImages.length > 0) {
             product.galleryImages.slice(0, 10).forEach((img) => {
               if (img) {
-                let additionalImageUrl = img.startsWith("http") ? img : `https://www.grabatoz.ae${img}`
+                let additionalImageUrl = fixImageUrl(
+                  img.startsWith("http") ? img : `https://api.grabatoz.ae${img}`
+                )
                 additionalImageUrl = additionalImageUrl.replace(/&/g, '&amp;')
                 xml += `
       <g:additional_image_link>${additionalImageUrl}</g:additional_image_link>`
