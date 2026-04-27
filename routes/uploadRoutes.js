@@ -10,7 +10,7 @@ import sharp from "sharp"
 const router = express.Router()
 const MAX_PRODUCT_IMAGES_PER_UPLOAD = 30
 
-const toUploadUrl = (absolutePath) => `/uploads/${absolutePath.split("uploads")[1].replace(/\\/g, "/")}`
+const toUploadUrl = (absolutePath) => '/uploads' + absolutePath.split("uploads")[1].replace(/\\/g, "/")
 
 const convertToWebpIfNeeded = async (file) => {
   if (!file) return null
@@ -99,7 +99,7 @@ router.post(
       }
 
       // Generate URL path for the uploaded file
-      const fileUrl = `/uploads/${req.file.path.split("uploads")[1].replace(/\\/g, "/")}`
+      const fileUrl = '/uploads' + req.file.path.split("uploads")[1].replace(/\\/g, "/")
 
       console.log("✅ File uploaded successfully:")
       console.log("📍 File Path:", req.file.path)
@@ -151,7 +151,7 @@ router.post(
       }
 
       const files = req.files.map((file) => {
-        const fileUrl = `/uploads/${file.path.split("uploads")[1].replace(/\\/g, "/")}`
+        const fileUrl = '/uploads' + file.path.split("uploads")[1].replace(/\\/g, "/")
         console.log("✅ File processed:", file.originalname, "->", fileUrl)
         return {
           url: fileUrl,
@@ -189,7 +189,7 @@ router.post(
     if (!req.file) {
       return res.status(400).json({ message: "No file uploaded" });
     }
-    const fileUrl = `/uploads/${req.file.path.split("uploads")[1].replace(/\\/g, "/")}`;
+    const fileUrl = '/uploads' + req.file.path.split("uploads")[1].replace(/\\/g, "/");
     res.json({ 
       url: fileUrl,
       filename: req.file.filename,
@@ -315,7 +315,7 @@ router.post(
         })
       }
 
-      const fileUrl = `/uploads/${req.file.path.split("uploads")[1].replace(/\\/g, "/")}`
+      const fileUrl = '/uploads' + req.file.path.split("uploads")[1].replace(/\\/g, "/")
 
       console.log("✅ Video uploaded successfully:", fileUrl)
 
