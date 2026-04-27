@@ -163,8 +163,8 @@ function determineGoogleCategory(parentCategory, subCategory) {
 // Helper to fix image URLs: use api.grabatoz.ae for /uploads/ paths, normalize double slashes
 const fixImageUrl = (url) => {
   if (!url) return ''
-  // Normalize double (or more) slashes after the domain
-  let fixed = url.replace(/(https?:\/\/[^/]+)(\/+)/g, (_, domain, slashes) => domain + '/')
+  // Normalize double (or more) slashes anywhere in the path (ignoring the :// in protocol)
+  let fixed = url.replace(/([^:])\/{2,}/g, '$1/')
   // Replace www.grabatoz.ae with api.grabatoz.ae for /uploads/ paths (images live on the API/VPS server)
   fixed = fixed.replace('https://www.grabatoz.ae/uploads/', 'https://api.grabatoz.ae/uploads/')
   fixed = fixed.replace('http://www.grabatoz.ae/uploads/', 'https://api.grabatoz.ae/uploads/')
