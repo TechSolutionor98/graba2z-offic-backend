@@ -320,7 +320,10 @@ router.get(
       const totalCount = await Product.countDocuments(query)
       console.log(`Total products matching query: ${totalCount}`)
 
-      let dbQuery = Product.find(query).populate('brand category parentCategory').lean()
+      let dbQuery = Product.find(query)
+        .select('name nameAr slug sku gtin brand category parentCategory price offerPrice stockStatus countInStock isActive image variations description descriptionAr shortDescription shortDescriptionAr')
+        .populate('brand category parentCategory')
+        .lean()
       if (limit > 0) {
         dbQuery = dbQuery.skip(skip).limit(limit)
       }
@@ -550,7 +553,10 @@ router.get(
       const totalCount = await Product.countDocuments(query)
       console.log(`Total products for XML: ${totalCount}`)
 
-      let dbQuery = Product.find(query).populate('brand category parentCategory').lean()
+      let dbQuery = Product.find(query)
+        .select('name nameAr slug sku gtin brand category parentCategory price offerPrice stockStatus countInStock isActive image variations description descriptionAr shortDescription shortDescriptionAr')
+        .populate('brand category parentCategory')
+        .lean()
       if (limit > 0) {
         dbQuery = dbQuery.skip(skip).limit(limit)
       }
