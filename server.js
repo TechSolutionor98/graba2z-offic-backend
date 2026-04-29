@@ -123,8 +123,8 @@ app.get('/uploads/*', async (req, res, next) => {
     const quality = Math.min(100, Math.max(1, Number.parseInt(req.query.q, 10) || 72))
     const format = String(req.query.fmt || "").toLowerCase()
 
-    // Only optimize when a target dimension is requested.
-    if (!width && !height) return next()
+    // Only optimize when a target dimension is requested OR a specific format is requested
+    if (!width && !height && !format) return next()
 
     // req.path can be "/uploads//products/file.webp" - normalize and strip route prefix.
     const normalizedPath = String(req.path || "").replace(/\\/g, "/").replace(/\/+/g, "/")
@@ -133,12 +133,15 @@ app.get('/uploads/*', async (req, res, next) => {
     const absPath = path.resolve(uploadsPath, relPath)
     if (!absPath.startsWith(path.resolve(uploadsPath))) return res.status(400).send("Invalid image path")
 
-    let pipeline = sharp(absPath).rotate().resize({
-      width: width || undefined,
-      height: height || undefined,
-      fit: "inside",
-      withoutEnlargement: true,
-    })
+    let pipeline = sharp(absPath).rotate()
+    if (width || height) {
+      pipeline = pipeline.resize({
+        width: width || undefined,
+        height: height || undefined,
+        fit: "inside",
+        withoutEnlargement: true,
+      })
+    }
 
     // Default modern output.
     if (format === "jpeg" || format === "jpg") {

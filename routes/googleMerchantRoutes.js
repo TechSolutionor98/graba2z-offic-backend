@@ -168,6 +168,12 @@ const fixImageUrl = (url) => {
   // Replace www.grabatoz.ae with api.grabatoz.ae for /uploads/ paths (images live on the API/VPS server)
   fixed = fixed.replace('https://www.grabatoz.ae/uploads/', 'https://api.grabatoz.ae/uploads/')
   fixed = fixed.replace('http://www.grabatoz.ae/uploads/', 'https://api.grabatoz.ae/uploads/')
+  
+  // Ensure Merchant Center gets JPEG to avoid webp encoding issues
+  if (fixed.includes('.webp') && !fixed.includes('fmt=')) {
+    fixed += (fixed.includes('?') ? '&' : '?') + 'fmt=jpeg'
+  }
+  
   return fixed
 }
 
