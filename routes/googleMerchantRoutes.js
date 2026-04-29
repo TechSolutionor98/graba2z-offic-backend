@@ -93,7 +93,7 @@ const cleanForCDATA = (text) => {
 const determineAvailability = (product) => {
   // Check stock status first
   if (product.stockStatus === "Out of Stock") {
-    return "out of stock"
+    return "out_of_stock"
   }
 
   if (product.stockStatus === "PreOrder") {
@@ -102,16 +102,40 @@ const determineAvailability = (product) => {
 
   // If stockStatus is "In Stock" or any other value, check actual stock count
   if (product.countInStock && product.countInStock > 0) {
-    return "in stock"
+    return "in_stock"
   }
 
   // If no stock count or zero stock, but stockStatus is not explicitly "Out of Stock"
   if (product.stockStatus === "In Stock") {
-    return "in stock" // Trust the stockStatus over countInStock
+    return "in_stock" // Trust the stockStatus over countInStock
   }
 
   // Default to out of stock
-  return "out of stock"
+  return "out_of_stock"
+}
+
+const trackAvailability = (stats, availability) => {
+  if (availability === "in_stock") stats.inStock++
+  else if (availability === "out_of_stock") stats.outOfStock++
+  else if (availability === "preorder") stats.preOrder++
+}
+
+const getProductFeedId = (product) => product.slug || product.sku || product._id.toString()
+
+const getItemGroupId = (product) => {
+  if (!product?.variations || product.variations.length === 0) return ""
+
+  const ids = [
+    product._id?.toString(),
+    ...product.variations
+      .map((variation) => variation?.product || variation)
+      .map((id) => id?.toString())
+      .filter(Boolean),
+  ].filter(Boolean)
+
+  if (ids.length < 2) return ""
+  ids.sort()
+  return `grp${ids[0]}`
 }
 
 // Helper function to determine Google product category
@@ -168,9 +192,8 @@ const fixImageUrl = (url) => {
   // Replace www.grabatoz.ae with api.grabatoz.ae for /uploads/ paths (images live on the API/VPS server)
   fixed = fixed.replace('https://www.grabatoz.ae/uploads/', 'https://api.grabatoz.ae/uploads/')
   fixed = fixed.replace('http://www.grabatoz.ae/uploads/', 'https://api.grabatoz.ae/uploads/')
-  
-  // Replace .webp extension with .jpg to ensure Merchant Center gets JPEGs seamlessly
-  // This works universally across Cloudinary and our local server (which we just updated to support it)
+
+  // Keep Merchant Center on JPEG URLs for uploaded WebP images.
   if (fixed.toLowerCase().includes('.webp')) {
     fixed = fixed.replace(/\.webp(\?|$)/i, '.jpg$1')
   }
@@ -297,60 +320,11 @@ router.get(
       const totalCount = await Product.countDocuments(query)
       console.log(`Total products matching query: ${totalCount}`)
 
-      // Build the aggregation pipeline to fetch ALL products without any default limits
-      const aggregationPipeline = [
-        { $match: query },
-        {
-          $lookup: {
-            from: "brands",
-            localField: "brand",
-            foreignField: "_id",
-            as: "brand",
-          },
-        },
-        {
-          $lookup: {
-            from: "subcategories",
-            localField: "category",
-            foreignField: "_id",
-            as: "category",
-          },
-        },
-        {
-          $lookup: {
-            from: "categories",
-            localField: "parentCategory",
-            foreignField: "_id",
-            as: "parentCategory",
-          },
-        },
-        {
-          $unwind: {
-            path: "$brand",
-            preserveNullAndEmptyArrays: true,
-          },
-        },
-        {
-          $unwind: {
-            path: "$category",
-            preserveNullAndEmptyArrays: true,
-          },
-        },
-        {
-          $unwind: {
-            path: "$parentCategory",
-            preserveNullAndEmptyArrays: true,
-          },
-        },
-      ]
-
-      // Add pagination only if limit is specified
+      let dbQuery = Product.find(query).populate('brand category parentCategory').lean()
       if (limit > 0) {
-        aggregationPipeline.push({ $skip: skip })
-        aggregationPipeline.push({ $limit: limit })
+        dbQuery = dbQuery.skip(skip).limit(limit)
       }
-
-      const products = await Product.aggregate(aggregationPipeline)
+      const products = await dbQuery
 
       console.log(`Found ${products.length} products`)
 
@@ -407,8 +381,8 @@ router.get(
 
           // Use the improved availability logic
           const availability = determineAvailability(product)
-          availabilityStats[availability.replace(" ", "").replace("of", "Of")]++
-          if (!includeOutOfStock && availability === "out of stock") {
+          trackAvailability(availabilityStats, availability)
+          if (!includeOutOfStock && availability === "out_of_stock") {
             skippedCount++
             continue
           }
@@ -469,7 +443,8 @@ router.get(
           const hasBrand = product.brand?.name && product.brand.name.toLowerCase() !== 'generic'
           const identifierExists = hasGtin || (hasBrand && hasMpn)
 
-          const productId = product.slug || product.sku || product._id.toString()
+          const productId = getProductFeedId(product)
+          const itemGroupId = getItemGroupId(product)
           
           const productData = {
             id: productId,
@@ -483,7 +458,6 @@ router.get(
             condition: "new",
             google_product_category: googleProductCategory,
             product_type: productType,
-            item_group_id: productId,
             brand: getLocalizedValue(product.brand, "name", feedLanguage) || product.brand?.name || "Generic",
             gtin: hasGtin ? product.gtin : "",
             mpn: hasMpn ? product.sku : product._id.toString(),
@@ -507,6 +481,10 @@ router.get(
             is_active: product.isActive !== undefined ? product.isActive : true,
             original_price: product.price || 0,
             original_offer_price: product.offerPrice || 0,
+          }
+
+          if (itemGroupId) {
+            productData.item_group_id = itemGroupId
           }
 
           if (salePrice) {
@@ -572,60 +550,11 @@ router.get(
       const totalCount = await Product.countDocuments(query)
       console.log(`Total products for XML: ${totalCount}`)
 
-      // Build the aggregation pipeline to fetch ALL products without any default limits
-      const aggregationPipeline = [
-        { $match: query },
-        {
-          $lookup: {
-            from: "brands",
-            localField: "brand",
-            foreignField: "_id",
-            as: "brand",
-          },
-        },
-        {
-          $lookup: {
-            from: "subcategories",
-            localField: "category",
-            foreignField: "_id",
-            as: "category",
-          },
-        },
-        {
-          $lookup: {
-            from: "categories",
-            localField: "parentCategory",
-            foreignField: "_id",
-            as: "parentCategory",
-          },
-        },
-        {
-          $unwind: {
-            path: "$brand",
-            preserveNullAndEmptyArrays: true,
-          },
-        },
-        {
-          $unwind: {
-            path: "$category",
-            preserveNullAndEmptyArrays: true,
-          },
-        },
-        {
-          $unwind: {
-            path: "$parentCategory",
-            preserveNullAndEmptyArrays: true,
-          },
-        },
-      ]
-
-      // Add pagination only if limit is specified
+      let dbQuery = Product.find(query).populate('brand category parentCategory').lean()
       if (limit > 0) {
-        aggregationPipeline.push({ $skip: skip })
-        aggregationPipeline.push({ $limit: limit })
+        dbQuery = dbQuery.skip(skip).limit(limit)
       }
-
-      const products = await Product.aggregate(aggregationPipeline)
+      const products = await dbQuery
 
       console.log(`Found ${products.length} products for XML`)
 
@@ -675,7 +604,7 @@ router.get(
 
           // Use the improved availability logic
           const availability = determineAvailability(product)
-          availabilityStats[availability.replace(" ", "").replace("of", "Of")]++
+          trackAvailability(availabilityStats, availability)
 
           // Handle pricing
           let price = 0
@@ -721,7 +650,8 @@ router.get(
           const hasBrand = product.brand?.name && product.brand.name.toLowerCase() !== 'generic'
           const identifierExists = hasGtin || (hasBrand && hasMpn)
 
-          const productId = product.sku || product.slug || product._id.toString()
+          const productId = getProductFeedId(product)
+          const itemGroupId = getItemGroupId(product)
 
           xml += `    <item>
       <g:id>${escapeXml(productId)}</g:id>
@@ -764,12 +694,16 @@ router.get(
 
           // Add identifier_exists - required by Google
           xml += `
-      <g:identifier_exists>${identifierExists ? 'true' : 'false'}</g:identifier_exists>`
+      <g:identifier_exists>${identifierExists ? 'yes' : 'no'}</g:identifier_exists>`
 
           xml += `
       <g:google_product_category><![CDATA[${googleProductCategory}]]></g:google_product_category>
-      <g:product_type><![CDATA[${cleanForCDATA(productType)}]]></g:product_type>
-      <g:item_group_id>${escapeXml(productId)}</g:item_group_id>`
+      <g:product_type><![CDATA[${cleanForCDATA(productType)}]]></g:product_type>`
+
+          if (itemGroupId) {
+            xml += `
+      <g:item_group_id>${escapeXml(itemGroupId)}</g:item_group_id>`
+          }
 
           // Add shipping information - required for UAE
           xml += `
@@ -1048,9 +982,7 @@ router.get(
 
           // Use the improved availability logic
           const availability = determineAvailability(product)
-          if (availability === "in stock") availabilityStats.inStock++
-          else if (availability === "out of stock") availabilityStats.outOfStock++
-          else if (availability === "preorder") availabilityStats.preOrder++
+          trackAvailability(availabilityStats, availability)
 
           // Handle pricing
           let price = 0
@@ -1095,7 +1027,8 @@ router.get(
           const hasBrand = product.brand?.name && product.brand.name.toLowerCase() !== 'generic'
           const identifierExists = hasGtin || (hasBrand && hasMpn)
 
-          const productId = product.slug || product.sku || product._id.toString()
+          const productId = getProductFeedId(product)
+          const itemGroupId = getItemGroupId(product)
 
           xml += `    <item>
       <g:id>${escapeXml(productId)}</g:id>
@@ -1134,12 +1067,16 @@ router.get(
           }
 
           xml += `
-      <g:identifier_exists>${identifierExists ? 'true' : 'false'}</g:identifier_exists>`
+      <g:identifier_exists>${identifierExists ? 'yes' : 'no'}</g:identifier_exists>`
 
           xml += `
       <g:google_product_category><![CDATA[${googleProductCategory}]]></g:google_product_category>
-      <g:product_type><![CDATA[${cleanForCDATA(productType)}]]></g:product_type>
-      <g:item_group_id>${escapeXml(product._id.toString())}</g:item_group_id>`
+      <g:product_type><![CDATA[${cleanForCDATA(productType)}]]></g:product_type>`
+
+          if (itemGroupId) {
+            xml += `
+      <g:item_group_id>${escapeXml(itemGroupId)}</g:item_group_id>`
+          }
 
           xml += `
       <g:shipping>
@@ -1256,8 +1193,3 @@ router.get(
 )
 
 export default router
-
-
-
-
-
