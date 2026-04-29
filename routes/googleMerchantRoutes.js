@@ -469,8 +469,10 @@ router.get(
           const hasBrand = product.brand?.name && product.brand.name.toLowerCase() !== 'generic'
           const identifierExists = hasGtin || (hasBrand && hasMpn)
 
+          const productId = product.slug || product.sku || product._id.toString()
+          
           const productData = {
-            id: product._id.toString(),
+            id: productId,
             title: truncatedTitle,
             description: cleanDescription,
             link: productUrl,
@@ -481,7 +483,7 @@ router.get(
             condition: "new",
             google_product_category: googleProductCategory,
             product_type: productType,
-            item_group_id: product._id.toString(),
+            item_group_id: productId,
             brand: getLocalizedValue(product.brand, "name", feedLanguage) || product.brand?.name || "Generic",
             gtin: hasGtin ? product.gtin : "",
             mpn: hasMpn ? product.sku : product._id.toString(),
@@ -719,8 +721,10 @@ router.get(
           const hasBrand = product.brand?.name && product.brand.name.toLowerCase() !== 'generic'
           const identifierExists = hasGtin || (hasBrand && hasMpn)
 
+          const productId = product.sku || product.slug || product._id.toString()
+
           xml += `    <item>
-      <g:id>${escapeXml(product._id.toString())}</g:id>
+      <g:id>${escapeXml(productId)}</g:id>
       <g:title><![CDATA[${cleanForCDATA(truncatedTitle)}]]></g:title>
       <g:description><![CDATA[${cleanForCDATA(cleanDescription)}]]></g:description>
       <g:link>${productUrl}</g:link>
@@ -765,7 +769,7 @@ router.get(
           xml += `
       <g:google_product_category><![CDATA[${googleProductCategory}]]></g:google_product_category>
       <g:product_type><![CDATA[${cleanForCDATA(productType)}]]></g:product_type>
-      <g:item_group_id>${escapeXml(product._id.toString())}</g:item_group_id>`
+      <g:item_group_id>${escapeXml(productId)}</g:item_group_id>`
 
           // Add shipping information - required for UAE
           xml += `
@@ -1091,8 +1095,10 @@ router.get(
           const hasBrand = product.brand?.name && product.brand.name.toLowerCase() !== 'generic'
           const identifierExists = hasGtin || (hasBrand && hasMpn)
 
+          const productId = product.slug || product.sku || product._id.toString()
+
           xml += `    <item>
-      <g:id>${escapeXml(product._id.toString())}</g:id>
+      <g:id>${escapeXml(productId)}</g:id>
       <g:title><![CDATA[${cleanForCDATA(truncatedTitle)}]]></g:title>
       <g:description><![CDATA[${cleanForCDATA(cleanDescription)}]]></g:description>
       <g:link>${productUrl}</g:link>
