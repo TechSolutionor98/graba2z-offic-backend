@@ -643,6 +643,10 @@ router.get("/admin", protect, admin, async (req, res) => {
         path: "variations.product",
         select: "name nameAr slug image price offerPrice sku selfVariationText selfVariationTextAr reverseVariationText reverseVariationTextAr"
       })
+      .populate({
+        path: "availableModels.product",
+        select: "name nameAr slug image price offerPrice sku selfAvailableModelText selfAvailableModelTextAr"
+      })
       .sort({ createdAt: -1 })
 
     // Pagination
@@ -1256,6 +1260,10 @@ router.get(
         // Populate all variation products regardless of hideFromShop status
         // This ensures hidden variations are visible in the variations section
       })
+      .populate({
+        path: "availableModels.product",
+        select: "name nameAr slug image price offerPrice sku isActive hideFromShop selfAvailableModelText selfAvailableModelTextAr",
+      })
 
     if (product) {
       res.json(product)
@@ -1469,17 +1477,29 @@ router.post(
     // Translate variation texts
     let reverseVariationTextAr = "";
     let selfVariationTextAr = "";
+    let selfAvailableModelTextAr = "";
     if (productData.reverseVariationText) {
       reverseVariationTextAr = await translateText(productData.reverseVariationText);
     }
     if (productData.selfVariationText) {
       selfVariationTextAr = await translateText(productData.selfVariationText);
     }
+    if (productData.selfAvailableModelText) {
+      selfAvailableModelTextAr = await translateText(productData.selfAvailableModelText);
+    }
 
     if (productData.variations && Array.isArray(productData.variations)) {
       for (const v of productData.variations) {
         if (v.variationText && !v.variationTextAr) {
           v.variationTextAr = await translateText(v.variationText);
+        }
+      }
+    }
+
+    if (productData.availableModels && Array.isArray(productData.availableModels)) {
+      for (const model of productData.availableModels) {
+        if (model.variationText && !model.variationTextAr) {
+          model.variationTextAr = await translateText(model.variationText);
         }
       }
     }
@@ -1493,6 +1513,7 @@ router.post(
       stockStatusAr,
       reverseVariationTextAr,
       selfVariationTextAr,
+      selfAvailableModelTextAr,
       parentCategory,
       category,
       subCategory: category || undefined, // for backward compatibility
@@ -1563,6 +1584,53 @@ router.post(
         }
       }
     }
+
+    // Bidirectional available model sync: same group-link behavior as product variations
+    if (productData.availableModels && Array.isArray(productData.availableModels)) {
+      const availableModelIds = productData.availableModels
+        .filter(v => v && v.product && v.product !== createdProduct._id.toString())
+        .map(v => v.product)
+
+      console.log(`[AVAILABLE MODELS SYNC] Product ${createdProduct._id} adding models:`, availableModelIds)
+
+      for (const modelId of availableModelIds) {
+        const modelProduct = await Product.findById(modelId)
+        if (modelProduct) {
+          let modified = false
+
+          const existingModelIndex = modelProduct.availableModels.findIndex(
+            v => (v.product || v).toString() === createdProduct._id.toString()
+          )
+          if (existingModelIndex === -1) {
+            console.log(`[AVAILABLE MODELS SYNC] Adding product ${createdProduct._id} to ${modelProduct._id}'s available models`)
+            modelProduct.availableModels.push({
+              product: createdProduct._id,
+              variationText: "",
+            })
+            modelProduct.markModified('availableModels')
+            modified = true
+          }
+
+          const otherModelIds = availableModelIds.filter(id => id !== modelId)
+          for (const otherId of otherModelIds) {
+            const hasOther = modelProduct.availableModels.some(
+              v => (v.product || v).toString() === otherId
+            )
+            if (!hasOther) {
+              console.log(`[AVAILABLE MODELS SYNC] Adding cross-model ${otherId} to ${modelProduct._id}`)
+              modelProduct.availableModels.push({ product: otherId, variationText: "" })
+              modelProduct.markModified('availableModels')
+              modified = true
+            }
+          }
+
+          if (modified) {
+            await modelProduct.save()
+            console.log(`[AVAILABLE MODELS SYNC] Saved ${modelProduct._id} with ${modelProduct.availableModels.length} available models`)
+          }
+        }
+      }
+    }
     
 
     
@@ -1576,6 +1644,10 @@ router.post(
       .populate({
         path: "variations.product",
         select: "name slug image price offerPrice sku selfVariationText reverseVariationText"
+      })
+      .populate({
+        path: "availableModels.product",
+        select: "name slug image price offerPrice sku selfAvailableModelText"
       })
 
     // Log activity
@@ -1748,11 +1820,22 @@ router.put(
       if (updateData.selfVariationText !== undefined) {
         product.selfVariationTextAr = await translateText(product.selfVariationText);
       }
+      if (updateData.selfAvailableModelText !== undefined) {
+        product.selfAvailableModelTextAr = await translateText(product.selfAvailableModelText);
+      }
 
       if (updateData.variations !== undefined && Array.isArray(product.variations)) {
         for (const v of product.variations) {
           if (v.variationText && !v.variationTextAr) {
             v.variationTextAr = await translateText(v.variationText);
+          }
+        }
+      }
+
+      if (updateData.availableModels !== undefined && Array.isArray(product.availableModels)) {
+        for (const model of product.availableModels) {
+          if (model.variationText && !model.variationTextAr) {
+            model.variationTextAr = await translateText(model.variationText);
           }
         }
       }
@@ -1849,8 +1932,69 @@ router.put(
         }
       }
       
+      // Bidirectional available model sync: same group-link behavior as product variations
+      if (updateData.availableModels && Array.isArray(updateData.availableModels)) {
+        const availableModelIds = updateData.availableModels
+          .filter(v => v && v.product && v.product !== product._id.toString())
+          .map(v => v.product)
 
-      
+        console.log(`[UPDATE AVAILABLE MODELS SYNC] Product ${product._id} updating models:`, availableModelIds)
+
+        for (const modelId of availableModelIds) {
+          const modelProduct = await Product.findById(modelId)
+          if (modelProduct) {
+            let modified = false
+
+            const existingModelIndex = modelProduct.availableModels.findIndex(
+              v => (v.product || v).toString() === product._id.toString()
+            )
+            if (existingModelIndex === -1) {
+              console.log(`[UPDATE AVAILABLE MODELS SYNC] Adding product ${product._id} to ${modelProduct._id}'s available models`)
+              modelProduct.availableModels.push({
+                product: product._id,
+                variationText: "",
+              })
+              modelProduct.markModified('availableModels')
+              modified = true
+            }
+
+            const otherModelIds = availableModelIds.filter(id => id !== modelId)
+            for (const otherId of otherModelIds) {
+              const hasOther = modelProduct.availableModels.some(
+                v => (v.product || v).toString() === otherId
+              )
+              if (!hasOther) {
+                console.log(`[UPDATE AVAILABLE MODELS SYNC] Adding cross-model ${otherId} to ${modelProduct._id}`)
+                modelProduct.availableModels.push({ product: otherId, variationText: "" })
+                modelProduct.markModified('availableModels')
+                modified = true
+              }
+            }
+
+            if (modified) {
+              await modelProduct.save()
+              console.log(`[UPDATE AVAILABLE MODELS SYNC] Saved ${modelProduct._id} with ${modelProduct.availableModels.length} available models`)
+            }
+          }
+        }
+
+        const allModelProducts = await Product.find({
+          "availableModels.product": product._id,
+          _id: { $ne: product._id },
+        })
+        console.log(`[UPDATE AVAILABLE MODELS SYNC] Found ${allModelProducts.length} products with current product in available models`)
+        for (const relatedProduct of allModelProducts) {
+          if (!availableModelIds.includes(relatedProduct._id.toString())) {
+            console.log(`[UPDATE AVAILABLE MODELS SYNC] Removing product ${product._id} from ${relatedProduct._id}'s available models`)
+            relatedProduct.availableModels = relatedProduct.availableModels.filter(
+              v => (v.product || v).toString() !== product._id.toString()
+            )
+            relatedProduct.markModified('availableModels')
+            await relatedProduct.save()
+          }
+        }
+      }
+
       const populatedProduct = await Product.findById(updatedProduct._id)
         .populate("parentCategory", "name slug")
         .populate("category", "name slug")
@@ -1861,6 +2005,10 @@ router.put(
         .populate({
           path: "variations.product",
           select: "name slug image price offerPrice sku selfVariationText reverseVariationText"
+        })
+        .populate({
+          path: "availableModels.product",
+          select: "name slug image price offerPrice sku selfAvailableModelText"
         })
 
       // Log activity

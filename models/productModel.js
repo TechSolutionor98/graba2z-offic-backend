@@ -310,6 +310,30 @@ const productSchema = mongoose.Schema(
       type: String,
       default: "",
     },
+    availableModels: [
+      {
+        product: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Product",
+        },
+        variationText: {
+          type: String,
+          default: "",
+        },
+        variationTextAr: {
+          type: String,
+          default: "",
+        },
+      },
+    ],
+    selfAvailableModelText: {
+      type: String,
+      default: "",
+    },
+    selfAvailableModelTextAr: {
+      type: String,
+      default: "",
+    },
     colorVariations: [
       {
         color: {
