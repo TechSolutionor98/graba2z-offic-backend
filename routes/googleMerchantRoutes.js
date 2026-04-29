@@ -169,9 +169,10 @@ const fixImageUrl = (url) => {
   fixed = fixed.replace('https://www.grabatoz.ae/uploads/', 'https://api.grabatoz.ae/uploads/')
   fixed = fixed.replace('http://www.grabatoz.ae/uploads/', 'https://api.grabatoz.ae/uploads/')
   
-  // Ensure Merchant Center gets JPEG to avoid webp encoding issues
-  if (fixed.includes('.webp') && !fixed.includes('fmt=')) {
-    fixed += (fixed.includes('?') ? '&' : '?') + 'fmt=jpeg'
+  // Replace .webp extension with .jpg to ensure Merchant Center gets JPEGs seamlessly
+  // This works universally across Cloudinary and our local server (which we just updated to support it)
+  if (fixed.toLowerCase().includes('.webp')) {
+    fixed = fixed.replace(/\.webp(\?|$)/i, '.jpg$1')
   }
   
   return fixed

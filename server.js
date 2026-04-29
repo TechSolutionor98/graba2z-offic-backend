@@ -3,6 +3,7 @@ import cors from "cors"
 import dotenv from "dotenv"
 import path from "path"
 import { fileURLToPath } from "url"
+import fs from "fs"
 import sharp from "sharp"
 import connectDB, { connectBlogDB } from "./config/db.js"
 import config from "./config/config.js"
@@ -124,14 +125,26 @@ app.get('/uploads/*', async (req, res, next) => {
     const format = String(req.query.fmt || "").toLowerCase()
 
     // Only optimize when a target dimension is requested OR a specific format is requested
-    if (!width && !height && !format) return next()
+    const isJpgRequest = req.path.toLowerCase().endsWith('.jpg') || req.path.toLowerCase().endsWith('.jpeg')
+    if (!width && !height && !format && !isJpgRequest) return next()
 
     // req.path can be "/uploads//products/file.webp" - normalize and strip route prefix.
     const normalizedPath = String(req.path || "").replace(/\\/g, "/").replace(/\/+/g, "/")
     const relPath = normalizedPath.replace(/^\/uploads\/?/, "")
     if (!relPath) return next()
-    const absPath = path.resolve(uploadsPath, relPath)
-    if (!absPath.startsWith(path.resolve(uploadsPath))) return res.status(400).send("Invalid image path")
+    let absPath = path.resolve(uploadsPath, relPath)
+    
+    // If a .jpg was requested but doesn't exist, check if the .webp version exists
+    if (isJpgRequest && !fs.existsSync(absPath)) {
+      const webpPath = absPath.replace(/\.jpe?g$/i, '.webp')
+      if (fs.existsSync(webpPath)) {
+        absPath = webpPath
+      } else {
+        return res.status(400).send("Invalid image path")
+      }
+    } else if (!absPath.startsWith(path.resolve(uploadsPath))) {
+      return res.status(400).send("Invalid image path")
+    }
 
     let pipeline = sharp(absPath).rotate()
     if (width || height) {
@@ -144,8 +157,8 @@ app.get('/uploads/*', async (req, res, next) => {
     }
 
     // Default modern output.
-    if (format === "jpeg" || format === "jpg") {
-      pipeline = pipeline.jpeg({ quality, mozjpeg: true })
+    if (format === "jpeg" || format === "jpg" || isJpgRequest) {
+      pipeline = pipeline.jpeg({ quality: quality || 80, mozjpeg: true })
       res.type("image/jpeg")
     } else if (format === "png") {
       pipeline = pipeline.png({ quality })
