@@ -193,12 +193,59 @@ const fixImageUrl = (url) => {
   fixed = fixed.replace('https://www.grabatoz.ae/uploads/', 'https://api.grabatoz.ae/uploads/')
   fixed = fixed.replace('http://www.grabatoz.ae/uploads/', 'https://api.grabatoz.ae/uploads/')
 
-  // Keep Merchant Center on JPEG URLs for uploaded WebP images.
-  if (fixed.toLowerCase().includes('.webp')) {
+  // Convert .webp to .jpg only for our own uploads server where .jpg fallback exists.
+  const lowerFixed = fixed.toLowerCase()
+  const isLocalUploadsImage =
+    lowerFixed.includes('api.grabatoz.ae/uploads/') ||
+    lowerFixed.includes('www.grabatoz.ae/uploads/') ||
+    lowerFixed.startsWith('/uploads/')
+
+  if (isLocalUploadsImage && lowerFixed.includes('.webp')) {
     fixed = fixed.replace(/\.webp(\?|$)/i, '.jpg$1')
   }
   
   return fixed
+}
+
+const normalizePriceValue = (value) => {
+  if (value === null || value === undefined) return null
+
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null
+  }
+
+  const normalized = String(value).replace(/,/g, "").trim()
+  if (!normalized) return null
+
+  const parsed = Number.parseFloat(normalized)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+const getEffectiveFeedPrice = (product, includeZeroPrice = false) => {
+  const basePrice = normalizePriceValue(product?.price)
+  const offerPrice = normalizePriceValue(product?.offerPrice)
+
+  const validBasePrice = basePrice !== null && basePrice > 0 ? basePrice : null
+  const validOfferPrice = offerPrice !== null && offerPrice > 0 ? offerPrice : null
+
+  if (validBasePrice !== null && validOfferPrice !== null) {
+    const effective = validOfferPrice < validBasePrice ? validOfferPrice : validBasePrice
+    return { price: effective, salePrice: validOfferPrice < validBasePrice ? validOfferPrice : null }
+  }
+
+  if (validBasePrice !== null) {
+    return { price: validBasePrice, salePrice: null }
+  }
+
+  if (validOfferPrice !== null) {
+    return { price: validOfferPrice, salePrice: null }
+  }
+
+  if (includeZeroPrice) {
+    return { price: 1, salePrice: null }
+  }
+
+  return { price: null, salePrice: null }
 }
 
 const resolveFeedLanguage = (req) => {
@@ -391,23 +438,11 @@ router.get(
           }
 
           // Handle pricing
-          let price = 0
-          if (product.price && product.price > 0) {
-            price = product.price
-          } else if (product.offerPrice && product.offerPrice > 0) {
-            price = product.offerPrice
-          } else if (includeZeroPrice) {
-            // Legacy fallback for explicit includeZeroPrice debug mode
-            price = 1
-          } else {
+          const { price, salePrice } = getEffectiveFeedPrice(product, includeZeroPrice)
+          if (price === null) {
             skippedCount++
             continue
           }
-
-          const salePrice =
-            product.offerPrice && product.offerPrice > 0 && product.price && product.offerPrice < product.price
-              ? product.offerPrice
-              : null
 
           const localizedName = getLocalizedValue(product, "name", feedLanguage) || product.name
           const localizedDescription = getLocalizedValue(product, "description", feedLanguage)
@@ -613,22 +648,10 @@ router.get(
           trackAvailability(availabilityStats, availability)
 
           // Handle pricing
-          let price = 0
-          if (product.price && product.price > 0) {
-            price = product.price
-          } else if (product.offerPrice && product.offerPrice > 0) {
-            price = product.offerPrice
-          } else if (includeZeroPrice) {
-            // Legacy fallback for explicit includeZeroPrice debug mode
-            price = 1
-          } else {
+          const { price, salePrice } = getEffectiveFeedPrice(product, includeZeroPrice)
+          if (price === null) {
             continue
           }
-
-          const salePrice =
-            product.offerPrice && product.offerPrice > 0 && product.price && product.offerPrice < product.price
-              ? product.offerPrice
-              : null
 
           // Clean and limit description
           const localizedName = getLocalizedValue(product, "name", feedLanguage) || product.name
@@ -991,21 +1014,10 @@ router.get(
           trackAvailability(availabilityStats, availability)
 
           // Handle pricing
-          let price = 0
-          if (product.price && product.price > 0) {
-            price = product.price
-          } else if (product.offerPrice && product.offerPrice > 0) {
-            price = product.offerPrice
-          } else if (includeZeroPrice) {
-            price = 1
-          } else {
+          const { price, salePrice } = getEffectiveFeedPrice(product, includeZeroPrice)
+          if (price === null) {
             continue
           }
-
-          const salePrice =
-            product.offerPrice && product.offerPrice > 0 && product.price && product.offerPrice < product.price
-              ? product.offerPrice
-              : null
 
           // Clean and limit description
           const localizedName = getLocalizedValue(product, "name", feedLanguage) || product.name
