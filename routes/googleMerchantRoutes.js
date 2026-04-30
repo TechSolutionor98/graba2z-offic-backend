@@ -46,8 +46,9 @@ const truncateTitle = (title, maxLength = 150) => {
   return truncated + '...'
 }
 
-// Helper function to truncate description to Google's 5000 character limit
-const truncateDescription = (description, maxLength = 5000) => {
+// Helper function to truncate description. Google allows up to 5000 chars,
+// but 500-1000 is recommended and keeps feed generation/transfer much faster.
+const truncateDescription = (description, maxLength = 1000) => {
   if (!description) return ""
   const cleanDesc = description
     .toString()
@@ -265,6 +266,26 @@ const getLocalizedValue = (doc, field, lang = "en") => {
   return doc[arabicField] || doc[field] || ""
 }
 
+const GMC_XML_CACHE_TTL_MS = Number(process.env.GMC_XML_CACHE_TTL_MS || 15 * 60 * 1000)
+const gmcXmlFeedCache = new Map()
+
+const getXmlFeedCache = (key) => {
+  const cached = gmcXmlFeedCache.get(key)
+  if (!cached) return null
+  if (cached.expiresAt < Date.now()) {
+    gmcXmlFeedCache.delete(key)
+    return null
+  }
+  return cached.xml
+}
+
+const setXmlFeedCache = (key, xml) => {
+  gmcXmlFeedCache.set(key, {
+    xml,
+    expiresAt: Date.now() + GMC_XML_CACHE_TTL_MS,
+  })
+}
+
 // @desc    Get product count for debugging
 // @route   GET /api/google-merchant/count
 // @access  Public
@@ -369,7 +390,9 @@ router.get(
 
       let dbQuery = Product.find(query)
         .select('name nameAr slug sku gtin brand category parentCategory price offerPrice stockStatus countInStock isActive image variations description descriptionAr shortDescription shortDescriptionAr')
-        .populate('brand category parentCategory')
+        .populate({ path: 'brand', select: 'name nameAr' })
+        .populate({ path: 'category', select: 'name nameAr' })
+        .populate({ path: 'parentCategory', select: 'name nameAr' })
         .lean()
       if (limit > 0) {
         dbQuery = dbQuery.skip(skip).limit(limit)
@@ -570,6 +593,24 @@ router.get(
       const skip = limit > 0 ? (page - 1) * limit : 0
       const includeZeroPrice = req.query.includeZeroPrice === "true"
       const feedLanguage = resolveFeedLanguage(req)
+      const xmlCacheKey = JSON.stringify({
+        route: "feed.xml",
+        page,
+        limit,
+        skip,
+        includeZeroPrice,
+        feedLanguage,
+      })
+
+      const cachedXml = getXmlFeedCache(xmlCacheKey)
+      if (cachedXml) {
+        res.set({
+          "Content-Type": "application/xml; charset=utf-8",
+          "Cache-Control": "public, max-age=900",
+          "X-Feed-Cache": "HIT",
+        })
+        return res.send(cachedXml)
+      }
 
       // Build query - include ALL active products
       const query = {
@@ -590,7 +631,9 @@ router.get(
 
       let dbQuery = Product.find(query)
         .select('name nameAr slug sku gtin brand category parentCategory price offerPrice stockStatus countInStock isActive image variations description descriptionAr shortDescription shortDescriptionAr')
-        .populate('brand category parentCategory')
+        .populate({ path: 'brand', select: 'name nameAr' })
+        .populate({ path: 'category', select: 'name nameAr' })
+        .populate({ path: 'parentCategory', select: 'name nameAr' })
         .lean()
       if (limit > 0) {
         dbQuery = dbQuery.skip(skip).limit(limit)
@@ -601,7 +644,8 @@ router.get(
 
       res.set({
         "Content-Type": "application/xml; charset=utf-8",
-        "Cache-Control": "public, max-age=3600",
+        "Cache-Control": "public, max-age=900",
+        "X-Feed-Cache": "MISS",
       })
 
       let xml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -790,6 +834,7 @@ router.get(
 
       console.log(`XML feed generated with ${processedCount} products out of ${totalCount} total`)
       console.log(`XML Availability stats:`, availabilityStats)
+      setXmlFeedCache(xmlCacheKey, xml)
       res.send(xml)
     } catch (error) {
       console.error("Google Merchant XML feed error:", error)
