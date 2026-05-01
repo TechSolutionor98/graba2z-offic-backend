@@ -452,6 +452,65 @@ const getBulkField = (row, keys) => {
   return undefined
 }
 
+const normalizeImageValue = (value) => {
+  if (value === undefined || value === null) return ""
+  if (typeof value === "string") return value.trim()
+  if (typeof value === "object") {
+    const candidate = value.url || value.path || value.src || ""
+    return candidate ? String(candidate).trim() : ""
+  }
+  return ""
+}
+
+const normalizeImageArray = (value) => {
+  const seen = new Set()
+  const output = []
+
+  ;(Array.isArray(value) ? value : [value]).forEach((item) => {
+    const normalized = normalizeImageValue(item)
+    if (!normalized || seen.has(normalized)) return
+    seen.add(normalized)
+    output.push(normalized)
+  })
+
+  return output
+}
+
+const normalizeNestedVariationImages = (variations) => {
+  if (!Array.isArray(variations)) return variations
+
+  return variations.map((variation) => {
+    if (!variation || typeof variation !== "object") return variation
+    return {
+      ...variation,
+      image: normalizeImageValue(variation.image),
+      galleryImages: normalizeImageArray(variation.galleryImages),
+    }
+  })
+}
+
+const normalizeProductMediaPayload = (payload) => {
+  if (!payload || typeof payload !== "object") return payload
+
+  if (Object.prototype.hasOwnProperty.call(payload, "image")) {
+    payload.image = normalizeImageValue(payload.image)
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "galleryImages")) {
+    payload.galleryImages = normalizeImageArray(payload.galleryImages)
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "ogImage")) {
+    payload.ogImage = normalizeImageValue(payload.ogImage)
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "colorVariations")) {
+    payload.colorVariations = normalizeNestedVariationImages(payload.colorVariations)
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "dosVariations")) {
+    payload.dosVariations = normalizeNestedVariationImages(payload.dosVariations)
+  }
+
+  return payload
+}
+
 const toUploadUrl = (absolutePath) => {
   const normalized = String(absolutePath || "").replace(/\\/g, "/")
   const marker = "/uploads/"
@@ -1336,6 +1395,7 @@ router.post(
   admin,
   asyncHandler(async (req, res) => {
     const { parentCategory, category, subCategory2, subCategory3, subCategory4, ...productData } = req.body
+    normalizeProductMediaPayload(productData)
     let parentCategoryDoc = null
     let level1SubCategoryDoc = null
     let level2SubCategoryDoc = null
@@ -1672,6 +1732,7 @@ router.put(
 
     if (product) {
       const { parentCategory, category, subCategory2, subCategory3, subCategory4, slug, ...updateData } = req.body
+      normalizeProductMediaPayload(updateData)
 
       // Verify parentCategory exists if provided
       if (parentCategory) {
