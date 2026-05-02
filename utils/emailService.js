@@ -796,6 +796,70 @@ const getEmailTemplate = (type, data) => {
         </html>
       `
 
+    case "quotationConfirmation":
+      const quotationCustomerName = data.shippingAddress?.name || data.pickupDetails?.name || data.customerName || "Customer"
+      const quotationNumber = data.orderNumber || data._id?.toString().slice(-6) || "N/A"
+      const quotationDate = formatDateTime(data.createdAt)
+      const quotationItems = Array.isArray(data.orderItems) ? data.orderItems : []
+      const quotationItemsHtml = quotationItems
+        .map(
+          (item) => `
+          <tr>
+            <td style="padding:8px;border:1px solid #e5e7eb;">${escapeHtml(item?.name || item?.product?.name || "Item")}</td>
+            <td style="padding:8px;border:1px solid #e5e7eb;text-align:center;">${Number(item?.quantity) || 1}</td>
+            <td style="padding:8px;border:1px solid #e5e7eb;text-align:right;">${formatCurrency(item?.price || 0)}</td>
+          </tr>`,
+        )
+        .join("")
+
+      return `
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+          <meta charset="UTF-8" />
+          <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+          <title>Quotation Confirmation</title>
+          ${baseStyle}
+        </head>
+        <body>
+          <div class="email-container">
+            <div class="header">
+              <img class="logo" src="https://res.cloudinary.com/dyfhsu5v6/image/upload/v1753105567/admin-logo_ruxcjj.png" alt="Graba2z Logo" />
+            </div>
+            <div class="content">
+              <div class="order-number">Quotation #${escapeHtml(quotationNumber)}</div>
+              <div class="greeting">Hi ${escapeHtml(quotationCustomerName)},</div>
+              <div class="processing-text">Your quotation has been prepared by our team.</div>
+              <div class="order-summary">
+                <div class="summary-row"><span>Date</span><span>${escapeHtml(quotationDate)}</span></div>
+                <div class="summary-row"><span>Subtotal</span><span>${formatCurrency(data.itemsPrice || 0)}</span></div>
+                <div class="summary-row"><span>Shipping</span><span>${formatCurrency(data.shippingPrice || 0)}</span></div>
+                <div class="summary-row"><span>Tax</span><span>${formatCurrency(data.taxPrice || 0)}</span></div>
+                <div class="summary-row total"><span>Total</span><span>${formatCurrency(data.totalPrice || 0)}</span></div>
+              </div>
+              <div class="product-section">
+                <div class="info-title">Quotation Items</div>
+                <table style="width:100%;border-collapse:collapse;">
+                  <thead>
+                    <tr>
+                      <th style="padding:8px;border:1px solid #e5e7eb;text-align:left;">Item</th>
+                      <th style="padding:8px;border:1px solid #e5e7eb;text-align:center;">Qty</th>
+                      <th style="padding:8px;border:1px solid #e5e7eb;text-align:right;">Price</th>
+                    </tr>
+                  </thead>
+                  <tbody>${quotationItemsHtml}</tbody>
+                </table>
+              </div>
+            </div>
+            <div class="footer">
+              <h3>Thank you for choosing Graba2z</h3>
+              <div class="contact-info">For confirmation or changes, reply to this message or contact our support team.</div>
+            </div>
+          </div>
+        </body>
+        </html>
+      `
+
     case "orderStatusUpdate":
       // Status icon/label and theming
       const statusSteps = [
@@ -1812,6 +1876,66 @@ export const sendOrderPlacedEmail = async (order) => {
     return { success: true, recipients: recipientsSent }
   } catch (error) {
     console.error("Failed to send order placed email:", error)
+    throw error
+  }
+}
+
+// Send quotation created email
+export const sendQuotationCreatedEmail = async (quotation) => {
+  try {
+    const quotationNumber = quotation._id.toString().slice(-6)
+
+    const customerName = quotation.shippingAddress?.name || quotation.pickupDetails?.name || quotation.user?.name || "Customer"
+    const customerEmail = quotation.shippingAddress?.email || quotation.pickupDetails?.email || quotation.user?.email
+
+    if (!customerEmail) {
+      console.warn(`[sendQuotationCreatedEmail] No customer email found for quotation ${quotation._id}. Sending internal email only.`)
+    }
+
+    const quotationData = typeof quotation.toObject === "function" ? quotation.toObject() : quotation
+    const recipientsSent = []
+    const orderEmail = ORDER_NOTIFICATION_EMAIL || ""
+
+    const shouldSendCustomerEmail =
+      !!customerEmail &&
+      (!orderEmail || customerEmail.toLowerCase().trim() !== orderEmail.toLowerCase().trim())
+
+    if (shouldSendCustomerEmail) {
+      const customerHtml = getEmailTemplate("quotationConfirmation", {
+        ...quotationData,
+        orderNumber: quotationNumber,
+        customerName,
+        customerEmail,
+      })
+
+      const customerSubject = `Quotation #${quotationNumber} - Graba2z`
+      await sendEmail(customerEmail, customerSubject, customerHtml, "order")
+      recipientsSent.push(customerEmail)
+    }
+
+    if (orderEmail) {
+      const adminHtml = getAdminOrderNotificationTemplate({
+        ...quotationData,
+        orderNumber: quotationNumber,
+        customerName,
+        customerEmail,
+      })
+      const adminSubject = `New Quotation #${quotationNumber} - Admin Notification`
+      await sendEmail(orderEmail, adminSubject, adminHtml, "order")
+      recipientsSent.push(orderEmail)
+    }
+
+    if (recipientsSent.length === 0) {
+      console.error("No email recipients found for quotation:", quotation._id)
+      return { success: false, error: "No recipients" }
+    }
+
+    console.log(
+      `[sendQuotationCreatedEmail] Quotation email sent successfully for quotation ${quotation._id} to ${recipientsSent.length} recipient(s)`,
+    )
+    return { success: true, recipients: recipientsSent }
+  } catch (error) {
+    console.error("Failed to send quotation created email:", error)
     throw error
   }
 }

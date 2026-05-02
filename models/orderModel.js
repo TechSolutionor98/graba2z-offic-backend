@@ -6,6 +6,31 @@ import mongoose from "mongoose"
 
 const orderSchema = mongoose.Schema(
   {
+    documentType: {
+      type: String,
+      enum: ["order", "quotation"],
+      default: "order",
+      index: true,
+    },
+    quotationStatus: {
+      type: String,
+      enum: ["Draft", "Converted"],
+      default: undefined,
+    },
+    convertedOrderId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Order",
+      default: null,
+    },
+    convertedAt: {
+      type: Date,
+      default: null,
+    },
+    sourceQuotationId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Order",
+      default: null,
+    },
     user: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -14,7 +39,7 @@ const orderSchema = mongoose.Schema(
       {
         name: { type: String, required: true },
         quantity: { type: Number, required: true },
-        image: { type: String, required: true },
+        image: { type: String, default: "/placeholder.svg" },
         price: { type: Number, required: true },
         product: {
           type: mongoose.Schema.Types.ObjectId,

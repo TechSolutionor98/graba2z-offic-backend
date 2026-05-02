@@ -7,6 +7,9 @@ import { logActivity } from "../middleware/permissionMiddleware.js"
 import { sendOrderPlacedEmail, sendOrderStatusUpdateEmail } from "../utils/emailService.js"
 
 const router = express.Router()
+const ORDER_DOCUMENT_QUERY = {
+  $or: [{ documentType: "order" }, { documentType: { $exists: false } }],
+}
 
 // Middleware to optionally protect routes (sets req.user if token exists)
 const optionalProtect = asyncHandler(async (req, res, next) => {
@@ -158,6 +161,10 @@ router.put(
       res.status(404)
       throw new Error("Order not found")
     }
+    if (order.documentType === "quotation") {
+      res.status(400)
+      throw new Error("Quotation cannot be updated from order endpoint")
+    }
 
     const oldStatus = order.status
 
@@ -224,7 +231,7 @@ router.get(
     console.log(`[MYORDERS] Fetching orders for user: ${req.user._id}, email: ${req.user.email}`)
     
     // Find orders directly associated with user
-    const userOrders = await Order.find({ user: req.user._id })
+    const userOrders = await Order.find({ $and: [ORDER_DOCUMENT_QUERY, { user: req.user._id }] })
       .populate('orderItems.product', 'name image')
       .sort({ createdAt: -1 })
     
@@ -232,11 +239,13 @@ router.get(
 
     // Find orders that might be associated through email (for orphaned orders)
     const emailOrders = await Order.find({
-      user: null,
-      $or: [
-        { 'shippingAddress.email': req.user.email },
-        { 'pickupDetails.email': req.user.email }
-      ]
+      $and: [
+        ORDER_DOCUMENT_QUERY,
+        {
+          user: null,
+          $or: [{ "shippingAddress.email": req.user.email }, { "pickupDetails.email": req.user.email }],
+        },
+      ],
     })
       .populate('orderItems.product', 'name image')
       .sort({ createdAt: -1 })
@@ -245,11 +254,13 @@ router.get(
     
     // Also check for orders with undefined user field
     const undefinedUserOrders = await Order.find({
-      user: { $exists: false },
-      $or: [
-        { 'shippingAddress.email': req.user.email },
-        { 'pickupDetails.email': req.user.email }
-      ]
+      $and: [
+        ORDER_DOCUMENT_QUERY,
+        {
+          user: { $exists: false },
+          $or: [{ "shippingAddress.email": req.user.email }, { "pickupDetails.email": req.user.email }],
+        },
+      ],
     })
       .populate('orderItems.product', 'name image')
       .sort({ createdAt: -1 })
@@ -311,15 +322,20 @@ router.post(
 
         // Search in multiple ways for the email
         order = await Order.findOne({
-          _id: cleanOrderId,
-          $or: [{ "shippingAddress.email": email }, { "pickupDetails.email": email }],
+          $and: [
+            ORDER_DOCUMENT_QUERY,
+            {
+              _id: cleanOrderId,
+              $or: [{ "shippingAddress.email": email }, { "pickupDetails.email": email }],
+            },
+          ],
         })
           .populate("orderItems.product", "name image")
           .populate("user", "name email")
 
         // If not found with address emails, try with user email
         if (!order) {
-          const orderWithUser = await Order.findById(cleanOrderId)
+          const orderWithUser = await Order.findOne({ $and: [ORDER_DOCUMENT_QUERY, { _id: cleanOrderId }] })
             .populate("orderItems.product", "name image")
             .populate("user", "name email")
 
@@ -335,13 +351,16 @@ router.post(
 
         // Get all orders for this email from different sources
         const orders = await Order.find({
-          $or: [{ "shippingAddress.email": email }, { "pickupDetails.email": email }],
+          $and: [
+            ORDER_DOCUMENT_QUERY,
+            { $or: [{ "shippingAddress.email": email }, { "pickupDetails.email": email }] },
+          ],
         })
           .populate("orderItems.product", "name image")
           .populate("user", "name email")
 
         // Also get orders where user email matches
-        const userOrders = await Order.find({})
+        const userOrders = await Order.find(ORDER_DOCUMENT_QUERY)
           .populate("orderItems.product", "name image")
           .populate("user", "name email")
 
@@ -376,7 +395,7 @@ router.post(
         console.log("Order not found, trying partial match...")
 
         // Last resort: try partial matching on all orders
-        const allOrders = await Order.find({})
+        const allOrders = await Order.find(ORDER_DOCUMENT_QUERY)
           .populate("orderItems.product", "name image")
           .populate("user", "name email")
 
@@ -427,7 +446,7 @@ router.get(
   "/:id",
   protect,
   asyncHandler(async (req, res) => {
-    const order = await Order.findById(req.params.id)
+    const order = await Order.findOne({ $and: [ORDER_DOCUMENT_QUERY, { _id: req.params.id }] })
 
     if (order) {
       res.json(order)
@@ -446,7 +465,7 @@ router.get(
   protect,
   admin,
   asyncHandler(async (req, res) => {
-    const orders = await Order.find({})
+    const orders = await Order.find(ORDER_DOCUMENT_QUERY)
       .populate("user", "name email")
       .populate("orderItems.product", "name image")
       .sort({ createdAt: -1 })
@@ -464,6 +483,7 @@ router.get(
   admin,
   asyncHandler(async (req, res) => {
     const stats = await Order.aggregate([
+      { $match: ORDER_DOCUMENT_QUERY },
       {
         $group: {
           _id: "$status",
@@ -473,9 +493,9 @@ router.get(
       },
     ])
 
-    const totalOrders = await Order.countDocuments()
+    const totalOrders = await Order.countDocuments(ORDER_DOCUMENT_QUERY)
     const totalRevenue = await Order.aggregate([
-      { $match: { isPaid: true } },
+      { $match: { ...ORDER_DOCUMENT_QUERY, isPaid: true } },
       { $group: { _id: null, total: { $sum: "$totalPrice" } } },
     ])
 

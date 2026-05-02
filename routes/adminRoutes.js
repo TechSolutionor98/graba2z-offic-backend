@@ -1005,11 +1005,20 @@ import Order from "../models/orderModel.js"
 import Product from "../models/productModel.js"
 import generateToken from "../utils/generateToken.js"
 import { protect, admin } from "../middleware/authMiddleware.js"
-import { sendOrderNotification, sendTrackingUpdateEmail } from "../utils/emailService.js"
+import {
+  sendOrderNotification,
+  sendTrackingUpdateEmail,
+  sendOrderPlacedEmail,
+  sendQuotationCreatedEmail,
+} from "../utils/emailService.js"
 import Review from "../models/reviewModel.js"
 import { logActivity } from "../middleware/permissionMiddleware.js"
 
 const router = express.Router()
+const ORDER_DOCUMENT_QUERY = {
+  $or: [{ documentType: "order" }, { documentType: { $exists: false } }],
+}
+const QUOTATION_DOCUMENT_QUERY = { documentType: "quotation" }
 
 // @desc    Auth admin & get token
 // @route   POST /api/admin/login
@@ -1081,12 +1090,12 @@ router.get(
   protect,
   admin,
   asyncHandler(async (req, res) => {
-    const totalOrders = await Order.countDocuments()
+    const totalOrders = await Order.countDocuments(ORDER_DOCUMENT_QUERY)
     const totalProducts = await Product.countDocuments()
     const totalUsers = await User.countDocuments({ isAdmin: false })
 
     // Calculate total revenue
-    const orders = await Order.find()
+    const orders = await Order.find(ORDER_DOCUMENT_QUERY)
     const totalRevenue = orders.reduce((acc, order) => acc + order.totalPrice, 0)
 
     res.json({
@@ -1131,19 +1140,28 @@ router.get(
     const page = Number.parseInt(req.query.page, 10) || 1
     const limit = Number.parseInt(req.query.limit, 10) || 50
 
-    const query = includeDeleted ? {} : { status: { $ne: "Deleted" } } // Exclude deleted unless requested
+    const normalizedStatus = typeof status === "string" ? status.trim() : ""
+    const wantsDeletedOnly = normalizedStatus.toLowerCase() === "deleted"
 
-    if (status && status !== "all") {
-      query.status = status
+    const whereConditions = [ORDER_DOCUMENT_QUERY]
+    if (!includeDeleted && !wantsDeletedOnly) {
+      whereConditions.push({ status: { $ne: "Deleted" } })
+    }
+
+    if (normalizedStatus && normalizedStatus.toLowerCase() !== "all") {
+      whereConditions.push({ status: normalizedStatus })
     }
 
     if (search) {
-      query.$or = [
-        { "shippingAddress.name": { $regex: search, $options: "i" } },
-        { "shippingAddress.email": { $regex: search, $options: "i" } },
-        { trackingId: { $regex: search, $options: "i" } },
-      ]
+      whereConditions.push({
+        $or: [
+          { "shippingAddress.name": { $regex: search, $options: "i" } },
+          { "shippingAddress.email": { $regex: search, $options: "i" } },
+          { trackingId: { $regex: search, $options: "i" } },
+        ],
+      })
     }
+    const query = whereConditions.length === 1 ? whereConditions[0] : { $and: whereConditions }
 
     let ordersQuery = Order.find(query)
       .populate({ path: "user", select: "name email" })
@@ -1185,7 +1203,7 @@ router.get(
   protect,
   admin,
   asyncHandler(async (req, res) => {
-    const orders = await Order.find({ status: { $ne: "Deleted" } })
+    const orders = await Order.find({ ...ORDER_DOCUMENT_QUERY, status: { $ne: "Deleted" } })
       .populate({ path: "user", select: "name email" })
       .populate({
         path: "orderItems.product",
@@ -1208,6 +1226,10 @@ router.put(
     const order = await Order.findById(req.params.id)
 
     if (order) {
+      if (order.documentType === "quotation") {
+        res.status(400)
+        throw new Error("Quotation cannot be updated from order status endpoint")
+      }
       const previousStatus = order.status
 
       // Normalize incoming status to match schema enum values (case-insensitive)
@@ -1264,6 +1286,10 @@ router.put(
     const order = await Order.findById(req.params.id)
 
     if (order) {
+      if (order.documentType === "quotation") {
+        res.status(400)
+        throw new Error("Quotation cannot be updated from order tracking endpoint")
+      }
       const previousTrackingId = order.trackingId
       order.trackingId = req.body.trackingId
       const updatedOrder = await order.save()
@@ -1298,6 +1324,10 @@ router.put(
     const order = await Order.findById(req.params.id)
 
     if (order) {
+      if (order.documentType === "quotation") {
+        res.status(400)
+        throw new Error("Quotation cannot be updated from order details endpoint")
+      }
       const { paymentMethod, isPaid, notes, estimatedDelivery, cancelReason } = req.body
 
       if (paymentMethod) order.paymentMethod = paymentMethod
@@ -1336,6 +1366,10 @@ router.put(
       res.status(404)
       throw new Error("Order not found")
     }
+    if (order.documentType === "quotation") {
+      res.status(400)
+      throw new Error("Quotation cannot be updated from order payment endpoint")
+    }
 
     const { isPaid } = req.body
     if (isPaid === undefined) {
@@ -1369,6 +1403,10 @@ router.post(
       res.status(404)
       throw new Error("Order not found")
     }
+    if (order.documentType === "quotation") {
+      res.status(400)
+      throw new Error("Quotation cannot send order notification email")
+    }
 
     // If seller message is provided, update the order first
     if (sellerMessage !== undefined) {
@@ -1398,19 +1436,20 @@ router.get(
   protect,
   admin,
   asyncHandler(async (req, res) => {
-    const totalOrders = await Order.countDocuments()
-    const pendingOrders = await Order.countDocuments({ status: "Processing" })
-    const deliveredOrders = await Order.countDocuments({ status: "Delivered" })
-    const cancelledOrders = await Order.countDocuments({ status: "Cancelled" })
+    const totalOrders = await Order.countDocuments(ORDER_DOCUMENT_QUERY)
+    const pendingOrders = await Order.countDocuments({ ...ORDER_DOCUMENT_QUERY, status: "Processing" })
+    const deliveredOrders = await Order.countDocuments({ ...ORDER_DOCUMENT_QUERY, status: "Delivered" })
+    const cancelledOrders = await Order.countDocuments({ ...ORDER_DOCUMENT_QUERY, status: "Cancelled" })
 
     const totalRevenue = await Order.aggregate([
-      { $match: { isPaid: true } },
+      { $match: { ...ORDER_DOCUMENT_QUERY, isPaid: true } },
       { $group: { _id: null, total: { $sum: "$totalPrice" } } },
     ])
 
     const monthlyRevenue = await Order.aggregate([
       {
         $match: {
+          ...ORDER_DOCUMENT_QUERY,
           isPaid: true,
           createdAt: { $gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1) },
         },
@@ -1777,6 +1816,8 @@ router.post(
       totalPrice, // optional from client, will recompute below
       customerNotes = "",
       status = "New",
+      documentType = "order",
+      sendCustomerEmail = false,
     } = req.body
 
     if (!orderItems || !Array.isArray(orderItems) || orderItems.length === 0) {
@@ -1784,11 +1825,26 @@ router.post(
       throw new Error("No order items")
     }
 
+    const normalizedDocumentType = String(documentType || "order").trim().toLowerCase()
+    if (!["order", "quotation"].includes(normalizedDocumentType)) {
+      res.status(400)
+      throw new Error("Invalid documentType. Allowed values: order, quotation")
+    }
+
+    const normalizedOrderItems = orderItems.map((it) => ({
+      ...it,
+      name: it?.name || "Custom Item",
+      quantity: Number(it?.quantity) || 1,
+      price: Number(it?.price) || 0,
+      image: it?.image || "/placeholder.svg",
+      product: it?.product || undefined,
+    }))
+
     // Compute itemsPrice if not provided
     const computedItemsPrice =
       typeof itemsPrice === "number"
         ? itemsPrice
-        : orderItems.reduce((sum, it) => sum + (Number(it.price) || 0) * (Number(it.quantity) || 1), 0)
+        : normalizedOrderItems.reduce((sum, it) => sum + (Number(it.price) || 0) * (Number(it.quantity) || 1), 0)
 
     const computedTotal = Math.max(
       0,
@@ -1805,7 +1861,9 @@ router.post(
     ) || "New"
 
     const order = new Order({
-      orderItems,
+      documentType: normalizedDocumentType,
+      quotationStatus: normalizedDocumentType === "quotation" ? "Draft" : undefined,
+      orderItems: normalizedOrderItems,
       user: userId || null,
       deliveryType,
       shippingAddress: deliveryType === "home" ? shippingAddress : undefined,
@@ -1824,10 +1882,155 @@ router.post(
     await createdOrder.populate("user", "name email")
     await createdOrder.populate("orderItems.product", "name image sku")
 
+    if (sendCustomerEmail) {
+      try {
+        if (normalizedDocumentType === "quotation") {
+          await sendQuotationCreatedEmail(createdOrder)
+        } else {
+          await sendOrderPlacedEmail(createdOrder)
+        }
+      } catch (emailError) {
+        console.error("Failed to send create-document email:", emailError)
+      }
+    }
+
     // Log activity
-    await logActivity(req, "CREATE", "ORDERS", `Created order: ${createdOrder.trackingId || createdOrder._id}`, createdOrder._id, createdOrder.trackingId || createdOrder._id)
+    await logActivity({
+      user: req.user,
+      action: "CREATE",
+      module: "ORDERS",
+      description: `Created ${normalizedDocumentType}: ${createdOrder.trackingId || createdOrder._id}`,
+      targetId: createdOrder._id,
+      targetName: createdOrder.trackingId || createdOrder._id.toString(),
+      req,
+    })
 
     res.status(201).json(createdOrder)
+  }),
+)
+
+// @desc    Get quotations (Admin)
+// @route   GET /api/admin/quotations
+// @access  Private/Admin
+router.get(
+  "/quotations",
+  protect,
+  admin,
+  asyncHandler(async (req, res) => {
+    const { search, quotationStatus } = req.query
+    const query = { ...QUOTATION_DOCUMENT_QUERY }
+
+    if (quotationStatus && quotationStatus !== "all") {
+      query.quotationStatus = quotationStatus
+    }
+
+    if (search) {
+      query.$or = [
+        { "shippingAddress.name": { $regex: search, $options: "i" } },
+        { "shippingAddress.email": { $regex: search, $options: "i" } },
+        { "pickupDetails.location": { $regex: search, $options: "i" } },
+      ]
+    }
+
+    const quotations = await Order.find(query)
+      .populate({ path: "user", select: "name email" })
+      .populate({
+        path: "orderItems.product",
+        select: "name image sku price offerPrice oldPrice discount",
+      })
+      .populate({ path: "convertedOrderId", select: "_id status createdAt" })
+      .sort({ createdAt: -1 })
+
+    res.json(quotations)
+  }),
+)
+
+// @desc    Convert quotation to order
+// @route   POST /api/admin/quotations/:id/convert
+// @access  Private/Admin
+router.post(
+  "/quotations/:id/convert",
+  protect,
+  admin,
+  asyncHandler(async (req, res) => {
+    const { sendCustomerEmail = false } = req.body || {}
+    const quotation = await Order.findById(req.params.id)
+
+    if (!quotation) {
+      res.status(404)
+      throw new Error("Quotation not found")
+    }
+    if (quotation.documentType !== "quotation") {
+      res.status(400)
+      throw new Error("Provided record is not a quotation")
+    }
+    if (quotation.quotationStatus === "Converted" || quotation.convertedOrderId) {
+      res.status(400)
+      throw new Error("Quotation already converted to order")
+    }
+
+    const newOrder = new Order({
+      documentType: "order",
+      sourceQuotationId: quotation._id,
+      user: quotation.user || null,
+      orderItems: (quotation.orderItems || []).map((it) => {
+        const rawItem = typeof it.toObject === "function" ? it.toObject() : it
+        return {
+          ...rawItem,
+          image: rawItem?.image || "/placeholder.svg",
+        }
+      }),
+      deliveryType: quotation.deliveryType || "home",
+      shippingAddress: quotation.shippingAddress,
+      pickupDetails: quotation.pickupDetails,
+      paymentMethod: quotation.paymentMethod || "Cash on Delivery",
+      actualPaymentMethod: quotation.actualPaymentMethod || null,
+      itemsPrice: quotation.itemsPrice || 0,
+      shippingPrice: quotation.shippingPrice || 0,
+      taxPrice: quotation.taxPrice || 0,
+      discountAmount: quotation.discountAmount || 0,
+      totalPrice: quotation.totalPrice || 0,
+      customerNotes: quotation.customerNotes || "",
+      status: "New",
+      isPaid: false,
+    })
+
+    const createdOrder = await newOrder.save()
+
+    quotation.quotationStatus = "Converted"
+    quotation.convertedOrderId = createdOrder._id
+    quotation.convertedAt = new Date()
+    await quotation.save()
+
+    await createdOrder.populate("user", "name email")
+    await createdOrder.populate("orderItems.product", "name image sku")
+    await quotation.populate("convertedOrderId", "_id status createdAt")
+
+    if (sendCustomerEmail) {
+      try {
+        await sendOrderPlacedEmail(createdOrder)
+      } catch (emailError) {
+        console.error("Failed to send conversion order email:", emailError)
+      }
+    }
+
+    await logActivity({
+      user: req.user,
+      action: "CREATE",
+      module: "ORDERS",
+      description: `Converted quotation ${quotation._id} to order ${createdOrder._id}`,
+      targetId: createdOrder._id,
+      targetName: createdOrder._id.toString(),
+      previousData: {
+        quotationId: quotation._id.toString(),
+      },
+      req,
+    })
+
+    res.status(201).json({
+      order: createdOrder,
+      quotation,
+    })
   }),
 )
 
@@ -1856,6 +2059,7 @@ router.get(
     // These are orders where customer attempted to pay but transaction failed
     const criticalOrders = await Order.find({
       $and: [
+        ORDER_DOCUMENT_QUERY,
         { isPaid: false }, // Not paid
         { status: { $ne: "Deleted" } }, // Not deleted
         { status: { $ne: "Cancelled" } }, // Not cancelled (optional - you might want to include cancelled too)

@@ -15,6 +15,19 @@ const debugBanners = (...args) => {
   }
 }
 
+const normalizeBannerLink = (value) => String(value || "").trim()
+
+const applyHeroLinkPolicy = (bannerLike) => {
+  const link = normalizeBannerLink(bannerLike?.link)
+  const buttonLink = normalizeBannerLink(bannerLike?.buttonLink)
+
+  // Priority: explicit `link` first, then `buttonLink`, finally `/shop`.
+  const resolved = link || buttonLink || "/shop"
+
+  bannerLike.link = resolved
+  bannerLike.buttonLink = buttonLink || resolved
+}
+
 // @desc    Get all banners (public)
 // @route   GET /api/banners
 // @access  Public
@@ -115,11 +128,10 @@ router.post(
       createdBy: req.user._id,
     })
 
-    // Hero banners should always use buttonLink as the banner link
-    // (no separate direct link field for hero position)
+    // Hero banners: prefer explicit link, fallback to buttonLink, then /shop.
     if ((banner.position || "hero") === "hero") {
-      banner.link = banner.buttonLink
-      debugBanners("Hero create: mirrored link from buttonLink", {
+      applyHeroLinkPolicy(banner)
+      debugBanners("Hero create: resolved link fields", {
         bannerId: banner._id?.toString?.(),
         buttonLink: banner.buttonLink,
         link: banner.link,
@@ -183,7 +195,6 @@ router.put(
         title: updateData.title,
       })
 
-      // Hero banners should always use buttonLink as the banner link
       const finalPosition = updateData.position ?? banner.position
 
       // Verify category exists if provided and position is category
@@ -201,9 +212,8 @@ router.put(
       })
 
       if (finalPosition === "hero") {
-        // Mirror current buttonLink into link after applying updates
-        banner.link = banner.buttonLink
-        debugBanners("Hero update: mirrored link from buttonLink", {
+        applyHeroLinkPolicy(banner)
+        debugBanners("Hero update: resolved link fields", {
           id: req.params.id,
           buttonLink: banner.buttonLink,
           link: banner.link,
