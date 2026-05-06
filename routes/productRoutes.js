@@ -294,6 +294,36 @@ const parseSpecificationSegment = (segment) => {
   return { key: SPECIFICATIONS_FALLBACK_KEY, value: raw }
 }
 
+const parseDelimitedSpecs = (raw) => {
+  const text = String(raw || "").replace(/\r\n/g, "\n").trim()
+  if (!text) return []
+
+  const tokens = text
+    .split(/[,;\n|]+/)
+    .map((token) => token.trim())
+    .filter(Boolean)
+
+  if (tokens.length === 0) return []
+
+  const parsed = []
+  for (const token of tokens) {
+    const colonIndex = token.indexOf(":")
+    const pipeIndex = token.indexOf("|")
+    if (colonIndex > 0 || pipeIndex > 0) {
+      const segment = parseSpecificationSegment(token)
+      if (segment) parsed.push(segment)
+      continue
+    }
+
+    // Continuation chunk: keep comma-separated text inside the previous spec value.
+    if (parsed.length > 0) {
+      parsed[parsed.length - 1].value = `${parsed[parsed.length - 1].value}, ${token}`.trim()
+    }
+  }
+
+  return parsed
+}
+
 const parseCommaSeparatedSpecs = (raw) => {
   const text = String(raw || "").trim()
   if (!text) return []
@@ -356,16 +386,13 @@ function parseSpecificationsInput(input) {
   const raw = String(input).replace(/\r\n/g, "\n").trim()
   if (!raw) return []
 
-  // Preferred format: Key: Value; Key: Value (or one per line)
-  if (raw.includes(";") || raw.includes("\n")) {
-    const parsed = raw
-      .split(/[\n;]+/)
-      .map((segment) => parseSpecificationSegment(segment))
-      .filter(Boolean)
-    if (parsed.length > 0) return parsed
+  // Preferred format: Key: Value, Key: Value (also supports ';', '|', or one per line)
+  if (/[,\n;|]/.test(raw)) {
+    const delimiterParsed = parseDelimitedSpecs(raw)
+    if (delimiterParsed.length > 0) return delimiterParsed
   }
 
-  // Legacy CSV samples used comma-separated key/value entries.
+  // Legacy free-form fallback parser.
   const commaParsed = parseCommaSeparatedSpecs(raw)
   if (commaParsed.length > 0) return commaParsed
 
