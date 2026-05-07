@@ -185,28 +185,50 @@ function determineGoogleCategory(parentCategory, subCategory) {
   return "Electronics"
 }
 
-// Helper to fix image URLs: use api.grabatoz.ae for /uploads/ paths, normalize double slashes
-const fixImageUrl = (url) => {
-  if (!url) return ''
-  // Normalize double (or more) slashes anywhere in the path (ignoring the :// in protocol)
-  let fixed = url.replace(/([^:])\/{2,}/g, '$1/')
-  // Replace www.grabatoz.ae with api.grabatoz.ae for /uploads/ paths (images live on the API/VPS server)
-  fixed = fixed.replace('https://www.grabatoz.ae/uploads/', 'https://api.grabatoz.ae/uploads/')
-  fixed = fixed.replace('http://www.grabatoz.ae/uploads/', 'https://api.grabatoz.ae/uploads/')
+const BASE_WEBSITE_URL = "https://www.grabatoz.ae"
+const BASE_API_URL = "https://api.grabatoz.ae"
 
-  // Convert .webp to .jpg only for our own uploads server where .jpg fallback exists.
-  const lowerFixed = fixed.toLowerCase()
-  const isLocalUploadsImage =
-    lowerFixed.includes('api.grabatoz.ae/uploads/') ||
-    lowerFixed.includes('www.grabatoz.ae/uploads/') ||
-    lowerFixed.startsWith('/uploads/')
+const normalizeAbsoluteUrl = (value, { forUploads = false } = {}) => {
+  const raw = String(value || "")
+    .replace(/[\u0000-\u001F\u007F]/g, "")
+    .trim()
+  if (!raw) return ""
 
-  if (isLocalUploadsImage && lowerFixed.includes('.webp')) {
-    fixed = fixed.replace(/\.webp(\?|$)/i, '.jpg$1')
+  let resolved = raw
+  if (resolved.startsWith("//")) {
+    resolved = `https:${resolved}`
+  } else if (!/^https?:\/\//i.test(resolved)) {
+    const normalizedPath = resolved.startsWith("/") ? resolved : `/${resolved}`
+    resolved = `${forUploads ? BASE_API_URL : BASE_WEBSITE_URL}${normalizedPath}`
   }
-  
-  return fixed
+
+  resolved = resolved
+    .replace(/^http:\/\//i, "https://")
+    .replace(/([^:])\/{2,}/g, "$1/")
+    .replace("https://www.grabatoz.ae/uploads/", "https://api.grabatoz.ae/uploads/")
+
+  try {
+    const urlObj = new URL(resolved)
+    const encodedPath = urlObj.pathname
+      .split("/")
+      .map((segment) => {
+        if (!segment) return ""
+        try {
+          return encodeURIComponent(decodeURIComponent(segment))
+        } catch {
+          return encodeURIComponent(segment)
+        }
+      })
+      .join("/")
+    urlObj.pathname = encodedPath
+    return urlObj.toString()
+  } catch {
+    return encodeURI(resolved)
+  }
 }
+
+// Helper to normalize image URLs for feed compatibility.
+const fixImageUrl = (url) => normalizeAbsoluteUrl(url, { forUploads: true })
 
 const normalizePriceValue = (value) => {
   if (value === null || value === undefined) return null
@@ -222,31 +244,70 @@ const normalizePriceValue = (value) => {
   return Number.isFinite(parsed) ? parsed : null
 }
 
-const getEffectiveFeedPrice = (product, includeZeroPrice = false) => {
-  const basePrice = normalizePriceValue(product?.price)
-  const offerPrice = normalizePriceValue(product?.offerPrice)
-
+const getEffectivePriceFromPair = (basePrice, offerPrice) => {
   const validBasePrice = basePrice !== null && basePrice > 0 ? basePrice : null
   const validOfferPrice = offerPrice !== null && offerPrice > 0 ? offerPrice : null
 
   if (validBasePrice !== null && validOfferPrice !== null) {
-    const effective = validOfferPrice < validBasePrice ? validOfferPrice : validBasePrice
-    return { price: effective, salePrice: validOfferPrice < validBasePrice ? validOfferPrice : null }
-  }
-
-  if (validBasePrice !== null) {
+    if (validOfferPrice < validBasePrice) {
+      return { price: validBasePrice, salePrice: validOfferPrice }
+    }
     return { price: validBasePrice, salePrice: null }
   }
 
-  if (validOfferPrice !== null) {
-    return { price: validOfferPrice, salePrice: null }
+  if (validBasePrice !== null) return { price: validBasePrice, salePrice: null }
+  if (validOfferPrice !== null) return { price: validOfferPrice, salePrice: null }
+  return { price: null, salePrice: null }
+}
+
+const getBestVariationPrice = (variations) => {
+  if (!Array.isArray(variations) || variations.length === 0) return { price: null, salePrice: null }
+
+  let best = { price: null, salePrice: null }
+  for (const variation of variations) {
+    const current = getEffectivePriceFromPair(
+      normalizePriceValue(variation?.price),
+      normalizePriceValue(variation?.offerPrice),
+    )
+
+    if (current.price === null) continue
+    if (best.price === null || current.price < best.price) {
+      best = current
+    }
   }
+
+  return best
+}
+
+const getEffectiveFeedPrice = (product, includeZeroPrice = false) => {
+  const directPrice = getEffectivePriceFromPair(
+    normalizePriceValue(product?.price),
+    normalizePriceValue(product?.offerPrice),
+  )
+  if (directPrice.price !== null) return directPrice
+
+  const colorVariationPrice = getBestVariationPrice(product?.colorVariations)
+  if (colorVariationPrice.price !== null) return colorVariationPrice
+
+  const dosVariationPrice = getBestVariationPrice(product?.dosVariations)
+  if (dosVariationPrice.price !== null) return dosVariationPrice
 
   if (includeZeroPrice) {
     return { price: 1, salePrice: null }
   }
 
   return { price: null, salePrice: null }
+}
+
+const FEED_PRICE_MATCH = {
+  $or: [
+    { price: { $gt: 0 } },
+    { offerPrice: { $gt: 0 } },
+    { "colorVariations.price": { $gt: 0 } },
+    { "colorVariations.offerPrice": { $gt: 0 } },
+    { "dosVariations.price": { $gt: 0 } },
+    { "dosVariations.offerPrice": { $gt: 0 } },
+  ],
 }
 
 const resolveFeedLanguage = (req) => {
@@ -256,7 +317,43 @@ const resolveFeedLanguage = (req) => {
 
 const buildProductUrl = (slug, lang = "en") => {
   const localePrefix = lang === "ar" ? "ae-ar" : "ae-en"
-  return `https://www.grabatoz.ae/${localePrefix}/product/${slug}`
+  const safeSlug = encodeURIComponent(String(slug || "").trim())
+  return `${BASE_WEBSITE_URL}/${localePrefix}/product/${safeSlug}`
+}
+
+const getPreorderAvailabilityDate = (product) => {
+  const candidates = [
+    product?.availabilityDate,
+    product?.preorderDate,
+    product?.preOrderDate,
+    product?.expectedAvailabilityDate,
+    product?.availableOn,
+  ]
+
+  for (const candidate of candidates) {
+    if (!candidate) continue
+    const parsed = new Date(candidate)
+    if (!Number.isNaN(parsed.getTime())) return parsed.toISOString()
+  }
+
+  const fallbackDays = Number.parseInt(process.env.GMC_PREORDER_FALLBACK_DAYS || "7", 10)
+  const days = Number.isFinite(fallbackDays) && fallbackDays > 0 ? fallbackDays : 7
+  return new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString()
+}
+
+const parseFeedPagination = (req) => {
+  // To prevent accidental truncation in Merchant Center scheduled URL, pagination is opt-in.
+  const paginate = req.query.paginate === "true"
+  if (!paginate) {
+    return { page: 1, limit: 0, skip: 0, paginate: false }
+  }
+
+  const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1)
+  const rawLimit = Number.parseInt(req.query.limit, 10) || 0
+  const limit = Math.min(50000, Math.max(0, rawLimit))
+  const skip = limit > 0 ? (page - 1) * limit : 0
+
+  return { page, limit, skip, paginate: true }
 }
 
 const getLocalizedValue = (doc, field, lang = "en") => {
@@ -315,6 +412,10 @@ router.get(
         $or: [{ isActive: true }, { isActive: { $exists: false } }],
       }
       const feedProducts = await Product.countDocuments(feedQuery)
+      const feedProductsWithPrice = await Product.countDocuments({
+        ...feedQuery,
+        ...FEED_PRICE_MATCH,
+      })
 
       // Test products that would be skipped in old logic
       const productsWithValidName = await Product.countDocuments({
@@ -340,6 +441,7 @@ router.get(
           withZeroStock: productsWithZeroStock,
         },
         feedQuery: feedProducts,
+        feedQueryWithPrice: feedProductsWithPrice,
         feedQueryWithValidName: productsWithValidName,
         query: req.query,
       })
@@ -357,10 +459,7 @@ router.get(
   "/feed.json",
   asyncHandler(async (req, res) => {
     try {
-      // Parse pagination parameters
-      const page = Number.parseInt(req.query.page) || 1
-      const limit = Number.parseInt(req.query.limit) || 0 // 0 means no limit
-      const skip = limit > 0 ? (page - 1) * limit : 0
+      const { page, limit, skip, paginate } = parseFeedPagination(req)
       const includeZeroPrice = req.query.includeZeroPrice === "true"
       const includeOutOfStock = req.query.includeOutOfStock !== "false" // Default true
       const feedLanguage = resolveFeedLanguage(req)
@@ -375,24 +474,27 @@ router.get(
       if (!includeZeroPrice) {
         query.$and = [
           { $or: [{ isActive: true }, { isActive: { $exists: false } }] },
-          { $or: [{ price: { $gt: 0 } }, { offerPrice: { $gt: 0 } }] }
+          FEED_PRICE_MATCH,
         ]
       } else {
         query.$or = [{ isActive: true }, { isActive: { $exists: false } }]
       }
 
       console.log("Fetching products with query:", JSON.stringify(query))
-      console.log(`Pagination: page=${page}, limit=${limit}, skip=${skip}`)
+      console.log(`Pagination: paginate=${paginate}, page=${page}, limit=${limit}, skip=${skip}`)
 
       // Get total count first
       const totalCount = await Product.countDocuments(query)
       console.log(`Total products matching query: ${totalCount}`)
 
       let dbQuery = Product.find(query)
-        .select('name nameAr slug sku gtin brand category parentCategory price offerPrice stockStatus countInStock isActive image variations description descriptionAr shortDescription shortDescriptionAr')
+        .select(
+          "name nameAr slug sku gtin brand category parentCategory price offerPrice colorVariations dosVariations stockStatus countInStock isActive image galleryImages variations description descriptionAr shortDescription shortDescriptionAr featured tags createdAt updatedAt weight availabilityDate preorderDate preOrderDate expectedAvailabilityDate availableOn",
+        )
         .populate({ path: 'brand', select: 'name nameAr' })
         .populate({ path: 'category', select: 'name nameAr' })
         .populate({ path: 'parentCategory', select: 'name nameAr' })
+        .sort({ _id: 1 })
         .lean()
       if (limit > 0) {
         dbQuery = dbQuery.skip(skip).limit(limit)
@@ -441,16 +543,8 @@ router.get(
             continue
           }
 
-          // Escape & in slug for valid URLs
-          const cleanSlug = (product.slug || product._id.toString()).replace(/&/g, '%26')
-          const productUrl = buildProductUrl(cleanSlug, feedLanguage)
-          const imageUrl = fixImageUrl(
-            product.image
-              ? product.image.startsWith("http")
-                ? product.image
-                : `https://api.grabatoz.ae${product.image}`
-              : "https://api.grabatoz.ae/placeholder.jpg"
-          )
+          const productUrl = buildProductUrl(product.slug || product._id.toString(), feedLanguage)
+          const imageUrl = fixImageUrl(product.image || `${BASE_API_URL}/placeholder.jpg`)
 
           // Use the improved availability logic
           const availability = determineAvailability(product)
@@ -490,9 +584,7 @@ router.get(
           if (product.galleryImages && product.galleryImages.length > 0) {
             product.galleryImages.slice(0, 10).forEach((img) => {
               if (img) {
-                const additionalImageUrl = fixImageUrl(
-                  img.startsWith("http") ? img : `https://api.grabatoz.ae${img}`
-                )
+                const additionalImageUrl = fixImageUrl(img)
                 additionalImages.push(additionalImageUrl)
               }
             })
@@ -552,6 +644,10 @@ router.get(
             productData.sale_price = `${salePrice.toFixed(2)} AED`
           }
 
+          if (availability === "preorder") {
+            productData.availability_date = getPreorderAvailabilityDate(product)
+          }
+
           feed.products.push(productData)
           processedCount++
         } catch (productError) {
@@ -587,10 +683,7 @@ router.get(
   "/feed.xml",
   asyncHandler(async (req, res) => {
     try {
-      // Parse pagination parameters
-      const page = Number.parseInt(req.query.page) || 1
-      const limit = Number.parseInt(req.query.limit) || 0 // 0 means no limit
-      const skip = limit > 0 ? (page - 1) * limit : 0
+      const { page, limit, skip, paginate } = parseFeedPagination(req)
       const includeZeroPrice = req.query.includeZeroPrice === "true"
       const feedLanguage = resolveFeedLanguage(req)
       const xmlCacheKey = JSON.stringify({
@@ -598,6 +691,7 @@ router.get(
         page,
         limit,
         skip,
+        paginate,
         includeZeroPrice,
         feedLanguage,
       })
@@ -619,21 +713,24 @@ router.get(
       }
 
       if (!includeZeroPrice) {
-        query.$and = [{ $or: [{ price: { $gt: 0 } }, { offerPrice: { $gt: 0 } }] }]
+        query.$and = [FEED_PRICE_MATCH]
       }
 
       console.log("Fetching products for XML with query:", JSON.stringify(query))
-      console.log(`XML Pagination: page=${page}, limit=${limit}, skip=${skip}`)
+      console.log(`XML Pagination: paginate=${paginate}, page=${page}, limit=${limit}, skip=${skip}`)
 
       // Get total count first
       const totalCount = await Product.countDocuments(query)
       console.log(`Total products for XML: ${totalCount}`)
 
       let dbQuery = Product.find(query)
-        .select('name nameAr slug sku gtin brand category parentCategory price offerPrice stockStatus countInStock isActive image variations description descriptionAr shortDescription shortDescriptionAr')
+        .select(
+          "name nameAr slug sku gtin brand category parentCategory price offerPrice colorVariations dosVariations stockStatus countInStock isActive image galleryImages variations description descriptionAr shortDescription shortDescriptionAr featured tags weight availabilityDate preorderDate preOrderDate expectedAvailabilityDate availableOn",
+        )
         .populate({ path: 'brand', select: 'name nameAr' })
         .populate({ path: 'category', select: 'name nameAr' })
         .populate({ path: 'parentCategory', select: 'name nameAr' })
+        .sort({ _id: 1 })
         .lean()
       if (limit > 0) {
         dbQuery = dbQuery.skip(skip).limit(limit)
@@ -673,19 +770,8 @@ router.get(
             continue
           }
 
-          // Escape & in slug for valid XML URLs
-          const cleanSlug = (product.slug || product._id.toString()).replace(/&/g, '%26')
-          const productUrl = buildProductUrl(cleanSlug, feedLanguage)
-          
-          // Fix and escape image URLs for valid XML
-          let imageUrl = fixImageUrl(
-            product.image
-              ? product.image.startsWith("http")
-                ? product.image
-                : `https://api.grabatoz.ae${product.image}`
-              : "https://api.grabatoz.ae/placeholder.jpg"
-          )
-          imageUrl = imageUrl.replace(/&/g, '&amp;')
+          const productUrl = buildProductUrl(product.slug || product._id.toString(), feedLanguage)
+          const imageUrl = fixImageUrl(product.image || `${BASE_API_URL}/placeholder.jpg`)
 
           // Use the improved availability logic
           const availability = determineAvailability(product)
@@ -730,8 +816,8 @@ router.get(
       <g:id>${escapeXml(productId)}</g:id>
       <g:title><![CDATA[${cleanForCDATA(truncatedTitle)}]]></g:title>
       <g:description><![CDATA[${cleanForCDATA(cleanDescription)}]]></g:description>
-      <g:link>${productUrl}</g:link>
-      <g:image_link>${imageUrl}</g:image_link>
+      <g:link>${escapeXml(productUrl)}</g:link>
+      <g:image_link>${escapeXml(imageUrl)}</g:image_link>
       <g:price>${price.toFixed(2)} AED</g:price>`
 
           if (salePrice) {
@@ -778,6 +864,11 @@ router.get(
       <g:item_group_id>${escapeXml(itemGroupId)}</g:item_group_id>`
           }
 
+          if (availability === "preorder") {
+            xml += `
+      <g:availability_date>${escapeXml(getPreorderAvailabilityDate(product))}</g:availability_date>`
+          }
+
           // Add shipping information - required for UAE
           xml += `
       <g:shipping>
@@ -790,13 +881,9 @@ router.get(
           if (product.galleryImages && product.galleryImages.length > 0) {
             product.galleryImages.slice(0, 10).forEach((img) => {
               if (img) {
-                let additionalImageUrl = fixImageUrl(
-                  img.startsWith("http") ? img : `https://api.grabatoz.ae${img}`
-                )
-                // Escape & for valid XML
-                additionalImageUrl = additionalImageUrl.replace(/&/g, '&amp;')
+                const additionalImageUrl = fixImageUrl(img)
                 xml += `
-      <g:additional_image_link>${additionalImageUrl}</g:additional_image_link>`
+      <g:additional_image_link>${escapeXml(additionalImageUrl)}</g:additional_image_link>`
               }
             })
           }
@@ -913,10 +1000,7 @@ router.get(
     try {
       const brandName = req.params.brandName
       
-      // Parse pagination parameters
-      const page = Number.parseInt(req.query.page) || 1
-      const limit = Number.parseInt(req.query.limit) || 0 // 0 means no limit
-      const skip = limit > 0 ? (page - 1) * limit : 0
+      const { page, limit, skip, paginate } = parseFeedPagination(req)
       const includeZeroPrice = req.query.includeZeroPrice === "true"
       const feedLanguage = resolveFeedLanguage(req)
 
@@ -944,10 +1028,11 @@ router.get(
       }
 
       if (!includeZeroPrice) {
-        query.$and = [{ $or: [{ price: { $gt: 0 } }, { offerPrice: { $gt: 0 } }] }]
+        query.$and = [FEED_PRICE_MATCH]
       }
 
       console.log("Fetching products for brand XML with query:", JSON.stringify(query))
+      console.log(`Brand XML Pagination: paginate=${paginate}, page=${page}, limit=${limit}, skip=${skip}`)
 
       // Get total count first
       const totalCount = await Product.countDocuments(query)
@@ -1000,7 +1085,7 @@ router.get(
         },
       ]
 
-      // Add pagination only if limit is specified
+      // Add pagination only when opt-in pagination is enabled
       if (limit > 0) {
         aggregationPipeline.push({ $skip: skip })
         aggregationPipeline.push({ $limit: limit })
@@ -1040,19 +1125,8 @@ router.get(
             continue
           }
 
-          // Escape & in slug for valid XML URLs
-          const cleanSlug = (product.slug || product._id.toString()).replace(/&/g, '%26')
-          const productUrl = buildProductUrl(cleanSlug, feedLanguage)
-          
-          // Fix and escape image URLs for valid XML
-          let imageUrl = fixImageUrl(
-            product.image
-              ? product.image.startsWith("http")
-                ? product.image
-                : `https://api.grabatoz.ae${product.image}`
-              : "https://api.grabatoz.ae/placeholder.jpg"
-          )
-          imageUrl = imageUrl.replace(/&/g, '&amp;')
+          const productUrl = buildProductUrl(product.slug || product._id.toString(), feedLanguage)
+          const imageUrl = fixImageUrl(product.image || `${BASE_API_URL}/placeholder.jpg`)
 
           // Use the improved availability logic
           const availability = determineAvailability(product)
@@ -1097,8 +1171,8 @@ router.get(
       <g:id>${escapeXml(productId)}</g:id>
       <g:title><![CDATA[${cleanForCDATA(truncatedTitle)}]]></g:title>
       <g:description><![CDATA[${cleanForCDATA(cleanDescription)}]]></g:description>
-      <g:link>${productUrl}</g:link>
-      <g:image_link>${imageUrl}</g:image_link>
+      <g:link>${escapeXml(productUrl)}</g:link>
+      <g:image_link>${escapeXml(imageUrl)}</g:image_link>
       <g:price>${price.toFixed(2)} AED</g:price>`
 
           if (salePrice) {
@@ -1141,6 +1215,11 @@ router.get(
       <g:item_group_id>${escapeXml(itemGroupId)}</g:item_group_id>`
           }
 
+          if (availability === "preorder") {
+            xml += `
+      <g:availability_date>${escapeXml(getPreorderAvailabilityDate(product))}</g:availability_date>`
+          }
+
           xml += `
       <g:shipping>
         <g:country>AE</g:country>
@@ -1152,12 +1231,9 @@ router.get(
           if (product.galleryImages && product.galleryImages.length > 0) {
             product.galleryImages.slice(0, 10).forEach((img) => {
               if (img) {
-                let additionalImageUrl = fixImageUrl(
-                  img.startsWith("http") ? img : `https://api.grabatoz.ae${img}`
-                )
-                additionalImageUrl = additionalImageUrl.replace(/&/g, '&amp;')
+                const additionalImageUrl = fixImageUrl(img)
                 xml += `
-      <g:additional_image_link>${additionalImageUrl}</g:additional_image_link>`
+      <g:additional_image_link>${escapeXml(additionalImageUrl)}</g:additional_image_link>`
               }
             })
           }
