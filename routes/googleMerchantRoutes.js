@@ -1,6 +1,7 @@
 
 import express from "express"
 import asyncHandler from "express-async-handler"
+import { createHash } from "crypto"
 import Product from "../models/productModel.js"
 
 const router = express.Router()
@@ -121,7 +122,43 @@ const trackAvailability = (stats, availability) => {
   else if (availability === "preorder") stats.preOrder++
 }
 
-const getProductFeedId = (product) => product.slug || product.sku || product._id.toString()
+const GOOGLE_MERCHANT_ID_MAX_LENGTH = 50
+
+const sanitizeFeedId = (value) =>
+  String(value || "")
+    .normalize("NFKD")
+    .replace(/[^\x00-\x7F]/g, "")
+    .replace(/[^A-Za-z0-9_-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .trim()
+
+const buildShortStableFeedId = (value, fallbackSeed) => {
+  const sanitized = sanitizeFeedId(value)
+  if (sanitized && sanitized.length <= GOOGLE_MERCHANT_ID_MAX_LENGTH) {
+    return sanitized
+  }
+
+  const hash = createHash("sha1")
+    .update(String(value || fallbackSeed || ""))
+    .digest("hex")
+    .slice(0, 12)
+
+  const base = sanitized || sanitizeFeedId(fallbackSeed) || "item"
+  const headLength = GOOGLE_MERCHANT_ID_MAX_LENGTH - hash.length - 1
+  const head = headLength > 0 ? base.slice(0, headLength) : "item"
+  return `${head}-${hash}`.slice(0, GOOGLE_MERCHANT_ID_MAX_LENGTH)
+}
+
+const getProductFeedId = (product) => {
+  const mongoId = String(product?._id || "")
+  const sku = String(product?.sku || "").trim()
+  const slug = String(product?.slug || "").trim()
+
+  if (sku) return buildShortStableFeedId(`sku-${sku}`, mongoId)
+  if (slug) return buildShortStableFeedId(`slug-${slug}`, mongoId)
+  return buildShortStableFeedId(`id-${mongoId}`, mongoId)
+}
 
 const getItemGroupId = (product) => {
   if (!product?.variations || product.variations.length === 0) return ""
