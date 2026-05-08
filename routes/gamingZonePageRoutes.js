@@ -142,6 +142,15 @@ router.put('/:id', protect, admin, async (req, res) => {
       gamingZonePage.metaTitle = req.body.metaTitle !== undefined ? req.body.metaTitle : gamingZonePage.metaTitle;
       gamingZonePage.metaDescription = req.body.metaDescription !== undefined ? req.body.metaDescription : gamingZonePage.metaDescription;
       gamingZonePage.canonicalUrl = req.body.canonicalUrl !== undefined ? req.body.canonicalUrl : gamingZonePage.canonicalUrl;
+      gamingZonePage.seoTitle = req.body.seoTitle !== undefined ? req.body.seoTitle : gamingZonePage.seoTitle;
+      gamingZonePage.seoDescription = req.body.seoDescription !== undefined ? req.body.seoDescription : gamingZonePage.seoDescription;
+      gamingZonePage.seoKeywords = req.body.seoKeywords !== undefined ? req.body.seoKeywords : gamingZonePage.seoKeywords;
+      gamingZonePage.seoCanonicalUrl = req.body.seoCanonicalUrl !== undefined ? req.body.seoCanonicalUrl : gamingZonePage.seoCanonicalUrl;
+      gamingZonePage.seoRobots = req.body.seoRobots !== undefined ? req.body.seoRobots : gamingZonePage.seoRobots;
+      gamingZonePage.customSchema = req.body.customSchema !== undefined ? req.body.customSchema : gamingZonePage.customSchema;
+      gamingZonePage.ogTitle = req.body.ogTitle !== undefined ? req.body.ogTitle : gamingZonePage.ogTitle;
+      gamingZonePage.ogDescription = req.body.ogDescription !== undefined ? req.body.ogDescription : gamingZonePage.ogDescription;
+      gamingZonePage.ogImage = req.body.ogImage !== undefined ? req.body.ogImage : gamingZonePage.ogImage;
       gamingZonePage.heroImage = req.body.heroImage !== undefined ? req.body.heroImage : gamingZonePage.heroImage;
       gamingZonePage.cardImages = req.body.cardImages !== undefined ? req.body.cardImages : gamingZonePage.cardImages;
       gamingZonePage.isActive = req.body.isActive !== undefined ? req.body.isActive : gamingZonePage.isActive;

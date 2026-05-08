@@ -75,6 +75,15 @@ router.put('/:id', protect, admin, async (req, res) => {
       offerPage.metaTitle = req.body.metaTitle !== undefined ? req.body.metaTitle : offerPage.metaTitle;
       offerPage.metaDescription = req.body.metaDescription !== undefined ? req.body.metaDescription : offerPage.metaDescription;
       offerPage.canonicalUrl = req.body.canonicalUrl !== undefined ? req.body.canonicalUrl : offerPage.canonicalUrl;
+      offerPage.seoTitle = req.body.seoTitle !== undefined ? req.body.seoTitle : offerPage.seoTitle;
+      offerPage.seoDescription = req.body.seoDescription !== undefined ? req.body.seoDescription : offerPage.seoDescription;
+      offerPage.seoKeywords = req.body.seoKeywords !== undefined ? req.body.seoKeywords : offerPage.seoKeywords;
+      offerPage.seoCanonicalUrl = req.body.seoCanonicalUrl !== undefined ? req.body.seoCanonicalUrl : offerPage.seoCanonicalUrl;
+      offerPage.seoRobots = req.body.seoRobots !== undefined ? req.body.seoRobots : offerPage.seoRobots;
+      offerPage.customSchema = req.body.customSchema !== undefined ? req.body.customSchema : offerPage.customSchema;
+      offerPage.ogTitle = req.body.ogTitle !== undefined ? req.body.ogTitle : offerPage.ogTitle;
+      offerPage.ogDescription = req.body.ogDescription !== undefined ? req.body.ogDescription : offerPage.ogDescription;
+      offerPage.ogImage = req.body.ogImage !== undefined ? req.body.ogImage : offerPage.ogImage;
       offerPage.heroImage = req.body.heroImage !== undefined ? req.body.heroImage : offerPage.heroImage;
       offerPage.cardImages = req.body.cardImages !== undefined ? req.body.cardImages : offerPage.cardImages;
       offerPage.isActive = req.body.isActive !== undefined ? req.body.isActive : offerPage.isActive;

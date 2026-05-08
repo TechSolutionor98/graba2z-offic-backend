@@ -28,6 +28,50 @@ const offerPageSchema = new mongoose.Schema(
       default: "",
       trim: true,
     },
+    seoTitle: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    seoDescription: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    seoKeywords: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    seoCanonicalUrl: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    seoRobots: {
+      type: String,
+      default: "index, follow",
+      enum: ["index, follow", "noindex, follow", "index, nofollow", "noindex, nofollow"],
+    },
+    customSchema: {
+      type: String,
+      default: "",
+    },
+    ogTitle: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    ogDescription: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    ogImage: {
+      type: String,
+      default: "",
+      trim: true,
+    },
     heroImage: {
       type: String,
       default: '',
