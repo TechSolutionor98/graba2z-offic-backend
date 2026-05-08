@@ -139,6 +139,9 @@ router.put('/:id', protect, admin, async (req, res) => {
     if (gamingZonePage) {
       gamingZonePage.name = req.body.name || gamingZonePage.name;
       gamingZonePage.slug = req.body.slug || gamingZonePage.slug;
+      gamingZonePage.metaTitle = req.body.metaTitle !== undefined ? req.body.metaTitle : gamingZonePage.metaTitle;
+      gamingZonePage.metaDescription = req.body.metaDescription !== undefined ? req.body.metaDescription : gamingZonePage.metaDescription;
+      gamingZonePage.canonicalUrl = req.body.canonicalUrl !== undefined ? req.body.canonicalUrl : gamingZonePage.canonicalUrl;
       gamingZonePage.heroImage = req.body.heroImage !== undefined ? req.body.heroImage : gamingZonePage.heroImage;
       gamingZonePage.cardImages = req.body.cardImages !== undefined ? req.body.cardImages : gamingZonePage.cardImages;
       gamingZonePage.isActive = req.body.isActive !== undefined ? req.body.isActive : gamingZonePage.isActive;

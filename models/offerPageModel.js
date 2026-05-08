@@ -13,6 +13,21 @@ const offerPageSchema = new mongoose.Schema(
       unique: true,
       trim: true,
     },
+    metaTitle: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    metaDescription: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    canonicalUrl: {
+      type: String,
+      default: "",
+      trim: true,
+    },
     heroImage: {
       type: String,
       default: '',

@@ -72,6 +72,9 @@ router.put('/:id', protect, admin, async (req, res) => {
     if (offerPage) {
       offerPage.name = req.body.name || offerPage.name;
       offerPage.slug = req.body.slug || offerPage.slug;
+      offerPage.metaTitle = req.body.metaTitle !== undefined ? req.body.metaTitle : offerPage.metaTitle;
+      offerPage.metaDescription = req.body.metaDescription !== undefined ? req.body.metaDescription : offerPage.metaDescription;
+      offerPage.canonicalUrl = req.body.canonicalUrl !== undefined ? req.body.canonicalUrl : offerPage.canonicalUrl;
       offerPage.heroImage = req.body.heroImage !== undefined ? req.body.heroImage : offerPage.heroImage;
       offerPage.cardImages = req.body.cardImages !== undefined ? req.body.cardImages : offerPage.cardImages;
       offerPage.isActive = req.body.isActive !== undefined ? req.body.isActive : offerPage.isActive;
