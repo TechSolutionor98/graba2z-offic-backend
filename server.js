@@ -74,6 +74,7 @@ import customSliderItemRoutes from "./routes/customSliderItemRoutes.js"
 import superAdminRoutes from "./routes/superAdminRoutes.js"
 import reportsRoutes from "./routes/reportsRoutes.js"
 import homepageRoutes from "./routes/homepageRoutes.js"
+import seoPageRoutes from "./routes/seoPageRoutes.js"
 import { ensureSubCategorySlugIndexes } from "./utils/ensureSubCategorySlugIndexes.js"
 
 dotenv.config()
@@ -255,6 +256,7 @@ app.use("/api/redirects", redirectRoutes)
 app.use("/api/buyer-protection", buyerProtectionRoutes)
 app.use("/api/cache", cacheRoutes)
 app.use("/api/custom-slider-items", customSliderItemRoutes)
+app.use("/api/seo-pages", seoPageRoutes)
 // @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
 
@@ -299,4 +301,3 @@ const PORT = config.PORT
 app.listen(PORT, () => {
   console.log(`Server running in ${config.NODE_ENV} mode on port ${PORT}`)
 })
-
