@@ -448,6 +448,30 @@ const normalizeLookupValue = (value) =>
     .replace(/\s+/g, " ")
     .trim()
 
+const normalizeHierarchyLabel = (value) => normalizeLookupValue(value).toLowerCase()
+
+const coerceCategoryHierarchy = (level2Name, level3Name, level4Name) => {
+  let lvl2 = normalizeLookupValue(level2Name)
+  let lvl3 = normalizeLookupValue(level3Name)
+  let lvl4 = normalizeLookupValue(level4Name)
+
+  // Keep sheet hierarchy strict: do not shift values across levels automatically.
+  // If level2 is empty and level3/4 has values, they stay at their own level.
+
+  // Drop repeated values across adjacent levels (same label mistakenly copied down).
+  if (lvl2 && lvl3 && normalizeHierarchyLabel(lvl2) === normalizeHierarchyLabel(lvl3)) {
+    lvl3 = ""
+  }
+  if (lvl3 && lvl4 && normalizeHierarchyLabel(lvl3) === normalizeHierarchyLabel(lvl4)) {
+    lvl4 = ""
+  }
+  if (lvl2 && lvl4 && normalizeHierarchyLabel(lvl2) === normalizeHierarchyLabel(lvl4)) {
+    lvl4 = ""
+  }
+
+  return { level2Name: lvl2, level3Name: lvl3, level4Name: lvl4 }
+}
+
 const normalizeFieldKey = (key) =>
   String(key || "")
     .replace(/^\uFEFF/, "")
@@ -2738,25 +2762,37 @@ router.post(
         const key = `${parentCategoryId || ''}:${parentSubId || ''}:${level}:${name.trim().toLowerCase()}`
         const cache = level === 2 ? level2Cache : level === 3 ? level3Cache : level4Cache
         if (cache.has(key)) return cache.get(key)
-        
-        let isNew = false
-        // First try to find by name (case-insensitive), level, and parent
-        let existing = await SubCategory.findOne({ 
-          name: { $regex: new RegExp(`^${name.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
+
+        const normalizedName = normalizeLookupValue(name)
+        const nameRegex = new RegExp(`^${escapeRegex(normalizedName)}$`, "i")
+        const scopedQuery = {
+          name: nameRegex,
           level,
-          category: parentCategoryId
-        })
-        
-        // If not found by name, try by slug with same level and parent
+          category: parentCategoryId,
+          isDeleted: { $ne: true },
+          ...(level > 1 ? { parentSubCategory: parentSubId || null } : {}),
+        }
+
+        let isNew = false
+        // First try exact scoped match (name + level + parent/category).
+        let existing = await SubCategory.findOne(scopedQuery)
+
+        // If not found by name, try slug in same scope.
         if (!existing) {
-          const slug = generateSlug(name)
-          existing = await SubCategory.findOne({ slug, level, category: parentCategoryId })
+          const slug = generateSlug(normalizedName)
+          existing = await SubCategory.findOne({
+            slug,
+            level,
+            category: parentCategoryId,
+            isDeleted: { $ne: true },
+            ...(level > 1 ? { parentSubCategory: parentSubId || null } : {}),
+          })
         }
         
         // If still not found, create new with unique slug
         if (!existing) {
           isNew = true
-          let slug = generateSlug(name)
+          let slug = generateSlug(normalizedName)
           // Check if slug exists at any level - if so, make it unique by appending level
           const slugExists = await SubCategory.findOne({ slug })
           if (slugExists) {
@@ -2764,12 +2800,12 @@ router.post(
             // If even that exists, append parent category id
             const stillExists = await SubCategory.findOne({ slug })
             if (stillExists) {
-              slug = `${generateSlug(name)}-${level}-${parentCategoryId.toString().slice(-4)}`
+              slug = `${generateSlug(normalizedName)}-${level}-${parentCategoryId.toString().slice(-4)}`
             }
           }
           
           existing = await SubCategory.create({
-            name: name.trim(),
+            name: normalizedName,
             slug,
             category: parentCategoryId,
             parentSubCategory: parentSubId || null,
@@ -2830,9 +2866,14 @@ router.post(
 
         const parentCategoryId = parentCategoryMap.get(parentName.trim().toLowerCase())
         const level1Name = getField(row, ["category"]) // normalized
-        const level2Name = getField(row, ["subCategory2"]) // normalized via excelToBackendKey
-        const level3Name = getField(row, ["subCategory3"]) // normalized
-        const level4Name = getField(row, ["subCategory4"]) // normalized
+        const hierarchy = coerceCategoryHierarchy(
+          getField(row, ["subCategory2"]),
+          getField(row, ["subCategory3"]),
+          getField(row, ["subCategory4"]),
+        )
+        const level2Name = hierarchy.level2Name
+        const level3Name = hierarchy.level3Name
+        const level4Name = hierarchy.level4Name
         const level1Id = level1Name ? level1Map.get(level1Name.trim().toLowerCase()) : undefined
         const level2Data = await ensureSubCategory(level2Name, parentCategoryId, level1Id, 2)
         const level3Data = await ensureSubCategory(level3Name, parentCategoryId, level2Data.id || level1Id, 3)
@@ -3127,25 +3168,37 @@ router.post(
       const key = `${parentCategoryId || ''}:${parentSubId || ''}:${level}:${name.trim().toLowerCase()}`
       const cache = level === 2 ? level2Cache : level === 3 ? level3Cache : level4Cache
       if (cache.has(key)) return cache.get(key)
-      
-      let isNew = false
-      // First try to find by name (case-insensitive), level, and parent
-      let existing = await SubCategory.findOne({ 
-        name: { $regex: new RegExp(`^${name.trim().replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}$`, 'i') },
+
+      const normalizedName = normalizeLookupValue(name)
+      const nameRegex = new RegExp(`^${escapeRegex(normalizedName)}$`, "i")
+      const scopedQuery = {
+        name: nameRegex,
         level,
-        category: parentCategoryId
-      })
-      
-      // If not found by name, try by slug with same level and parent
+        category: parentCategoryId,
+        isDeleted: { $ne: true },
+        ...(level > 1 ? { parentSubCategory: parentSubId || null } : {}),
+      }
+
+      let isNew = false
+      // First try exact scoped match (name + level + parent/category).
+      let existing = await SubCategory.findOne(scopedQuery)
+
+      // If not found by name, try slug in same scope.
       if (!existing) {
-        const slug = generateSlug(name)
-        existing = await SubCategory.findOne({ slug, level, category: parentCategoryId })
+        const slug = generateSlug(normalizedName)
+        existing = await SubCategory.findOne({
+          slug,
+          level,
+          category: parentCategoryId,
+          isDeleted: { $ne: true },
+          ...(level > 1 ? { parentSubCategory: parentSubId || null } : {}),
+        })
       }
       
       // If still not found, create new with unique slug
       if (!existing) {
         isNew = true
-        let slug = generateSlug(name)
+        let slug = generateSlug(normalizedName)
         // Check if slug exists at any level - if so, make it unique by appending level
         const slugExists = await SubCategory.findOne({ slug })
         if (slugExists) {
@@ -3153,12 +3206,12 @@ router.post(
           // If even that exists, append parent category id
           const stillExists = await SubCategory.findOne({ slug })
           if (stillExists) {
-            slug = `${generateSlug(name)}-${level}-${parentCategoryId.toString().slice(-4)}`
+            slug = `${generateSlug(normalizedName)}-${level}-${parentCategoryId.toString().slice(-4)}`
           }
         }
         
         existing = await SubCategory.create({
-          name: name.trim(),
+          name: normalizedName,
           slug,
           category: parentCategoryId,
           parentSubCategory: parentSubId || null,
@@ -3219,9 +3272,14 @@ router.post(
       if (rowBarcode) seenBarcodes.add(rowBarcode)
       const parentCategoryId = parentCategoryMap.get(parentName.trim().toLowerCase())
       const level1Name = getField(row, ["category", "subcategory", "sub_category", "category1", "category_level_1"])
-      const level2Name = getField(row, ["sub_category_2", "subcategory2", "subCategory2", "category2", "category_level_2"])
-      const level3Name = getField(row, ["sub_category_3", "subcategory3", "subCategory3", "category3", "category_level_3"])
-      const level4Name = getField(row, ["sub_category_4", "subcategory4", "subCategory4", "category4", "category_level_4"])
+      const hierarchy = coerceCategoryHierarchy(
+        getField(row, ["sub_category_2", "subcategory2", "subCategory2", "category2", "category_level_2"]),
+        getField(row, ["sub_category_3", "subcategory3", "subCategory3", "category3", "category_level_3"]),
+        getField(row, ["sub_category_4", "subcategory4", "subCategory4", "category4", "category_level_4"]),
+      )
+      const level2Name = hierarchy.level2Name
+      const level3Name = hierarchy.level3Name
+      const level4Name = hierarchy.level4Name
       const level1Id = level1Name ? level1Map.get(level1Name.trim().toLowerCase()) : undefined
       const level2Data = await ensureSubCategory(level2Name, parentCategoryId, level1Id, 2)
       const level3Data = await ensureSubCategory(level3Name, parentCategoryId, level2Data.id || level1Id, 3)
@@ -3745,36 +3803,43 @@ router.post(
 
       // Helper to resolve subcategory by name (with level support)
       const resolveSubCategory = async (nameValue, parentCategoryId, parentSubId, level, userId = null) => {
-        if (!nameValue) return null
-        
-        // Try by name and parent
-        if (nameValue && nameValue.trim() !== '') {
-          const query = { name: nameValue.trim() }
-          if (parentCategoryId) query.category = parentCategoryId
-          
-          const found = await SubCategory.findOne(query)
-          if (found) return found._id
-          
-          // Create new subcategory
-          const slug = generateSlug(nameValue.trim())
-          
-          // Translate name for Arabic field
-          const nameAr = await translateText(nameValue.trim());
-          
-          const newSub = await SubCategory.create({
-            name: nameValue.trim(),
-            nameAr,
-            slug,
-            category: parentCategoryId,
-            parentSubCategory: parentSubId || null,
-            level,
-            isActive: true,
-            createdBy: userId,
-          })
-          return newSub._id
+        const normalizedName = normalizeLookupValue(nameValue)
+        if (!normalizedName) return null
+
+        const nameMatcher = buildCaseInsensitiveExactRegex(normalizedName)
+        const scopedQuery = {
+          level,
+          category: parentCategoryId,
+          isDeleted: { $ne: true },
+          ...(level > 1 ? { parentSubCategory: parentSubId || null } : {}),
         }
-        
-        return null
+
+        // Exact scoped lookup by name first.
+        let found = nameMatcher ? await SubCategory.findOne({ ...scopedQuery, name: nameMatcher }) : null
+
+        // Then scoped slug lookup.
+        if (!found) {
+          const slug = generateSlug(normalizedName)
+          found = await SubCategory.findOne({ ...scopedQuery, slug })
+        }
+
+        if (found) return found._id
+
+        // Create new subcategory
+        const slug = generateSlug(normalizedName)
+        const nameAr = await translateText(normalizedName)
+
+        const newSub = await SubCategory.create({
+          name: normalizedName,
+          nameAr,
+          slug,
+          category: parentCategoryId,
+          parentSubCategory: parentSubId || null,
+          level,
+          isActive: true,
+          createdBy: userId,
+        })
+        return newSub._id
       }
 
       // Second pass: Process products
@@ -3787,8 +3852,9 @@ router.post(
             continue
           }
 
-          const objectId = row._id || row.id || row.ID || row['_id']
-          const productName = row.name
+          const objectId =
+            getBulkField(row, ["_id", "id"]) || row._id || row.id || row.ID || row["_id"]
+          const productName = getBulkField(row, ["name"]) || row.name
           
           if (!productName || productName.trim() === '') {
             errors.push({
@@ -3822,12 +3888,9 @@ router.post(
           }
 
           // Resolve parent category (by name only)
-          const parentCategoryId = await resolveCategoryOrBrand(
-            Category,
-            row.parent_category,
-            true,
-            req.user._id
-          )
+          const parentCategoryName =
+            getBulkField(row, ["parent_category", "parentCategory"]) || row.parent_category || row.parentCategory
+          const parentCategoryId = await resolveCategoryOrBrand(Category, parentCategoryName, true, req.user._id)
 
           if (!parentCategoryId) {
             errors.push({
@@ -3840,16 +3903,25 @@ router.post(
           }
 
           // Resolve brand (by name only)
-          const brandId = await resolveCategoryOrBrand(
-            Brand,
-            row.brand,
-            true,
-            req.user._id
+          const brandName = getBulkField(row, ["brand"]) || row.brand
+          const brandId = await resolveCategoryOrBrand(Brand, brandName, true, req.user._id)
+
+          const level1Name =
+            getBulkField(row, ["category_level_1", "category1", "category", "subcategory", "sub_category"]) ||
+            row.category_level_1 ||
+            row.category
+          const hierarchy = coerceCategoryHierarchy(
+            getBulkField(row, ["category_level_2", "category2", "sub_category_2", "subcategory2", "subCategory2"]) ||
+              row.category_level_2,
+            getBulkField(row, ["category_level_3", "category3", "sub_category_3", "subcategory3", "subCategory3"]) ||
+              row.category_level_3,
+            getBulkField(row, ["category_level_4", "category4", "sub_category_4", "subcategory4", "subCategory4"]) ||
+              row.category_level_4,
           )
 
           // Resolve category levels (by name only)
           const level1Id = await resolveSubCategory(
-            row.category_level_1,
+            level1Name,
             parentCategoryId,
             null,
             1,
@@ -3857,7 +3929,7 @@ router.post(
           )
 
           const level2Id = await resolveSubCategory(
-            row.category_level_2,
+            hierarchy.level2Name,
             parentCategoryId,
             level1Id,
             2,
@@ -3865,7 +3937,7 @@ router.post(
           )
 
           const level3Id = await resolveSubCategory(
-            row.category_level_3,
+            hierarchy.level3Name,
             parentCategoryId,
             level2Id || level1Id,
             3,
@@ -3873,7 +3945,7 @@ router.post(
           )
 
           const level4Id = await resolveSubCategory(
-            row.category_level_4,
+            hierarchy.level4Name,
             parentCategoryId,
             level3Id || level2Id || level1Id,
             4,
@@ -3909,9 +3981,9 @@ router.post(
           // Prepare product data
           const productData = {
             name: productName.trim(),
-            slug: row.slug || generateSlug(productName.trim()),
-            sku: row.sku && row.sku.trim() !== '' ? row.sku.trim() : undefined,
-            barcode: row.barcode && row.barcode.trim() !== '' ? row.barcode.trim() : undefined,
+            slug: (getBulkField(row, ["slug"]) || row.slug || "").trim() || generateSlug(productName.trim()),
+            sku: normalizeOptionalUniqueField(getBulkField(row, ["sku"]) || row.sku),
+            barcode: normalizeOptionalUniqueField(getBulkField(row, ["barcode"]) || row.barcode),
             parentCategory: parentCategoryId,
             category: level1Id,
             subCategory: level1Id, // for backward compatibility
@@ -3919,23 +3991,32 @@ router.post(
             subCategory3: level3Id,
             subCategory4: level4Id,
             brand: brandId,
-            buyingPrice: parseFloat(row.buyingPrice) || 0,
-            price: parseFloat(row.price) || 0,
-            offerPrice: parseFloat(row.offerPrice) || 0,
-            discount: parseFloat(row.discount) || 0,
-            stockStatus: row.stockStatus || 'In Stock',
-            countInStock: parseInt(row.countInStock) || 0,
-            showStockOut: row.showStockOut === 'true' || row.showStockOut === true,
-            canPurchase: row.canPurchase !== 'false' && row.canPurchase !== false,
-            refundable: row.refundable !== 'false' && row.refundable !== false,
-            maxPurchaseQty: parseInt(row.maxPurchaseQty) || 10,
-            lowStockWarning: parseInt(row.lowStockWarning) || 5,
-            weight: parseFloat(row.weight) || 0,
-            tags: row.tags ? String(row.tags).split(',').map(t => t.trim()).filter(Boolean) : [],
-            description: row.description || '',
-            shortDescription: row.shortDescription || '',
-            specifications: parseSpecificationsInput(row.specifications),
-            details: row.details || '',
+            buyingPrice: parseFloat(getBulkField(row, ["buyingPrice", "buying_price"]) || row.buyingPrice) || 0,
+            price: parseFloat(getBulkField(row, ["price", "selling_price"]) || row.price) || 0,
+            offerPrice: parseFloat(getBulkField(row, ["offerPrice", "offer_price"]) || row.offerPrice) || 0,
+            discount: parseFloat(getBulkField(row, ["discount"]) || row.discount) || 0,
+            stockStatus: getBulkField(row, ["stockStatus", "status"]) || row.stockStatus || "In Stock",
+            countInStock: parseInt(getBulkField(row, ["countInStock", "stock"]) || row.countInStock) || 0,
+            showStockOut:
+              (getBulkField(row, ["showStockOut", "show_stock_out"]) || row.showStockOut) === "true" ||
+              row.showStockOut === true,
+            canPurchase:
+              (getBulkField(row, ["canPurchase", "can_purchasable"]) || row.canPurchase) !== "false" &&
+              row.canPurchase !== false,
+            refundable: (getBulkField(row, ["refundable"]) || row.refundable) !== "false" && row.refundable !== false,
+            maxPurchaseQty: parseInt(getBulkField(row, ["maxPurchaseQty", "max_purchase_quantity"]) || row.maxPurchaseQty) || 10,
+            lowStockWarning: parseInt(getBulkField(row, ["lowStockWarning", "low_stock_warning"]) || row.lowStockWarning) || 5,
+            weight: parseFloat(getBulkField(row, ["weight"]) || row.weight) || 0,
+            tags: (getBulkField(row, ["tags"]) || row.tags)
+              ? String(getBulkField(row, ["tags"]) || row.tags)
+                  .split(",")
+                  .map((t) => t.trim())
+                  .filter(Boolean)
+              : [],
+            description: getBulkField(row, ["description"]) || row.description || "",
+            shortDescription: getBulkField(row, ["shortDescription", "short_description"]) || row.shortDescription || "",
+            specifications: parseSpecificationsInput(getBulkField(row, ["specifications"]) || row.specifications),
+            details: getBulkField(row, ["details"]) || row.details || "",
             isActive: true,
           }
 
