@@ -37,13 +37,13 @@ const subCategorySchema = mongoose.Schema(
       type: String,
       default: "",
       trim: true,
-      maxlength: 100, // Increased limit for better SEO flexibility
+      maxlength: 180, // Allow longer localized SEO titles
     },
     metaTitleAr: {
       type: String,
       default: "",
       trim: true,
-      maxlength: 100,
+      maxlength: 180,
     },
     metaDescription: {
       type: String,

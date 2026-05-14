@@ -183,7 +183,8 @@ const applyTranslatedField = async (doc, arField, sourceValue, { html = false, f
   if (!source) return false
 
   const current = normalizeText(doc[arField])
-  if (!force && hasArabic(current)) return false
+  // Missing-only mode: if Arabic field already has any value, skip it unless forced.
+  if (!force && current) return false
 
   const translated = html
     ? await translateHtmlToArabicPreservingTags(String(sourceValue || ""))
@@ -199,10 +200,11 @@ const applyTranslatedTags = async (doc, sourceField, arField, { force = false } 
   if (!sourceTags.length) return false
 
   const currentTags = Array.isArray(doc[arField]) ? doc[arField] : []
-  const hasCompleteArabic =
-    currentTags.length >= sourceTags.length && sourceTags.every((_, index) => hasArabic(currentTags[index]))
+  const hasCompleteArValues =
+    currentTags.length >= sourceTags.length &&
+    sourceTags.every((_, index) => Boolean(normalizeText(currentTags[index])))
 
-  if (!force && hasCompleteArabic) return false
+  if (!force && hasCompleteArValues) return false
 
   const translatedTags = await mapWithConcurrency(sourceTags, Math.min(TRANSLATION_CONCURRENCY, 6), (tag) =>
     translatePlainTextToArabic(tag),
@@ -236,11 +238,11 @@ const translateProductDocument = async (doc, { force }) => {
   if (Array.isArray(doc.specifications) && doc.specifications.length) {
     let specsChanged = false
     for (const spec of doc.specifications) {
-      if (normalizeText(spec?.key) && (force || !hasArabic(spec?.keyAr))) {
+      if (normalizeText(spec?.key) && (force || !normalizeText(spec?.keyAr))) {
         spec.keyAr = await translatePlainTextToArabic(spec.key)
         specsChanged = true
       }
-      if (normalizeText(spec?.value) && (force || !hasArabic(spec?.valueAr))) {
+      if (normalizeText(spec?.value) && (force || !normalizeText(spec?.valueAr))) {
         spec.valueAr = await translatePlainTextToArabic(spec.value)
         specsChanged = true
       }
@@ -254,7 +256,7 @@ const translateProductDocument = async (doc, { force }) => {
   if (Array.isArray(doc.variations) && doc.variations.length) {
     let variationsChanged = false
     for (const item of doc.variations) {
-      if (normalizeText(item?.variationText) && (force || !hasArabic(item?.variationTextAr))) {
+      if (normalizeText(item?.variationText) && (force || !normalizeText(item?.variationTextAr))) {
         item.variationTextAr = await translatePlainTextToArabic(item.variationText)
         variationsChanged = true
       }
@@ -268,7 +270,7 @@ const translateProductDocument = async (doc, { force }) => {
   if (Array.isArray(doc.availableModels) && doc.availableModels.length) {
     let modelsChanged = false
     for (const item of doc.availableModels) {
-      if (normalizeText(item?.variationText) && (force || !hasArabic(item?.variationTextAr))) {
+      if (normalizeText(item?.variationText) && (force || !normalizeText(item?.variationTextAr))) {
         item.variationTextAr = await translatePlainTextToArabic(item.variationText)
         modelsChanged = true
       }
