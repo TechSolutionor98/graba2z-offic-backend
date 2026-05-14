@@ -17,12 +17,26 @@ const debugBanners = (...args) => {
 
 const normalizeBannerLink = (value) => String(value || "").trim()
 
-const applyHeroLinkPolicy = (bannerLike) => {
-  const link = normalizeBannerLink(bannerLike?.link)
-  const buttonLink = normalizeBannerLink(bannerLike?.buttonLink)
+const resolvePreferredHeroLink = (linkValue, buttonLinkValue) => {
+  const link = normalizeBannerLink(linkValue)
+  const buttonLink = normalizeBannerLink(buttonLinkValue)
 
-  // Priority: explicit `link` first, then `buttonLink`, finally `/shop`.
-  const resolved = link || buttonLink || "/shop"
+  const isDefaultShopLink = (value) => value === "/shop"
+  const linkIsDefault = isDefaultShopLink(link)
+  const buttonIsDefault = isDefaultShopLink(buttonLink)
+
+  if (link && buttonLink) {
+    if (linkIsDefault && !buttonIsDefault) return buttonLink
+    if (buttonIsDefault && !linkIsDefault) return link
+    return link
+  }
+
+  return link || buttonLink || "/shop"
+}
+
+const applyHeroLinkPolicy = (bannerLike) => {
+  const buttonLink = normalizeBannerLink(bannerLike?.buttonLink)
+  const resolved = resolvePreferredHeroLink(bannerLike?.link, buttonLink)
 
   bannerLike.link = resolved
   bannerLike.buttonLink = buttonLink || resolved
