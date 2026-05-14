@@ -75,6 +75,7 @@ import superAdminRoutes from "./routes/superAdminRoutes.js"
 import reportsRoutes from "./routes/reportsRoutes.js"
 import homepageRoutes from "./routes/homepageRoutes.js"
 import seoPageRoutes from "./routes/seoPageRoutes.js"
+import staticPageTranslationRoutes from "./routes/staticPageTranslationRoutes.js"
 import { ensureSubCategorySlugIndexes } from "./utils/ensureSubCategorySlugIndexes.js"
 
 dotenv.config()
@@ -257,6 +258,7 @@ app.use("/api/buyer-protection", buyerProtectionRoutes)
 app.use("/api/cache", cacheRoutes)
 app.use("/api/custom-slider-items", customSliderItemRoutes)
 app.use("/api/seo-pages", seoPageRoutes)
+app.use("/api/static-page-translations", staticPageTranslationRoutes)
 // @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
 

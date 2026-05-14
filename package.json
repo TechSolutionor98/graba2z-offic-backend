@@ -13,6 +13,8 @@
     "check:subcategory-scope-conflicts": "node scripts/scan-subcategory-scope-conflicts.js",
     "fix:subcategory-slugs": "node scripts/fix-subcategory-slugs-parent-scope.js",
     "fix:subcategory-slugs:rebuild": "node scripts/fix-subcategory-slugs-parent-scope.js --rebuild",
+    "seed:static-page-ar": "node scripts/seed-static-page-arabic-translations.js",
+    "seed:static-page-ar:missing": "node scripts/seed-static-page-arabic-translations.js --only-missing",
     "cache:clear": "node -e \"import('./services/cacheService.js').then(m => m.default.initialize().then(() => m.default.flushAll().then(() => process.exit(0))))\"",
     "cache:warm": "node scripts/preload-cache.js"
   },

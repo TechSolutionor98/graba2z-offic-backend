@@ -125,10 +125,10 @@ router.post(
 
     // Populate the user information for the created order
     await createdOrder.populate("user", "name email")
-    await createdOrder.populate("orderItems.product", "name image")
+    await createdOrder.populate("orderItems.product", "name nameAr image")
 
     // Populate order items for email
-    await createdOrder.populate("orderItems.product", "name image")
+    await createdOrder.populate("orderItems.product", "name nameAr image")
 
     // Send order confirmation email
     try {
@@ -155,7 +155,7 @@ router.put(
 
     const order = await Order.findById(req.params.id)
       .populate("user", "name email")
-      .populate("orderItems.product", "name image")
+      .populate("orderItems.product", "name nameAr image")
 
     if (!order) {
       res.status(404)
@@ -330,13 +330,13 @@ router.post(
             },
           ],
         })
-          .populate("orderItems.product", "name image")
+          .populate("orderItems.product", "name nameAr image")
           .populate("user", "name email")
 
         // If not found with address emails, try with user email
         if (!order) {
           const orderWithUser = await Order.findOne({ $and: [ORDER_DOCUMENT_QUERY, { _id: cleanOrderId }] })
-            .populate("orderItems.product", "name image")
+            .populate("orderItems.product", "name nameAr image")
             .populate("user", "name email")
 
           if (orderWithUser && orderWithUser.user && orderWithUser.user.email === email) {
@@ -356,12 +356,12 @@ router.post(
             { $or: [{ "shippingAddress.email": email }, { "pickupDetails.email": email }] },
           ],
         })
-          .populate("orderItems.product", "name image")
+          .populate("orderItems.product", "name nameAr image")
           .populate("user", "name email")
 
         // Also get orders where user email matches
         const userOrders = await Order.find(ORDER_DOCUMENT_QUERY)
-          .populate("orderItems.product", "name image")
+          .populate("orderItems.product", "name nameAr image")
           .populate("user", "name email")
 
         const userMatchOrders = userOrders.filter((o) => o.user && o.user.email === email)
@@ -396,7 +396,7 @@ router.post(
 
         // Last resort: try partial matching on all orders
         const allOrders = await Order.find(ORDER_DOCUMENT_QUERY)
-          .populate("orderItems.product", "name image")
+          .populate("orderItems.product", "name nameAr image")
           .populate("user", "name email")
 
         const matchingOrders = allOrders.filter((o) => {
@@ -467,7 +467,7 @@ router.get(
   asyncHandler(async (req, res) => {
     const orders = await Order.find(ORDER_DOCUMENT_QUERY)
       .populate("user", "name email")
-      .populate("orderItems.product", "name image")
+      .populate("orderItems.product", "name nameAr image")
       .sort({ createdAt: -1 })
 
     res.json(orders)
