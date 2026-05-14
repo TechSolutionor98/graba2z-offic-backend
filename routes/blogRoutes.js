@@ -8,6 +8,11 @@ import BlogBrand from "../models/blogBrandModel.js"
 import { protect, admin } from "../middleware/authMiddleware.js"
 import { logActivity } from "../middleware/permissionMiddleware.js"
 import { cacheMiddleware, invalidateCache } from "../middleware/cacheMiddleware.js"
+import {
+  buildBlogArabicPayload,
+  shouldAutoTranslateArabic,
+  toTagArray,
+} from "../utils/blogArabicTranslation.js"
 
 const router = express.Router()
 
@@ -19,11 +24,47 @@ const stripHtml = (html = "") =>
     .replace(/\s+/g, " ")
     .trim()
 
+const containsArabic = (value) => /[\u0600-\u06FF]/.test(String(value || ""))
+
+const shouldBackfillArabicBlog = (blogDoc) => {
+  if (!blogDoc) return false
+
+  const tagsAr = toTagArray(blogDoc.tagsAr)
+  const hasArabicTags = tagsAr.length > 0 && tagsAr.some((tag) => containsArabic(tag))
+
+  return (
+    !containsArabic(blogDoc.blogNameAr) ||
+    !containsArabic(blogDoc.titleAr) ||
+    !containsArabic(blogDoc.postedByAr) ||
+    !containsArabic(blogDoc.descriptionAr) ||
+    !hasArabicTags
+  )
+}
+
+const ensureArabicBlogFields = async (blogDoc) => {
+  if (!shouldBackfillArabicBlog(blogDoc)) return blogDoc
+
+  const arPayload = await buildBlogArabicPayload({
+    blogName: blogDoc.blogName,
+    title: blogDoc.title,
+    postedBy: blogDoc.postedBy,
+    description: blogDoc.description,
+    metaTitle: blogDoc.metaTitle,
+    metaDescription: blogDoc.metaDescription,
+    tags: blogDoc.tags,
+  })
+
+  Object.assign(blogDoc, arPayload)
+  await blogDoc.save()
+  return blogDoc
+}
+
 const toSummaryBlog = (blog) => {
   const source = blog?.toObject ? blog.toObject() : blog
   return {
     ...source,
     description: stripHtml(source?.description || "").slice(0, 320),
+    descriptionAr: stripHtml(source?.descriptionAr || "").slice(0, 320),
   }
 }
 
@@ -67,9 +108,9 @@ router.get(
       status: "published", 
       featured: true 
     })
-      .populate("blogCategory", "name slug")
-      .populate("topic", "name slug color")
-      .populate("brand", "name slug logo")
+      .populate("blogCategory", "name nameAr slug")
+      .populate("topic", "name nameAr slug color")
+      .populate("brand", "name nameAr slug logo")
       .sort({ createdAt: -1 })
       .limit(10)
 
@@ -93,16 +134,16 @@ router.get(
       status: "published", 
       trending: true 
     })
-      .populate("blogCategory", "name slug")
-      .populate("topic", "name slug color")
-      .populate("brand", "name slug logo")
+      .populate("blogCategory", "name nameAr slug")
+      .populate("topic", "name nameAr slug color")
+      .populate("brand", "name nameAr slug logo")
       .sort({ createdAt: -1 })
       .limit(parseInt(limit))
 
     if (isSummary) {
       trendingQuery = trendingQuery
         .select(
-          "blogName title slug status featured trending blogCategory mainCategory subCategory1 subCategory2 subCategory3 subCategory4 topic brand mainImage readMinutes postedBy description views likes shares createdAt updatedAt",
+          "blogName blogNameAr title titleAr slug status featured trending blogCategory mainCategory subCategory1 subCategory2 subCategory3 subCategory4 topic brand mainImage readMinutes postedBy postedByAr description descriptionAr metaTitle metaTitleAr metaDescription metaDescriptionAr tags tagsAr views likes shares createdAt updatedAt",
         )
         .lean()
     }
@@ -146,15 +187,18 @@ router.get(
     if (search) {
       query.$or = [
         { title: { $regex: search, $options: "i" } },
+        { titleAr: { $regex: search, $options: "i" } },
         { description: { $regex: search, $options: "i" } },
+        { descriptionAr: { $regex: search, $options: "i" } },
         { tags: { $in: [new RegExp(search, "i")] } },
+        { tagsAr: { $in: [new RegExp(search, "i")] } },
       ]
     }
 
     let blogsQuery = Blog.find(query)
-      .populate("blogCategory", "name slug")
-      .populate("topic", "name slug color")
-      .populate("brand", "name slug logo")
+      .populate("blogCategory", "name nameAr slug")
+      .populate("topic", "name nameAr slug color")
+      .populate("brand", "name nameAr slug logo")
       .sort(parseSort(sort))
       .limit(limit * 1)
       .skip((page - 1) * limit)
@@ -162,7 +206,7 @@ router.get(
     if (isSummary) {
       blogsQuery = blogsQuery
         .select(
-          "blogName title slug status featured trending blogCategory mainCategory subCategory1 subCategory2 subCategory3 subCategory4 topic brand mainImage readMinutes postedBy description views likes shares createdAt updatedAt",
+          "blogName blogNameAr title titleAr slug status featured trending blogCategory mainCategory subCategory1 subCategory2 subCategory3 subCategory4 topic brand mainImage readMinutes postedBy postedByAr description descriptionAr metaTitle metaTitleAr metaDescription metaDescriptionAr tags tagsAr views likes shares createdAt updatedAt",
         )
         .lean()
     }
@@ -201,19 +245,21 @@ router.get(
       throw new Error("Invalid blog ID format")
     }
     
-    const blog = await Blog.findById(req.params.id)
-      .populate("blogCategory", "name slug")
-      .populate("topic", "name slug color")
-      .populate("brand", "name slug logo")
+    const blog = await Blog.findByIdAndUpdate(
+      req.params.id,
+      { $inc: { views: 1 } },
+      { new: true },
+    )
+      .populate("blogCategory", "name nameAr slug")
+      .populate("topic", "name nameAr slug color")
+      .populate("brand", "name nameAr slug logo")
 
     if (!blog) {
       res.status(404)
       throw new Error("Blog not found")
     }
 
-    // Increment views
-    blog.views += 1
-    await blog.save()
+    await ensureArabicBlogFields(blog)
 
     res.json(blog)
   }),
@@ -227,19 +273,21 @@ router.get(
   asyncHandler(async (req, res) => {
     ensureModelsInitialized() // Ensure models are registered before populate
     
-    const blog = await Blog.findOne({ slug: req.params.slug })
-      .populate("blogCategory", "name slug")
-      .populate("topic", "name slug color")
-      .populate("brand", "name slug logo")
+    const blog = await Blog.findOneAndUpdate(
+      { slug: req.params.slug },
+      { $inc: { views: 1 } },
+      { new: true },
+    )
+      .populate("blogCategory", "name nameAr slug")
+      .populate("topic", "name nameAr slug color")
+      .populate("brand", "name nameAr slug logo")
 
     if (!blog) {
       res.status(404)
       throw new Error("Blog not found")
     }
 
-    // Increment views
-    blog.views += 1
-    await blog.save()
+    await ensureArabicBlogFields(blog)
 
     res.json(blog)
   }),
@@ -279,6 +327,7 @@ router.post(
       metaDescription,
       schema,
       tags,
+      autoTranslateArabic,
     } = req.body
 
     // Check if slug already exists
@@ -288,7 +337,7 @@ router.post(
       throw new Error("Slug already exists")
     }
 
-    const blog = new Blog({
+    const basePayload = {
       blogName,
       title,
       slug,
@@ -306,16 +355,25 @@ router.post(
       metaTitle,
       metaDescription,
       schema,
-      tags,
+      tags: toTagArray(tags),
+    }
+
+    const arPayload = shouldAutoTranslateArabic(autoTranslateArabic)
+      ? await buildBlogArabicPayload(basePayload)
+      : {}
+
+    const blog = new Blog({
+      ...basePayload,
+      ...arPayload,
     })
 
     const createdBlog = await blog.save()
 
     // Populate the created blog before returning
     const populatedBlog = await Blog.findById(createdBlog._id)
-      .populate("blogCategory", "name slug")
-      .populate("topic", "name slug color")
-      .populate("brand", "name slug")
+      .populate("blogCategory", "name nameAr slug")
+      .populate("topic", "name nameAr slug color")
+      .populate("brand", "name nameAr slug")
 
     // Log activity
     if (req.user) {
@@ -384,35 +442,49 @@ router.put(
       metaDescription,
       schema,
       tags,
+      autoTranslateArabic,
     } = req.body
 
     // Update blog fields
-    blog.blogName = blogName || blog.blogName
-    blog.title = title || blog.title
-    blog.slug = slug || blog.slug
-    blog.status = status || blog.status
+    blog.blogName = blogName ?? blog.blogName
+    blog.title = title ?? blog.title
+    blog.slug = slug ?? blog.slug
+    blog.status = status ?? blog.status
     blog.featured = featured !== undefined ? featured : blog.featured
     blog.trending = trending !== undefined ? trending : blog.trending
-    blog.blogCategory = blogCategory || blog.blogCategory
-    blog.topic = topic || blog.topic
-    blog.brand = brand || blog.brand
-    blog.mainImage = mainImage || blog.mainImage
-    blog.additionalImage = additionalImage || blog.additionalImage
-    blog.readMinutes = readMinutes || blog.readMinutes
-    blog.postedBy = postedBy || blog.postedBy
-    blog.description = description || blog.description
-    blog.metaTitle = metaTitle || blog.metaTitle
-    blog.metaDescription = metaDescription || blog.metaDescription
+    blog.blogCategory = blogCategory ?? blog.blogCategory
+    blog.topic = topic ?? blog.topic
+    blog.brand = brand ?? blog.brand
+    blog.mainImage = mainImage ?? blog.mainImage
+    blog.additionalImage = additionalImage ?? blog.additionalImage
+    blog.readMinutes = readMinutes ?? blog.readMinutes
+    blog.postedBy = postedBy ?? blog.postedBy
+    blog.description = description ?? blog.description
+    blog.metaTitle = metaTitle ?? blog.metaTitle
+    blog.metaDescription = metaDescription ?? blog.metaDescription
     blog.schema = schema !== undefined ? schema : blog.schema
-    blog.tags = tags || blog.tags
+    blog.tags = tags !== undefined ? toTagArray(tags) : blog.tags
+
+    if (shouldAutoTranslateArabic(autoTranslateArabic)) {
+      const arPayload = await buildBlogArabicPayload({
+        blogName: blog.blogName,
+        title: blog.title,
+        postedBy: blog.postedBy,
+        description: blog.description,
+        metaTitle: blog.metaTitle,
+        metaDescription: blog.metaDescription,
+        tags: blog.tags,
+      })
+      Object.assign(blog, arPayload)
+    }
 
     const updatedBlog = await blog.save()
 
     // Populate the updated blog before returning
     const populatedBlog = await Blog.findById(updatedBlog._id)
-      .populate("blogCategory", "name slug")
-      .populate("topic", "name slug color")
-      .populate("brand", "name slug logo")
+      .populate("blogCategory", "name nameAr slug")
+      .populate("topic", "name nameAr slug color")
+      .populate("brand", "name nameAr slug logo")
 
     // Log activity
     if (req.user) {
@@ -451,9 +523,9 @@ router.patch(
     const { status } = req.body
 
     const blog = await Blog.findByIdAndUpdate(req.params.id, { status }, { new: true })
-      .populate("blogCategory", "name slug")
-      .populate("topic", "name slug color")
-      .populate("brand", "name slug")
+      .populate("blogCategory", "name nameAr slug")
+      .populate("topic", "name nameAr slug color")
+      .populate("brand", "name nameAr slug")
 
     if (!blog) {
       res.status(404)

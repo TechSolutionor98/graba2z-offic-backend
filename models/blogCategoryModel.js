@@ -8,6 +8,11 @@ const blogCategorySchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
+    nameAr: {
+      type: String,
+      trim: true,
+      default: "",
+    },
     slug: {
       type: String,
       required: true,
@@ -17,6 +22,11 @@ const blogCategorySchema = new mongoose.Schema(
     description: {
       type: String,
       trim: true,
+    },
+    descriptionAr: {
+      type: String,
+      trim: true,
+      default: "",
     },
     image: {
       type: String,
@@ -37,8 +47,16 @@ const blogCategorySchema = new mongoose.Schema(
     metaTitle: {
       type: String,
     },
+    metaTitleAr: {
+      type: String,
+      default: "",
+    },
     metaDescription: {
       type: String,
+    },
+    metaDescriptionAr: {
+      type: String,
+      default: "",
     },
   },
   {

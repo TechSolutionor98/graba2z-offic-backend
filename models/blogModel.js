@@ -8,10 +8,20 @@ const blogSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
+    blogNameAr: {
+      type: String,
+      trim: true,
+      default: "",
+    },
     title: {
       type: String,
       required: true,
       trim: true,
+    },
+    titleAr: {
+      type: String,
+      trim: true,
+      default: "",
     },
     slug: {
       type: String,
@@ -80,21 +90,42 @@ const blogSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    postedByAr: {
+      type: String,
+      trim: true,
+      default: "",
+    },
     description: {
       type: String,
       required: true,
     },
+    descriptionAr: {
+      type: String,
+      default: "",
+    },
     metaTitle: {
       type: String,
     },
+    metaTitleAr: {
+      type: String,
+      default: "",
+    },
     metaDescription: {
       type: String,
+    },
+    metaDescriptionAr: {
+      type: String,
+      default: "",
     },
     schema: {
       type: String,
       default: "",
     },
     tags: mongoose.Schema.Types.Mixed,
+    tagsAr: {
+      type: [String],
+      default: [],
+    },
     views: {
       type: Number,
       default: 0,

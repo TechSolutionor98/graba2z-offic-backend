@@ -8,6 +8,11 @@ const blogTopicSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
+    nameAr: {
+      type: String,
+      trim: true,
+      default: "",
+    },
     slug: {
       type: String,
       required: true,
@@ -17,6 +22,11 @@ const blogTopicSchema = new mongoose.Schema(
     description: {
       type: String,
       trim: true,
+    },
+    descriptionAr: {
+      type: String,
+      trim: true,
+      default: "",
     },
     color: {
       type: String,

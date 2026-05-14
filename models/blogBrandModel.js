@@ -8,6 +8,11 @@ const blogBrandSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
+    nameAr: {
+      type: String,
+      trim: true,
+      default: "",
+    },
     slug: {
       type: String,
       required: true,
@@ -17,6 +22,11 @@ const blogBrandSchema = new mongoose.Schema(
     description: {
       type: String,
       trim: true,
+    },
+    descriptionAr: {
+      type: String,
+      trim: true,
+      default: "",
     },
     logo: {
       type: String,
@@ -36,8 +46,16 @@ const blogBrandSchema = new mongoose.Schema(
     metaTitle: {
       type: String,
     },
+    metaTitleAr: {
+      type: String,
+      default: "",
+    },
     metaDescription: {
       type: String,
+    },
+    metaDescriptionAr: {
+      type: String,
+      default: "",
     },
   },
   {

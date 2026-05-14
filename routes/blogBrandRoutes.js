@@ -2,6 +2,10 @@ import express from "express"
 import asyncHandler from "express-async-handler"
 import BlogBrand from "../models/blogBrandModel.js"
 import { protect, admin } from "../middleware/authMiddleware.js"
+import {
+  buildBlogBrandArabicPayload,
+  shouldAutoTranslateArabic,
+} from "../utils/blogArabicTranslation.js"
 
 const router = express.Router()
 
@@ -86,7 +90,7 @@ router.post(
   protect,
   admin,
   asyncHandler(async (req, res) => {
-    const { name, slug, description, logo, website, isActive, metaTitle, metaDescription } = req.body
+    const { name, slug, description, logo, website, isActive, metaTitle, metaDescription, autoTranslateArabic } = req.body
 
     // Check if slug already exists
     const existingBlogBrand = await BlogBrand.findOne({ slug })
@@ -95,7 +99,7 @@ router.post(
       throw new Error("Slug already exists")
     }
 
-    const blogBrand = new BlogBrand({
+    const basePayload = {
       name,
       slug,
       description,
@@ -104,6 +108,15 @@ router.post(
       isActive,
       metaTitle,
       metaDescription,
+    }
+
+    const arPayload = shouldAutoTranslateArabic(autoTranslateArabic)
+      ? await buildBlogBrandArabicPayload(basePayload)
+      : {}
+
+    const blogBrand = new BlogBrand({
+      ...basePayload,
+      ...arPayload,
     })
 
     const createdBlogBrand = await blogBrand.save()
@@ -126,7 +139,7 @@ router.put(
       throw new Error("Blog brand not found")
     }
 
-    const { name, slug, description, logo, website, isActive, metaTitle, metaDescription } = req.body
+    const { name, slug, description, logo, website, isActive, metaTitle, metaDescription, autoTranslateArabic } = req.body
 
     // Check if slug is being changed and if new slug already exists
     if (slug && slug !== blogBrand.slug) {
@@ -145,6 +158,16 @@ router.put(
     blogBrand.isActive = isActive !== undefined ? isActive : blogBrand.isActive
     blogBrand.metaTitle = metaTitle || blogBrand.metaTitle
     blogBrand.metaDescription = metaDescription || blogBrand.metaDescription
+
+    if (shouldAutoTranslateArabic(autoTranslateArabic)) {
+      const arPayload = await buildBlogBrandArabicPayload({
+        name: blogBrand.name,
+        description: blogBrand.description,
+        metaTitle: blogBrand.metaTitle,
+        metaDescription: blogBrand.metaDescription,
+      })
+      Object.assign(blogBrand, arPayload)
+    }
 
     const updatedBlogBrand = await blogBrand.save()
     res.json(updatedBlogBrand)

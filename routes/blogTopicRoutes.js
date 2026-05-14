@@ -3,6 +3,10 @@ import asyncHandler from "express-async-handler"
 import BlogTopic from "../models/blogTopicModel.js"
 import { protect, admin } from "../middleware/authMiddleware.js"
 import { cacheMiddleware, invalidateCache } from "../middleware/cacheMiddleware.js"
+import {
+  buildBlogTopicArabicPayload,
+  shouldAutoTranslateArabic,
+} from "../utils/blogArabicTranslation.js"
 
 const router = express.Router()
 
@@ -44,7 +48,7 @@ router.post(
   protect,
   admin,
   asyncHandler(async (req, res) => {
-    const { name, slug, description, color } = req.body
+    const { name, slug, description, color, autoTranslateArabic } = req.body
 
     // Check if slug already exists
     const existingTopic = await BlogTopic.findOne({ slug })
@@ -53,11 +57,20 @@ router.post(
       throw new Error("Slug already exists")
     }
 
-    const topic = new BlogTopic({
+    const basePayload = {
       name,
       slug,
       description,
       color,
+    }
+
+    const arPayload = shouldAutoTranslateArabic(autoTranslateArabic)
+      ? await buildBlogTopicArabicPayload(basePayload)
+      : {}
+
+    const topic = new BlogTopic({
+      ...basePayload,
+      ...arPayload,
     })
 
     const createdTopic = await topic.save()
@@ -82,6 +95,14 @@ router.put(
     }
 
     Object.assign(topic, req.body)
+
+    if (shouldAutoTranslateArabic(req.body?.autoTranslateArabic)) {
+      const arPayload = await buildBlogTopicArabicPayload({
+        name: topic.name,
+        description: topic.description,
+      })
+      Object.assign(topic, arPayload)
+    }
     const updatedTopic = await topic.save()
     await invalidateCache(["blogs", "blogTopics"])
 

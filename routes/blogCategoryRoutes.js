@@ -3,6 +3,10 @@ import asyncHandler from "express-async-handler"
 import BlogCategory from "../models/blogCategoryModel.js"
 import { protect, admin } from "../middleware/authMiddleware.js"
 import { cacheMiddleware, invalidateCache } from "../middleware/cacheMiddleware.js"
+import {
+  buildBlogCategoryArabicPayload,
+  shouldAutoTranslateArabic,
+} from "../utils/blogArabicTranslation.js"
 
 const router = express.Router()
 
@@ -14,7 +18,7 @@ router.get(
   cacheMiddleware("blogCategories", { ttl: 300 }),
   asyncHandler(async (req, res) => {
     const categories = await BlogCategory.find({ isActive: true })
-      .populate("parentCategory", "name slug")
+      .populate("parentCategory", "name nameAr slug")
       .sort({ name: 1 })
 
     res.json(categories)
@@ -28,7 +32,7 @@ router.get(
   "/:id",
   cacheMiddleware("blogCategories", { keyPrefix: "byId", ttl: 300 }),
   asyncHandler(async (req, res) => {
-    const category = await BlogCategory.findById(req.params.id).populate("parentCategory", "name slug")
+    const category = await BlogCategory.findById(req.params.id).populate("parentCategory", "name nameAr slug")
 
     if (!category) {
       res.status(404)
@@ -47,7 +51,7 @@ router.post(
   protect,
   admin,
   asyncHandler(async (req, res) => {
-    const { name, slug, description, image, parentCategory, metaTitle, metaDescription } = req.body
+    const { name, slug, description, image, parentCategory, metaTitle, metaDescription, autoTranslateArabic } = req.body
 
     // Check if slug already exists
     const existingCategory = await BlogCategory.findOne({ slug })
@@ -56,7 +60,7 @@ router.post(
       throw new Error("Slug already exists")
     }
 
-    const category = new BlogCategory({
+    const basePayload = {
       name,
       slug,
       description,
@@ -64,6 +68,15 @@ router.post(
       parentCategory,
       metaTitle,
       metaDescription,
+    }
+
+    const arPayload = shouldAutoTranslateArabic(autoTranslateArabic)
+      ? await buildBlogCategoryArabicPayload(basePayload)
+      : {}
+
+    const category = new BlogCategory({
+      ...basePayload,
+      ...arPayload,
     })
 
     const createdCategory = await category.save()
@@ -88,6 +101,16 @@ router.put(
     }
 
     Object.assign(category, req.body)
+
+    if (shouldAutoTranslateArabic(req.body?.autoTranslateArabic)) {
+      const arPayload = await buildBlogCategoryArabicPayload({
+        name: category.name,
+        description: category.description,
+        metaTitle: category.metaTitle,
+        metaDescription: category.metaDescription,
+      })
+      Object.assign(category, arPayload)
+    }
     const updatedCategory = await category.save()
     await invalidateCache(["blogs", "blogCategories"])
 
