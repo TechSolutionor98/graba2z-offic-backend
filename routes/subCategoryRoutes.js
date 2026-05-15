@@ -489,6 +489,21 @@ import { requireSeoUnlockIfBodyHas } from "../middleware/seoUnlockMiddleware.js"
 const router = express.Router()
 
 const translateText = translateEnToAr
+const SUBCATEGORY_SEO_LOCK_FIELDS = [
+  "seoContent",
+  "metaTitle",
+  "metaDescription",
+  "customSchema",
+  "redirectUrl",
+  // Defensive aliases
+  "seoTitle",
+  "seoDescription",
+  "seoKeywords",
+  "seoCanonicalUrl",
+  "seoRobots",
+  "canonicalUrl",
+  "schema",
+]
 
 const normalizeSlug = (value = "") =>
   String(value)
@@ -880,6 +895,7 @@ router.post(
   "/",
   protect,
   admin,
+  requireSeoUnlockIfBodyHas(SUBCATEGORY_SEO_LOCK_FIELDS),
   asyncHandler(async (req, res) => {
     let failureContext = {}
     try {
@@ -1069,7 +1085,7 @@ router.put(
   "/:id",
   protect,
   admin,
-  requireSeoUnlockIfBodyHas(["seoContent", "metaTitle", "metaDescription", "customSchema", "redirectUrl"]),
+  requireSeoUnlockIfBodyHas(SUBCATEGORY_SEO_LOCK_FIELDS),
   asyncHandler(async (req, res) => {
     let failureContext = { id: req.params.id }
     try {

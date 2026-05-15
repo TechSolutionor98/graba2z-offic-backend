@@ -13,6 +13,21 @@ import { requireSeoUnlockIfBodyHas } from "../middleware/seoUnlockMiddleware.js"
 const router = express.Router()
 
 const translateText = translateEnToAr
+const CATEGORY_SEO_LOCK_FIELDS = [
+  "seoContent",
+  "metaTitle",
+  "metaDescription",
+  "customSchema",
+  "redirectUrl",
+  // Defensive aliases
+  "seoTitle",
+  "seoDescription",
+  "seoKeywords",
+  "seoCanonicalUrl",
+  "seoRobots",
+  "canonicalUrl",
+  "schema",
+]
 
 const normalizeSlug = (value = "") =>
   String(value)
@@ -472,6 +487,7 @@ router.post(
   "/",
   protect,
   admin,
+  requireSeoUnlockIfBodyHas(CATEGORY_SEO_LOCK_FIELDS),
   asyncHandler(async (req, res) => {
     const { name, description, seoContent, metaTitle, metaDescription, customSchema, redirectUrl, image, slug } = req.body
 
@@ -563,7 +579,7 @@ router.put(
   "/:id",
   protect,
   admin,
-  requireSeoUnlockIfBodyHas(["seoContent", "metaTitle", "metaDescription", "customSchema", "redirectUrl"]),
+  requireSeoUnlockIfBodyHas(CATEGORY_SEO_LOCK_FIELDS),
   asyncHandler(async (req, res) => {
     const { name, description, seoContent, metaTitle, metaDescription, customSchema, redirectUrl, image, slug, isActive, showInSlider } = req.body
 

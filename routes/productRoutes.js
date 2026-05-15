@@ -35,6 +35,22 @@ let cachedBingTranslate = null
 let bingLoaderAttempted = false
 let primaryTranslatorUnavailableUntil = 0
 let bingTranslatorUnavailableUntil = 0
+const PRODUCT_SEO_LOCK_FIELDS = [
+  "seoTitle",
+  "seoDescription",
+  "seoKeywords",
+  "seoCanonicalUrl",
+  "seoRobots",
+  "customSchema",
+  "ogTitle",
+  "ogDescription",
+  "ogImage",
+  // Defensive aliases
+  "metaTitle",
+  "metaDescription",
+  "canonicalUrl",
+  "schema",
+]
 
 const withTimeout = (promise, ms, timeoutMessage) =>
   Promise.race([
@@ -1445,6 +1461,7 @@ router.post(
   "/",
   protect,
   admin,
+  requireSeoUnlockIfBodyHas(PRODUCT_SEO_LOCK_FIELDS),
   asyncHandler(async (req, res) => {
     const { parentCategory, category, subCategory2, subCategory3, subCategory4, ...productData } = req.body
     normalizeProductMediaPayload(productData)
@@ -1779,17 +1796,7 @@ router.put(
   "/:id",
   protect,
   admin,
-  requireSeoUnlockIfBodyHas([
-    "seoTitle",
-    "seoDescription",
-    "seoKeywords",
-    "seoCanonicalUrl",
-    "seoRobots",
-    "customSchema",
-    "ogTitle",
-    "ogDescription",
-    "ogImage",
-  ]),
+  requireSeoUnlockIfBodyHas(PRODUCT_SEO_LOCK_FIELDS),
   asyncHandler(async (req, res) => {
     const product = await Product.findById(req.params.id)
 

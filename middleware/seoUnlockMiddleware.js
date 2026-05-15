@@ -12,7 +12,29 @@ const getSeoUnlockSecret = () => {
   return `${jwtSecret}:seo_unlock`
 }
 
-const isBodyFieldPresent = (body, field) => Object.prototype.hasOwnProperty.call(body || {}, field)
+const getNestedValue = (obj, path) => {
+  if (!obj || !path) return undefined
+  return String(path)
+    .split(".")
+    .reduce((acc, part) => {
+      if (acc == null) return undefined
+      return acc[part]
+    }, obj)
+}
+
+const isBodyFieldPresent = (body, field) => {
+  const source = body || {}
+  if (!field) return false
+
+  if (String(field).includes(".")) {
+    return getNestedValue(source, field) !== undefined
+  }
+
+  if (Object.prototype.hasOwnProperty.call(source, field)) return true
+
+  const normalized = String(field).toLowerCase()
+  return Object.keys(source).some((key) => String(key).toLowerCase() === normalized)
+}
 
 const getTokenFromRequest = (req) => {
   const value = req.headers?.[SEO_UNLOCK_HEADER] || req.headers?.[SEO_UNLOCK_LEGACY_HEADER] || ""
