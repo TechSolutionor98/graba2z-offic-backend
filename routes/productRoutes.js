@@ -21,6 +21,7 @@ import Size from "../models/sizeModel.js"
 import Volume from "../models/volumeModel.js"
 import mongoose from "mongoose"
 import { deleteLocalFile, isCloudinaryUrl } from "../config/multer.js"
+import { requireSeoUnlockIfBodyHas } from "../middleware/seoUnlockMiddleware.js"
 
 const router = express.Router()
 const __filename = fileURLToPath(import.meta.url)
@@ -1778,6 +1779,17 @@ router.put(
   "/:id",
   protect,
   admin,
+  requireSeoUnlockIfBodyHas([
+    "seoTitle",
+    "seoDescription",
+    "seoKeywords",
+    "seoCanonicalUrl",
+    "seoRobots",
+    "customSchema",
+    "ogTitle",
+    "ogDescription",
+    "ogImage",
+  ]),
   asyncHandler(async (req, res) => {
     const product = await Product.findById(req.params.id)
 

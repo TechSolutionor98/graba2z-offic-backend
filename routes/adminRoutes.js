@@ -1013,6 +1013,7 @@ import {
 } from "../utils/emailService.js"
 import Review from "../models/reviewModel.js"
 import { logActivity } from "../middleware/permissionMiddleware.js"
+import { issueSeoUnlockToken, verifySeoUnlockPassword } from "../middleware/seoUnlockMiddleware.js"
 
 const router = express.Router()
 const ORDER_DOCUMENT_QUERY = {
@@ -1349,6 +1350,31 @@ router.put(
       res.status(404)
       throw new Error("Order not found")
     }
+  }),
+)
+
+// @desc    Unlock SEO settings for current admin session
+// @route   POST /api/admin/seo-unlock
+// @access  Private/Admin
+router.post(
+  "/seo-unlock",
+  protect,
+  admin,
+  asyncHandler(async (req, res) => {
+    const password = req.body?.password
+    if (!verifySeoUnlockPassword(password)) {
+      res.status(401)
+      throw new Error("Invalid SEO unlock password")
+    }
+
+    const { token, expiresAt, expiresInSeconds } = issueSeoUnlockToken(req.user._id)
+
+    res.json({
+      message: "SEO settings unlocked successfully",
+      unlockToken: token,
+      expiresAt,
+      expiresInSeconds,
+    })
   }),
 )
 

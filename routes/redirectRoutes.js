@@ -2,6 +2,7 @@ import express from "express"
 import asyncHandler from "express-async-handler"
 import Redirect from "../models/redirectModel.js"
 import { protect, admin } from "../middleware/authMiddleware.js"
+import { requireSeoUnlock } from "../middleware/seoUnlockMiddleware.js"
 
 const router = express.Router()
 
@@ -121,6 +122,7 @@ router.post(
   "/",
   protect,
   admin,
+  requireSeoUnlock,
   asyncHandler(async (req, res) => {
     const { redirectFrom, redirectTo, redirectType, status, description } = req.body
 
@@ -170,6 +172,7 @@ router.put(
   "/:id",
   protect,
   admin,
+  requireSeoUnlock,
   asyncHandler(async (req, res) => {
     const { redirectFrom, redirectTo, redirectType, status, description } = req.body
 
@@ -220,6 +223,7 @@ router.delete(
   "/:id",
   protect,
   admin,
+  requireSeoUnlock,
   asyncHandler(async (req, res) => {
     const redirect = await Redirect.findById(req.params.id)
 

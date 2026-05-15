@@ -2,6 +2,7 @@ import express from "express"
 import asyncHandler from "express-async-handler"
 import { protect, admin } from "../middleware/authMiddleware.js"
 import { checkPermission, logActivity } from "../middleware/permissionMiddleware.js"
+import { requireSeoUnlock } from "../middleware/seoUnlockMiddleware.js"
 import SeoPage from "../models/seoPageModel.js"
 import Product from "../models/productModel.js"
 import Category from "../models/categoryModel.js"
@@ -603,6 +604,7 @@ router.put(
   protect,
   admin,
   checkPermission("seoSettings"),
+  requireSeoUnlock,
   asyncHandler(async (req, res) => {
     await ensureStaticPages()
 
@@ -788,6 +790,7 @@ router.put(
   protect,
   admin,
   checkPermission("seoSettings"),
+  requireSeoUnlock,
   asyncHandler(async (req, res) => {
     const entityType = sanitizeText(req.params.entityType).toLowerCase()
     const id = sanitizeText(req.params.id)

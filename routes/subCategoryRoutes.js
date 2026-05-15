@@ -484,6 +484,7 @@ import { deleteLocalFile, isCloudinaryUrl } from "../config/multer.js"
 import { logActivity } from "../middleware/permissionMiddleware.js"
 import { translateEnToAr } from "../utils/translateWithFallback.js"
 import { cacheMiddleware, invalidateCache } from "../middleware/cacheMiddleware.js"
+import { requireSeoUnlockIfBodyHas } from "../middleware/seoUnlockMiddleware.js"
 
 const router = express.Router()
 
@@ -1068,6 +1069,7 @@ router.put(
   "/:id",
   protect,
   admin,
+  requireSeoUnlockIfBodyHas(["seoContent", "metaTitle", "metaDescription", "customSchema", "redirectUrl"]),
   asyncHandler(async (req, res) => {
     let failureContext = { id: req.params.id }
     try {

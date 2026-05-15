@@ -6,6 +6,7 @@ import { protect, admin } from "../middleware/authMiddleware.js"
 import { deleteLocalFile, isCloudinaryUrl } from "../config/multer.js"
 import { logActivity } from "../middleware/permissionMiddleware.js"
 import { cacheMiddleware, invalidateCache } from "../middleware/cacheMiddleware.js"
+import { requireSeoUnlockIfBodyHas } from "../middleware/seoUnlockMiddleware.js"
 
 const router = express.Router()
 const TRANSLATION_TIMEOUT_MS = Number(process.env.TRANSLATION_TIMEOUT_MS || 4000)
@@ -127,8 +128,39 @@ router.post(
   "/",
   protect,
   admin,
+  requireSeoUnlockIfBodyHas([
+    "seoTitle",
+    "seoDescription",
+    "seoKeywords",
+    "seoCanonicalUrl",
+    "seoRobots",
+    "customSchema",
+    "ogTitle",
+    "ogDescription",
+    "ogImage",
+    "metaTitle",
+    "metaDescription",
+  ]),
   asyncHandler(async (req, res) => {
-    const { name, description, logo, website, sortOrder, isActive } = req.body
+    const {
+      name,
+      description,
+      logo,
+      website,
+      sortOrder,
+      isActive,
+      metaTitle,
+      metaDescription,
+      seoTitle,
+      seoDescription,
+      seoKeywords,
+      seoCanonicalUrl,
+      seoRobots,
+      customSchema,
+      ogTitle,
+      ogDescription,
+      ogImage,
+    } = req.body
     const normalizedName = String(name || "").trim()
 
     if (!normalizedName) {
@@ -163,6 +195,17 @@ router.post(
       descriptionAr,
       logo,
       website,
+      metaTitle: metaTitle !== undefined ? String(metaTitle || "").trim() : "",
+      metaDescription: metaDescription !== undefined ? String(metaDescription || "").trim() : "",
+      seoTitle: seoTitle !== undefined ? String(seoTitle || "").trim() : "",
+      seoDescription: seoDescription !== undefined ? String(seoDescription || "").trim() : "",
+      seoKeywords: seoKeywords !== undefined ? String(seoKeywords || "").trim() : "",
+      seoCanonicalUrl: seoCanonicalUrl !== undefined ? String(seoCanonicalUrl || "").trim() : "",
+      seoRobots: seoRobots !== undefined ? String(seoRobots || "index, follow").trim() : "index, follow",
+      customSchema: customSchema !== undefined ? String(customSchema || "") : "",
+      ogTitle: ogTitle !== undefined ? String(ogTitle || "").trim() : "",
+      ogDescription: ogDescription !== undefined ? String(ogDescription || "").trim() : "",
+      ogImage: ogImage !== undefined ? String(ogImage || "").trim() : "",
       isActive: isActive !== undefined ? isActive : true,
       sortOrder,
       createdBy: req.user._id,
@@ -187,19 +230,61 @@ router.put(
   "/:id",
   protect,
   admin,
+  requireSeoUnlockIfBodyHas([
+    "seoTitle",
+    "seoDescription",
+    "seoKeywords",
+    "seoCanonicalUrl",
+    "seoRobots",
+    "customSchema",
+    "ogTitle",
+    "ogDescription",
+    "ogImage",
+    "metaTitle",
+    "metaDescription",
+  ]),
   asyncHandler(async (req, res) => {
     const brand = await Brand.findById(req.params.id)
 
     if (brand) {
       const previousName = brand.name
-      const { name, description, logo, website, isActive, sortOrder } = req.body
+      const {
+        name,
+        description,
+        logo,
+        website,
+        isActive,
+        sortOrder,
+        metaTitle,
+        metaDescription,
+        seoTitle,
+        seoDescription,
+        seoKeywords,
+        seoCanonicalUrl,
+        seoRobots,
+        customSchema,
+        ogTitle,
+        ogDescription,
+        ogImage,
+      } = req.body
 
-      brand.name = name || brand.name
-      brand.description = description || brand.description
-      brand.logo = logo || brand.logo
-      brand.website = website || brand.website
+      brand.name = name !== undefined ? name : brand.name
+      brand.description = description !== undefined ? description : brand.description
+      brand.logo = logo !== undefined ? logo : brand.logo
+      brand.website = website !== undefined ? website : brand.website
       brand.isActive = isActive !== undefined ? isActive : brand.isActive
       brand.sortOrder = sortOrder !== undefined ? sortOrder : brand.sortOrder
+      brand.metaTitle = metaTitle !== undefined ? String(metaTitle || "").trim() : brand.metaTitle
+      brand.metaDescription = metaDescription !== undefined ? String(metaDescription || "").trim() : brand.metaDescription
+      brand.seoTitle = seoTitle !== undefined ? String(seoTitle || "").trim() : brand.seoTitle
+      brand.seoDescription = seoDescription !== undefined ? String(seoDescription || "").trim() : brand.seoDescription
+      brand.seoKeywords = seoKeywords !== undefined ? String(seoKeywords || "").trim() : brand.seoKeywords
+      brand.seoCanonicalUrl = seoCanonicalUrl !== undefined ? String(seoCanonicalUrl || "").trim() : brand.seoCanonicalUrl
+      brand.seoRobots = seoRobots !== undefined ? String(seoRobots || "index, follow").trim() : brand.seoRobots
+      brand.customSchema = customSchema !== undefined ? String(customSchema || "") : brand.customSchema
+      brand.ogTitle = ogTitle !== undefined ? String(ogTitle || "").trim() : brand.ogTitle
+      brand.ogDescription = ogDescription !== undefined ? String(ogDescription || "").trim() : brand.ogDescription
+      brand.ogImage = ogImage !== undefined ? String(ogImage || "").trim() : brand.ogImage
 
       // Update slug if name changed
       if (name && name !== previousName) {

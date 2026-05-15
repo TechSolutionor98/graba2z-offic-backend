@@ -104,7 +104,7 @@ app.use(cors({
     'http://localhost:3000'
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-SEO-Unlock-Token', 'X-SEO-Settings-Unlock'],
   exposedHeaders: ['WWW-Authenticate', 'Server-Authorization'],
   maxAge: 86400,
   credentials: true,
@@ -113,6 +113,7 @@ app.use(cors({
 
 app.options("*", (req, res) => {
   res.header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept, Origin, X-SEO-Unlock-Token, X-SEO-Settings-Unlock");
   res.send();
 });
 

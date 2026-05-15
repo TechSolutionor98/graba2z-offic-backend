@@ -8,6 +8,7 @@ import { logActivity } from "../middleware/permissionMiddleware.js"
 import { deleteLocalFile, isCloudinaryUrl } from "../config/multer.js"
 import { cacheMiddleware, invalidateCache } from "../middleware/cacheMiddleware.js"
 import { translateEnToAr } from "../utils/translateWithFallback.js"
+import { requireSeoUnlockIfBodyHas } from "../middleware/seoUnlockMiddleware.js"
 
 const router = express.Router()
 
@@ -562,6 +563,7 @@ router.put(
   "/:id",
   protect,
   admin,
+  requireSeoUnlockIfBodyHas(["seoContent", "metaTitle", "metaDescription", "customSchema", "redirectUrl"]),
   asyncHandler(async (req, res) => {
     const { name, description, seoContent, metaTitle, metaDescription, customSchema, redirectUrl, image, slug, isActive, showInSlider } = req.body
 
