@@ -7,6 +7,11 @@ const repoRoot = path.resolve(__dirname, "../..")
 
 export const STATIC_PAGE_TRANSLATION_SOURCES = [
   {
+    pageKey: "about",
+    routePath: "/about",
+    sourceFile: "client/src/pages/About.jsx",
+  },
+  {
     pageKey: "refund-return",
     routePath: "/refund-return",
     sourceFile: "client/src/pages/RefundAndReturn.jsx",

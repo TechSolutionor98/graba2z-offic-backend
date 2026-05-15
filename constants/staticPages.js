@@ -1,4 +1,5 @@
 const STATIC_PAGE_DEFINITIONS = [
+  { pageKey: "about", pageName: "About Us", routePath: "/about" },
   { pageKey: "privacy-policy", pageName: "Privacy Policy", routePath: "/privacy-policy" },
   { pageKey: "disclaimer-policy", pageName: "Disclaimer Policy", routePath: "/disclaimer-policy" },
   { pageKey: "terms-conditions", pageName: "Terms & Conditions", routePath: "/terms-conditions" },
