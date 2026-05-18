@@ -33,6 +33,7 @@ import unitRoutes from "./routes/unitRoutes.js"
 import volumeRoutes from "./routes/volumeRoutes.js"
 import warrantyRoutes from "./routes/warrantyRoutes.js"
 import taxRoutes from "./routes/taxRoutes.js"
+import productSystemOptionRoutes from "./routes/productSystemOptionRoutes.js"
 import deliveryChargeRoutes from "./routes/deliveryChargeRoutes.js"
 import couponRoutes from "./routes/couponRoutes.js"
 import bannerRoutes from "./routes/bannerRoutes.js"
@@ -221,6 +222,7 @@ app.use("/api/units", unitRoutes)
 app.use("/api/volumes", volumeRoutes)
 app.use("/api/warranty", warrantyRoutes)
 app.use("/api/tax", taxRoutes)
+app.use("/api/product-system-options", productSystemOptionRoutes)
 app.use("/api/delivery-charges", deliveryChargeRoutes)
 app.use("/api/coupons", couponRoutes)
 app.use("/api/banners", bannerRoutes)

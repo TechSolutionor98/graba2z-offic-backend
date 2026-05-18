@@ -759,6 +759,10 @@ router.get("/admin", protect, admin, async (req, res) => {
 
     let productsQuery = Product.find(finalQuery)
       .populate("brand", "name nameAr slug")
+      .populate("series", "name optionType")
+      .populate("make", "name optionType")
+      .populate("manufacturer", "name optionType")
+      .populate("soldBy", "name optionType")
       .populate("category", "name nameAr slug")
       .populate("subCategory", "name nameAr slug")
       .populate("parentCategory", "name nameAr slug")
@@ -872,6 +876,10 @@ router.post("/by-ids", protect, admin, asyncHandler(async (req, res) => {
     // Fetch products by IDs
     const products = await Product.find({ _id: { $in: validIds } })
       .populate("brand", "name nameAr slug")
+      .populate("series", "name optionType")
+      .populate("make", "name optionType")
+      .populate("manufacturer", "name optionType")
+      .populate("soldBy", "name optionType")
       .populate("category", "name nameAr slug")
       .populate("subCategory", "name nameAr slug")
       .populate("parentCategory", "name nameAr slug")
@@ -969,6 +977,10 @@ router.get(
         "name nameAr slug sku price offerPrice discount image countInStock stockStatus stockStatusAr brand category subCategory parentCategory subCategory2 subCategory3 subCategory4 featured tags createdAt rating numReviews",
       )
       .populate("brand", "name nameAr slug")
+      .populate("series", "name optionType")
+      .populate("make", "name optionType")
+      .populate("manufacturer", "name optionType")
+      .populate("soldBy", "name optionType")
       .populate("category", "name nameAr slug")
       .populate("subCategory", "name nameAr slug") // Populate legacy subCategory field
       .populate("parentCategory", "name nameAr slug")
@@ -1058,6 +1070,10 @@ router.get(
         "name nameAr slug sku price offerPrice discount image countInStock stockStatus stockStatusAr brand category parentCategory featured tags createdAt rating numReviews",
       )
       .populate("brand", "name nameAr slug")
+      .populate("series", "name optionType")
+      .populate("make", "name optionType")
+      .populate("manufacturer", "name optionType")
+      .populate("soldBy", "name optionType")
       .populate("category", "name nameAr slug")
       .populate("parentCategory", "name nameAr slug")
       .lean()
@@ -1097,6 +1113,10 @@ router.post(
       .populate("category", "name slug")
       .populate("subCategory", "name slug")
       .populate("brand", "name slug")
+      .populate("series", "name optionType")
+      .populate("make", "name optionType")
+      .populate("manufacturer", "name optionType")
+      .populate("soldBy", "name optionType")
       .populate("parentCategory", "name slug")
 
     res.json(products)
@@ -1341,6 +1361,10 @@ router.get(
     const product = await Product.findById(req.params.id)
       .populate("category", "name nameAr slug")
       .populate("brand", "name nameAr")
+      .populate("series", "name optionType")
+      .populate("make", "name optionType")
+      .populate("manufacturer", "name optionType")
+      .populate("soldBy", "name optionType")
 
     if (product && product.isActive) {
       res.json(product)
@@ -1381,6 +1405,10 @@ router.get(
       .populate("subCategory3", "name nameAr slug")
       .populate("subCategory4", "name nameAr slug")
       .populate("brand", "name nameAr")
+      .populate("series", "name optionType")
+      .populate("make", "name optionType")
+      .populate("manufacturer", "name optionType")
+      .populate("soldBy", "name optionType")
       .populate({
         path: "variations.product",
         select: "name nameAr slug image price offerPrice sku isActive hideFromShop selfVariationText selfVariationTextAr reverseVariationText reverseVariationTextAr",
@@ -1770,6 +1798,10 @@ router.post(
       .populate("subCategory3", "name slug")
       .populate("subCategory4", "name slug")
       .populate("brand", "name")
+      .populate("series", "name optionType")
+      .populate("make", "name optionType")
+      .populate("manufacturer", "name optionType")
+      .populate("soldBy", "name optionType")
       .populate({
         path: "variations.product",
         select: "name slug image price offerPrice sku selfVariationText reverseVariationText"
@@ -2133,6 +2165,10 @@ router.put(
         .populate("subCategory3", "name slug")
         .populate("subCategory4", "name slug")
         .populate("brand", "name")
+        .populate("series", "name optionType")
+        .populate("make", "name optionType")
+        .populate("manufacturer", "name optionType")
+        .populate("soldBy", "name optionType")
         .populate({
           path: "variations.product",
           select: "name slug image price offerPrice sku selfVariationText reverseVariationText"
@@ -2372,6 +2408,10 @@ router.post(
       .populate("subCategory3", "name slug")
       .populate("subCategory4", "name slug")
       .populate("brand", "name")
+      .populate("series", "name optionType")
+      .populate("make", "name optionType")
+      .populate("manufacturer", "name optionType")
+      .populate("soldBy", "name optionType")
       .populate({
         path: "variations.product",
         select: "name slug image price offerPrice sku selfVariationText"
@@ -2606,6 +2646,10 @@ router.get(
     })
       .populate("category", "name slug")
       .populate("brand", "name")
+      .populate("series", "name optionType")
+      .populate("make", "name optionType")
+      .populate("manufacturer", "name optionType")
+      .populate("soldBy", "name optionType")
       .sort({ createdAt: -1 })
 
     res.json(products)

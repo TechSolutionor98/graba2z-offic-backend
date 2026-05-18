@@ -46,6 +46,26 @@ const productSchema = mongoose.Schema(
       ref: "Brand",
       required: true,
     },
+    series: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "ProductSystemOption",
+      default: null,
+    },
+    make: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "ProductSystemOption",
+      default: null,
+    },
+    manufacturer: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "ProductSystemOption",
+      default: null,
+    },
+    soldBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "ProductSystemOption",
+      default: null,
+    },
     // Main category (shown in navbar)
     parentCategory: {
       type: mongoose.Schema.Types.ObjectId,
