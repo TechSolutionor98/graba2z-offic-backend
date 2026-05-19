@@ -10,7 +10,7 @@ const productSystemOptionSchema = mongoose.Schema(
     optionType: {
       type: String,
       required: true,
-      enum: ["series", "make", "manufacturer", "soldBy"],
+      enum: ["series", "model", "make", "manufacturer", "soldBy"],
     },
     isActive: {
       type: Boolean,

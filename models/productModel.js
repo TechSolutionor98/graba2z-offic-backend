@@ -51,6 +51,11 @@ const productSchema = mongoose.Schema(
       ref: "ProductSystemOption",
       default: null,
     },
+    model: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "ProductSystemOption",
+      default: null,
+    },
     make: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "ProductSystemOption",

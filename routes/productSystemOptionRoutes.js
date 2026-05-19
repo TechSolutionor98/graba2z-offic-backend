@@ -7,6 +7,7 @@ const router = express.Router()
 
 const ROUTE_TYPE_TO_MODEL_TYPE = {
   series: "series",
+  model: "model",
   make: "make",
   manufacturer: "manufacturer",
   "sold-by": "soldBy",
