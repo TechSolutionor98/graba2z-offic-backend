@@ -20,19 +20,17 @@ const STATIC_PAGE_DEFINITIONS = [
     pageKey: "home",
     pageName: "Home",
     routePath: "/",
-    defaultSeoTitle: "Buy Laptops, Mobiles & Electronics Online in UAE | Grabatoz",
-    defaultSeoDescription:
-      "Discover the best deals on laptops, desktops, mobiles, and gaming products in UAE. Grabatoz is your trusted electronics shop in Dubai.",
+    defaultSeoTitle: "",
+    defaultSeoDescription: "",
     defaultSeoKeywords: "",
   },
   {
     pageKey: "blogs",
     pageName: "Blogs List",
     routePath: "/blogs",
-    defaultSeoTitle: "Blogs - GrabA2Z | Tech Insights, Reviews & Guides",
-    defaultSeoDescription:
-      "Explore our blog for the latest tech news, product reviews, buying guides, and expert insights on laptops, computers, and technology.",
-    defaultSeoKeywords: "tech blog, laptop reviews, computer guides, technology news, product reviews, tech insights",
+    defaultSeoTitle: "",
+    defaultSeoDescription: "",
+    defaultSeoKeywords: "",
   },
   { pageKey: "about", pageName: "About", routePath: "/about", defaultSeoTitle: "", defaultSeoDescription: "", defaultSeoKeywords: "" },
   { pageKey: "contact", pageName: "Contact", routePath: "/contact", defaultSeoTitle: "", defaultSeoDescription: "", defaultSeoKeywords: "" },
@@ -56,6 +54,21 @@ const STATIC_PAGE_DEFINITIONS = [
   { pageKey: "backtoschool-acer-professional", pageName: "Back To School Acer Professional", routePath: "/backtoschool-acer-professional", defaultSeoTitle: "", defaultSeoDescription: "", defaultSeoKeywords: "" },
   { pageKey: "track-order", pageName: "Track Order", routePath: "/track-order", defaultSeoTitle: "", defaultSeoDescription: "", defaultSeoKeywords: "" },
 ]
+
+const LEGACY_STATIC_SEO_DEFAULTS = {
+  home: {
+    title: "Buy Laptops, Mobiles & Electronics Online in UAE | Grabatoz",
+    description:
+      "Discover the best deals on laptops, desktops, mobiles, and gaming products in UAE. Grabatoz is your trusted electronics shop in Dubai.",
+    keywords: "",
+  },
+  blogs: {
+    title: "Blogs - GrabA2Z | Tech Insights, Reviews & Guides",
+    description:
+      "Explore our blog for the latest tech news, product reviews, buying guides, and expert insights on laptops, computers, and technology.",
+    keywords: "tech blog, laptop reviews, computer guides, technology news, product reviews, tech insights",
+  },
+}
 
 const ROBOTS_OPTIONS = ["index, follow", "noindex, follow", "index, nofollow", "noindex, nofollow"]
 
@@ -413,14 +426,38 @@ const ensureStaticPages = async () => {
     pageKey: page.pageKey,
     pageName: page.pageName,
     routePath: page.routePath,
-    seoTitle: page.defaultSeoTitle || "",
-    seoDescription: page.defaultSeoDescription || "",
-    seoKeywords: page.defaultSeoKeywords || "",
+    seoTitle: "",
+    seoDescription: "",
+    seoKeywords: "",
     seoCanonicalUrl: page.routePath,
   }))
 
   if (inserts.length > 0) {
     await SeoPage.insertMany(inserts)
+  }
+
+  // Clean up legacy seeded static SEO defaults so only admin-defined values appear.
+  const cleanupOps = Object.entries(LEGACY_STATIC_SEO_DEFAULTS).map(([pageKey, legacy]) =>
+    SeoPage.updateMany(
+      {
+        pageKey,
+        seoTitle: legacy.title,
+        seoDescription: legacy.description,
+        seoKeywords: legacy.keywords,
+        $or: [{ updatedBy: null }, { updatedBy: { $exists: false } }],
+      },
+      {
+        $set: {
+          seoTitle: "",
+          seoDescription: "",
+          seoKeywords: "",
+        },
+      },
+    ),
+  )
+
+  if (cleanupOps.length > 0) {
+    await Promise.all(cleanupOps)
   }
 }
 
@@ -487,9 +524,9 @@ router.get(
       pageName: record?.pageName || fallback.pageName,
       routePath: record?.routePath || fallback.routePath,
       seo: {
-        title: record?.seoTitle || fallback.defaultSeoTitle || "",
-        description: record?.seoDescription || fallback.defaultSeoDescription || "",
-        keywords: record?.seoKeywords || fallback.defaultSeoKeywords || "",
+        title: record?.seoTitle || "",
+        description: record?.seoDescription || "",
+        keywords: record?.seoKeywords || "",
         canonicalUrl: record?.seoCanonicalUrl || fallback.routePath,
         robots: record?.seoRobots || "index, follow",
         customSchema: record?.customSchema || "",
@@ -526,9 +563,9 @@ router.get(
       pageName: record?.pageName || defaultMatch.pageName,
       routePath: defaultMatch.routePath,
       seo: {
-        title: record?.seoTitle || defaultMatch.defaultSeoTitle || "",
-        description: record?.seoDescription || defaultMatch.defaultSeoDescription || "",
-        keywords: record?.seoKeywords || defaultMatch.defaultSeoKeywords || "",
+        title: record?.seoTitle || "",
+        description: record?.seoDescription || "",
+        keywords: record?.seoKeywords || "",
         canonicalUrl: record?.seoCanonicalUrl || defaultMatch.routePath,
         robots: record?.seoRobots || "index, follow",
         customSchema: record?.customSchema || "",
@@ -576,9 +613,9 @@ router.get(
           seoContent: false,
         },
         seo: {
-          title: record?.seoTitle || page.defaultSeoTitle || "",
-          description: record?.seoDescription || page.defaultSeoDescription || "",
-          keywords: record?.seoKeywords || page.defaultSeoKeywords || "",
+          title: record?.seoTitle || "",
+          description: record?.seoDescription || "",
+          keywords: record?.seoKeywords || "",
           canonicalUrl: record?.seoCanonicalUrl || page.routePath,
           robots: record?.seoRobots || "index, follow",
           customSchema: record?.customSchema || "",
