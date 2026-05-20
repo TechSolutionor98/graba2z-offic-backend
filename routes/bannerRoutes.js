@@ -26,6 +26,7 @@ const resolvePreferredHeroLink = (linkValue, buttonLinkValue) => {
   const buttonIsDefault = isDefaultShopLink(buttonLink)
 
   if (link && buttonLink) {
+    if (link !== buttonLink && !buttonIsDefault) return buttonLink
     if (linkIsDefault && !buttonIsDefault) return buttonLink
     if (buttonIsDefault && !linkIsDefault) return link
     return link
