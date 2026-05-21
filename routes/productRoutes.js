@@ -700,6 +700,84 @@ function resolveAdminStockStatusFromQuery(query = {}) {
   return normalized || null
 }
 
+const toArrayParam = (value) => {
+  if (Array.isArray(value)) return value
+  if (typeof value === "string" && value.trim()) {
+    if (value.includes(",")) {
+      return value
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean)
+    }
+    return [value.trim()]
+  }
+  return []
+}
+
+const collectQueryValues = (query = {}, keys = []) => {
+  const values = []
+  keys.forEach((key) => {
+    values.push(...toArrayParam(query[key]))
+  })
+  return Array.from(new Set(values.map((value) => String(value).trim()).filter(Boolean)))
+}
+
+const parseObjectIdArrayFromQuery = (query = {}, keys = []) =>
+  collectQueryValues(query, keys).filter((value) => mongoose.Types.ObjectId.isValid(value))
+
+const parseFiniteNumber = (value) => {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+const buildPublicStockFilterCondition = (stockStatuses = []) => {
+  if (!Array.isArray(stockStatuses) || stockStatuses.length === 0) return null
+
+  const hasInStock = stockStatuses.includes("inStock")
+  const hasOutOfStock = stockStatuses.includes("outOfStock")
+  const hasOnSale = stockStatuses.includes("onSale")
+  const orConditions = []
+
+  if (hasInStock) {
+    orConditions.push({
+      $or: [
+        { stockStatus: /^in\s*-?\s*stock$/i },
+        { stockStatus: /^available(\s*product)?$/i },
+        { stockStatus: /^pre\s*-?\s*order$/i },
+        { countInStock: { $gt: 0 } },
+      ],
+    })
+  }
+
+  if (hasOutOfStock) {
+    orConditions.push({
+      $or: [
+        { stockStatus: /^out\s*-?\s*of\s*-?\s*stock$/i },
+        { stockStatus: /^stock\s*out$/i },
+        {
+          $and: [
+            { stockStatus: { $nin: [/^in\s*-?\s*stock$/i, /^available(\s*product)?$/i, /^pre\s*-?\s*order$/i] } },
+            { countInStock: { $lte: 0 } },
+          ],
+        },
+      ],
+    })
+  }
+
+  if (hasOnSale) {
+    orConditions.push({
+      $or: [
+        { discount: { $gt: 0 } },
+        { $expr: { $and: [{ $gt: ["$offerPrice", 0] }, { $lt: ["$offerPrice", "$price"] }] } },
+      ],
+    })
+  }
+
+  if (orConditions.length === 0) return null
+  if (orConditions.length === 1) return orConditions[0]
+  return { $or: orConditions }
+}
+
 // @desc    Fetch all products (Admin only - includes inactive)
 // @route   GET /api/products/admin
 // @access  Private/Admin
@@ -1001,6 +1079,154 @@ router.get(
     const products = await productsQuery
 
     res.json(products)
+  }),
+)
+
+// @desc    Fetch minimal products payload for client-side shop cache hydration
+// @route   GET /api/products/shop-cache
+// @access  Public
+router.get(
+  "/shop-cache",
+  cacheMiddleware("products", { keyPrefix: "shop-cache" }),
+  asyncHandler(async (req, res) => {
+    const products = await Product.find({ isActive: true, hideFromShop: { $ne: true } })
+      .select(
+        "name slug sku price basePrice offerPrice discount image galleryImages featured rating numReviews countInStock stockStatus brand parentCategory category subCategory subCategory2 subCategory3 subCategory4 parentCategoryName parentCategorySlug categoryName categorySlug subCategory2Name subCategory2Slug subCategory3Name subCategory3Slug subCategory4Name subCategory4Slug series model make manufacturer soldBy createdAt updatedAt",
+      )
+      .populate("brand", "name slug")
+      .lean()
+      .sort({ createdAt: -1 })
+
+    res.json(products)
+  }),
+)
+
+// @desc    Fetch first-paint optimized shop products with filters
+// @route   GET /api/products/shop-query
+// @access  Public
+router.get(
+  "/shop-query",
+  cacheMiddleware("products", { keyPrefix: "shop-query" }),
+  asyncHandler(async (req, res) => {
+    const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1)
+    const limit = Math.min(120, Math.max(1, Number.parseInt(req.query.limit, 10) || 30))
+    const sortBy = String(req.query.sortBy || "newest").trim()
+    const search = typeof req.query.search === "string" ? req.query.search.trim() : ""
+    const parentCategory = String(req.query.parent_category || req.query.parentCategory || "").trim()
+    const category = String(req.query.category || "").trim()
+    const subcategory2 = String(req.query.subcategory2 || "").trim()
+    const subcategory3 = String(req.query.subcategory3 || "").trim()
+    const subcategory4 = String(req.query.subcategory4 || "").trim()
+    const priceMin = parseFiniteNumber(req.query.priceMin)
+    const priceMax = parseFiniteNumber(req.query.priceMax)
+
+    const brandIds = parseObjectIdArrayFromQuery(req.query, ["brand", "brand[]"])
+    const seriesIds = parseObjectIdArrayFromQuery(req.query, ["series", "series[]"])
+    const modelIds = parseObjectIdArrayFromQuery(req.query, ["model", "model[]"])
+    const makeIds = parseObjectIdArrayFromQuery(req.query, ["make", "make[]"])
+    const manufacturerIds = parseObjectIdArrayFromQuery(req.query, ["manufacturer", "manufacturer[]"])
+    const soldByIds = parseObjectIdArrayFromQuery(req.query, ["soldBy", "soldBy[]"])
+    const stockStatuses = collectQueryValues(req.query, ["stockStatus", "stockStatus[]"])
+
+    const andConditions = [{ isActive: true }, { hideFromShop: { $ne: true } }]
+
+    if (parentCategory && mongoose.Types.ObjectId.isValid(parentCategory)) {
+      andConditions.push({ parentCategory })
+    }
+    if (category && mongoose.Types.ObjectId.isValid(category)) {
+      andConditions.push({
+        $or: [{ category }, { subCategory: category }],
+      })
+    }
+    if (subcategory2 && mongoose.Types.ObjectId.isValid(subcategory2)) {
+      andConditions.push({ subCategory2: subcategory2 })
+    }
+    if (subcategory3 && mongoose.Types.ObjectId.isValid(subcategory3)) {
+      andConditions.push({ subCategory3: subcategory3 })
+    }
+    if (subcategory4 && mongoose.Types.ObjectId.isValid(subcategory4)) {
+      andConditions.push({ subCategory4: subcategory4 })
+    }
+
+    if (brandIds.length > 0) andConditions.push({ brand: { $in: brandIds } })
+    if (seriesIds.length > 0) andConditions.push({ series: { $in: seriesIds } })
+    if (modelIds.length > 0) andConditions.push({ model: { $in: modelIds } })
+    if (makeIds.length > 0) andConditions.push({ make: { $in: makeIds } })
+    if (manufacturerIds.length > 0) andConditions.push({ manufacturer: { $in: manufacturerIds } })
+    if (soldByIds.length > 0) andConditions.push({ soldBy: { $in: soldByIds } })
+
+    if (search) {
+      const safeSearch = escapeRegex(search)
+      const regex = new RegExp(safeSearch, "i")
+      const matchingBrands = await Brand.find({ name: regex }).select("_id").lean()
+      const matchingBrandIds = matchingBrands.map((item) => item._id)
+
+      andConditions.push({
+        $or: [
+          { name: regex },
+          { description: regex },
+          { sku: regex },
+          { barcode: regex },
+          { tags: regex },
+          { brand: { $in: matchingBrandIds } },
+        ],
+      })
+    }
+
+    const stockFilterCondition = buildPublicStockFilterCondition(stockStatuses)
+    if (stockFilterCondition) {
+      andConditions.push(stockFilterCondition)
+    }
+
+    if (priceMin !== null || priceMax !== null) {
+      const effectivePriceExpr = { $cond: [{ $gt: ["$offerPrice", 0] }, "$offerPrice", "$price"] }
+      const priceExpressions = []
+      if (priceMin !== null) {
+        priceExpressions.push({ $gte: [effectivePriceExpr, priceMin] })
+      }
+      if (priceMax !== null) {
+        priceExpressions.push({ $lte: [effectivePriceExpr, priceMax] })
+      }
+      if (priceExpressions.length > 0) {
+        andConditions.push({ $expr: priceExpressions.length === 1 ? priceExpressions[0] : { $and: priceExpressions } })
+      }
+    }
+
+    const query = andConditions.length > 1 ? { $and: andConditions } : andConditions[0]
+
+    const sortSpec = (() => {
+      switch (sortBy) {
+        case "price-low":
+          return { offerPrice: 1, price: 1, createdAt: -1 }
+        case "price-high":
+          return { offerPrice: -1, price: -1, createdAt: -1 }
+        case "name":
+          return { name: 1, createdAt: -1 }
+        case "newest":
+        default:
+          return { createdAt: -1 }
+      }
+    })()
+
+    const totalCount = await Product.countDocuments(query)
+
+    const products = await Product.find(query)
+      .select(
+        "name slug sku price basePrice offerPrice discount image galleryImages featured rating numReviews countInStock stockStatus brand parentCategory category subCategory subCategory2 subCategory3 subCategory4 parentCategoryName parentCategorySlug categoryName categorySlug subCategory2Name subCategory2Slug subCategory3Name subCategory3Slug subCategory4Name subCategory4Slug series model make manufacturer soldBy createdAt updatedAt",
+      )
+      .populate("brand", "name slug")
+      .lean()
+      .sort(sortSpec)
+      .skip((page - 1) * limit)
+      .limit(limit)
+
+    res.json({
+      products,
+      totalCount,
+      page,
+      limit,
+      hasMore: page * limit < totalCount,
+    })
   }),
 )
 

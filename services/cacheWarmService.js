@@ -77,6 +77,8 @@ const buildProductsMainPath = (warmAllProducts, productListLimit) => {
 
 const baseWarmRequests = ({ warmAllProducts, productListLimit }) => [
   { id: "homepage", label: "Homepage payload", method: "GET", path: "/api/homepage" },
+  { id: "products-shop-cache", label: "Products (shop cache payload)", method: "GET", path: "/api/products/shop-cache" },
+  { id: "products-shop-query-default", label: "Products (shop first paint)", method: "GET", path: "/api/products/shop-query?page=1&limit=30" },
   { id: "products-main", label: warmAllProducts ? "Products (all)" : "Products (shop cache)", method: "GET", path: buildProductsMainPath(warmAllProducts, productListLimit) },
   { id: "products-paginated", label: "Products page 1", method: "GET", path: "/api/products/paginated?page=1&limit=20" },
   { id: "products-featured", label: "Featured products", method: "GET", path: "/api/products?featured=true&limit=40" },
@@ -124,6 +126,12 @@ const collectCategoryFanoutRequests = (categoriesResponse, options = {}) => {
         label: `Products by category (${categoryName})`,
         method: "GET",
         path: `/api/products?category=${categoryId}&limit=${productLimit}`,
+      })
+      requests.push({
+        id: `products-shop-query-by-category-${categoryId}`,
+        label: `Products shop-query by category (${categoryName})`,
+        method: "GET",
+        path: `/api/products/shop-query?parent_category=${categoryId}&page=1&limit=${productLimit}`,
       })
     }
   }

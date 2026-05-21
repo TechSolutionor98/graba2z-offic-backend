@@ -485,6 +485,13 @@ const productSchema = mongoose.Schema(
   },
 )
 
+productSchema.index({ isActive: 1, hideFromShop: 1, parentCategory: 1, createdAt: -1 }, { background: true })
+productSchema.index({ isActive: 1, hideFromShop: 1, category: 1, createdAt: -1 }, { background: true })
+productSchema.index({ isActive: 1, hideFromShop: 1, subCategory2: 1, createdAt: -1 }, { background: true })
+productSchema.index({ isActive: 1, hideFromShop: 1, subCategory3: 1, createdAt: -1 }, { background: true })
+productSchema.index({ isActive: 1, hideFromShop: 1, subCategory4: 1, createdAt: -1 }, { background: true })
+productSchema.index({ isActive: 1, hideFromShop: 1, createdAt: -1 }, { background: true })
+
 const Product = mongoose.model("Product", productSchema)
 
 export default Product
