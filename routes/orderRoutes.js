@@ -2,6 +2,7 @@
 import express from "express"
 import asyncHandler from "express-async-handler"
 import Order from "../models/orderModel.js"
+import DeliveryCharge from "../models/deliveryChargeModel.js"
 import { protect, admin } from "../middleware/authMiddleware.js"
 import { logActivity } from "../middleware/permissionMiddleware.js"
 import { sendOrderPlacedEmail, sendOrderStatusUpdateEmail } from "../utils/emailService.js"
@@ -63,6 +64,7 @@ router.post(
       deliveryType,
       itemsPrice,
       shippingPrice,
+      deliveryChargeId,
       totalPrice,
       customerNotes,
       paymentMethod,
@@ -104,15 +106,45 @@ router.post(
       }
     }
 
+    const requestedShippingPrice = Number.isFinite(Number(shippingPrice)) ? Number(shippingPrice) : 0
+    const normalizedItemsPrice = Number.isFinite(Number(itemsPrice)) ? Number(itemsPrice) : 0
+
+    let normalizedShippingPrice = 0
+    if (deliveryType === "home") {
+      let selectedAdminDeliveryCharge = null
+
+      if (typeof deliveryChargeId === "string" && /^[a-fA-F0-9]{24}$/.test(deliveryChargeId)) {
+        selectedAdminDeliveryCharge = await DeliveryCharge.findOne({
+          _id: deliveryChargeId,
+          isActive: true,
+        }).lean()
+      }
+
+      if (!selectedAdminDeliveryCharge) {
+        selectedAdminDeliveryCharge = await DeliveryCharge.findOne({ isActive: true })
+          .sort({ createdAt: -1 })
+          .lean()
+      }
+
+      if (selectedAdminDeliveryCharge) {
+        normalizedShippingPrice = Math.max(0, Number(selectedAdminDeliveryCharge.charge) || 0)
+      }
+    }
+
+    const parsedTotalPrice = Number(totalPrice)
+    const normalizedTotalPrice = Number.isFinite(parsedTotalPrice)
+      ? Math.max(0, parsedTotalPrice - Math.max(0, requestedShippingPrice) + normalizedShippingPrice)
+      : normalizedItemsPrice + normalizedShippingPrice
+
     const order = new Order({
       orderItems,
       user: req.user ? req.user._id : null, // Always set user field, null for guests
       deliveryType,
       shippingAddress: deliveryType === "home" ? shippingAddress : undefined,
       pickupDetails: deliveryType === "pickup" ? pickupDetails : undefined,
-      itemsPrice,
-      shippingPrice,
-      totalPrice,
+      itemsPrice: normalizedItemsPrice,
+      shippingPrice: normalizedShippingPrice,
+      totalPrice: normalizedTotalPrice,
       customerNotes,
       paymentMethod: paymentMethod || "cod",
       actualPaymentMethod: actualPaymentMethod || paymentMethod || "cod",
