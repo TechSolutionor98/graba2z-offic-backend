@@ -45,6 +45,86 @@ const calculateDiscountAmount = ({ discountType, discountValue, maxDiscountAmoun
   return Math.max(0, Math.min(amount, eligibleSubtotal))
 }
 
+const getActiveAppDiscounts = async () => {
+  const now = new Date()
+  return AppDiscount.find({
+    isActive: true,
+    startsAt: { $lte: now },
+    endsAt: { $gte: now },
+  })
+    .sort({ priority: -1, createdAt: -1 })
+    .lean()
+}
+
+const checkUserLevelEligibility = async ({ user, discount, hasAnyOrder }) => {
+  if (discount.onlyNewAppUsers && hasAnyOrder) {
+    return { eligible: false, reason: "not_first_order_anymore" }
+  }
+
+  if (discount.singleUsePerUser) {
+    const usedBefore = await Order.exists({
+      user: user._id,
+      appDiscountApplied: true,
+      appDiscountId: discount._id,
+    })
+    if (usedBefore) {
+      return { eligible: false, reason: "already_used_this_discount" }
+    }
+  }
+
+  return { eligible: true, reason: "eligible" }
+}
+
+export const getFirstUserAppDiscountStatus = async ({ user }) => {
+  if (!user?._id) {
+    return { eligible: false, reason: "auth_required" }
+  }
+
+  if (user.registrationSource !== "app") {
+    return { eligible: false, reason: "not_app_registered_user" }
+  }
+
+  const activeDiscounts = await getActiveAppDiscounts()
+  if (!activeDiscounts.length) {
+    return { eligible: false, reason: "no_active_discount" }
+  }
+
+  const userOrderCount = await Order.countDocuments({ user: user._id, ...ACTIVE_ORDER_QUERY })
+  const hasAnyOrder = userOrderCount > 0
+
+  for (const discount of activeDiscounts) {
+    const userEligibility = await checkUserLevelEligibility({ user, discount, hasAnyOrder })
+    if (!userEligibility.eligible) continue
+
+    return {
+      eligible: true,
+      reason: "eligible",
+      hasAnyOrder,
+      discount: {
+        _id: discount._id,
+        name: discount.name,
+        description: discount.description || "",
+        appliesTo: discount.appliesTo,
+        products: discount.products || [],
+        discountType: discount.discountType,
+        discountValue: discount.discountValue,
+        minOrderAmount: discount.minOrderAmount || 0,
+        maxDiscountAmount: discount.maxDiscountAmount ?? null,
+        onlyNewAppUsers: discount.onlyNewAppUsers,
+        singleUsePerUser: discount.singleUsePerUser,
+        startsAt: discount.startsAt,
+        endsAt: discount.endsAt,
+      },
+    }
+  }
+
+  return {
+    eligible: false,
+    reason: hasAnyOrder ? "not_first_order_anymore" : "no_matching_discount",
+    hasAnyOrder,
+  }
+}
+
 export const resolveAppDiscountForOrder = async ({ user, orderItems }) => {
   if (!user?._id) {
     return { applied: false, reason: "auth_required" }
@@ -54,14 +134,7 @@ export const resolveAppDiscountForOrder = async ({ user, orderItems }) => {
     return { applied: false, reason: "not_app_registered_user" }
   }
 
-  const now = new Date()
-  const activeDiscounts = await AppDiscount.find({
-    isActive: true,
-    startsAt: { $lte: now },
-    endsAt: { $gte: now },
-  })
-    .sort({ priority: -1, createdAt: -1 })
-    .lean()
+  const activeDiscounts = await getActiveAppDiscounts()
 
   if (!activeDiscounts.length) {
     return { applied: false, reason: "no_active_discount" }
@@ -76,20 +149,8 @@ export const resolveAppDiscountForOrder = async ({ user, orderItems }) => {
   const hasAnyOrder = userOrderCount > 0
 
   for (const discount of activeDiscounts) {
-    if (discount.onlyNewAppUsers && hasAnyOrder) {
-      continue
-    }
-
-    if (discount.singleUsePerUser) {
-      const usedBefore = await Order.exists({
-        user: user._id,
-        appDiscountApplied: true,
-        appDiscountId: discount._id,
-      })
-      if (usedBefore) {
-        continue
-      }
-    }
+    const userEligibility = await checkUserLevelEligibility({ user, discount, hasAnyOrder })
+    if (!userEligibility.eligible) continue
 
     let eligibleItems = normalizedItems
     if (discount.appliesTo === "products") {

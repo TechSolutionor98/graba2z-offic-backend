@@ -5,7 +5,7 @@ import AppDiscount from "../models/appDiscountModel.js"
 import Product from "../models/productModel.js"
 import { protect, admin } from "../middleware/authMiddleware.js"
 import { checkPermission, logActivity } from "../middleware/permissionMiddleware.js"
-import { resolveAppDiscountForOrder } from "../services/appDiscountService.js"
+import { getFirstUserAppDiscountStatus, resolveAppDiscountForOrder } from "../services/appDiscountService.js"
 
 const router = express.Router()
 
@@ -134,6 +134,18 @@ router.post(
     })
 
     res.json(result)
+  }),
+)
+
+// @desc    Get current app user's first-order discount status
+// @route   GET /api/app-discounts/me/first-user-discount
+// @access  Private
+router.get(
+  "/me/first-user-discount",
+  protect,
+  asyncHandler(async (req, res) => {
+    const status = await getFirstUserAppDiscountStatus({ user: req.user })
+    res.json(status)
   }),
 )
 
