@@ -36,6 +36,7 @@ import taxRoutes from "./routes/taxRoutes.js"
 import productSystemOptionRoutes from "./routes/productSystemOptionRoutes.js"
 import deliveryChargeRoutes from "./routes/deliveryChargeRoutes.js"
 import couponRoutes from "./routes/couponRoutes.js"
+import appDiscountRoutes from "./routes/appDiscountRoutes.js"
 import bannerRoutes from "./routes/bannerRoutes.js"
 import bannerCardRoutes from "./routes/bannerCardRoutes.js"
 import homeSectionRoutes from "./routes/homeSectionRoutes.js"
@@ -225,6 +226,7 @@ app.use("/api/tax", taxRoutes)
 app.use("/api/product-system-options", productSystemOptionRoutes)
 app.use("/api/delivery-charges", deliveryChargeRoutes)
 app.use("/api/coupons", couponRoutes)
+app.use("/api/app-discounts", appDiscountRoutes)
 app.use("/api/banners", bannerRoutes)
 app.use("/api/banner-cards", bannerCardRoutes)
 app.use("/api/home-sections", homeSectionRoutes)

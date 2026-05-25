@@ -9,13 +9,24 @@ import crypto from "crypto"
 
 const router = express.Router()
 
+const normalizeRegistrationSource = (value) => {
+  const normalized = String(value || "").trim().toLowerCase()
+  return normalized === "app" ? "app" : "web"
+}
+
+const normalizeRegistrationPlatform = (value) => {
+  const normalized = String(value || "").trim().toLowerCase()
+  if (normalized === "android" || normalized === "ios") return normalized
+  return "unknown"
+}
+
 // @desc    Register a new user
 // @route   POST /api/users/register
 // @access  Public
 router.post(
   "/register",
   asyncHandler(async (req, res) => {
-    const { name, email, password } = req.body
+    const { name, email, password, registrationSource, registrationPlatform } = req.body
 
     const userExists = await User.findOne({ email })
 
@@ -24,11 +35,21 @@ router.post(
       throw new Error("User already exists")
     }
 
+    const resolvedSource = normalizeRegistrationSource(
+      registrationSource || req.headers["x-client-source"] || req.headers["x-order-source"],
+    )
+    const resolvedPlatform = normalizeRegistrationPlatform(
+      registrationPlatform || req.headers["x-client-platform"] || req.headers["x-device-platform"],
+    )
+
     const user = await User.create({
       name,
       email,
       password,
       isEmailVerified: false,
+      registrationSource: resolvedSource,
+      registrationPlatform: resolvedSource === "app" ? resolvedPlatform : null,
+      appRegisteredAt: resolvedSource === "app" ? new Date() : null,
     })
 
     if (user) {
@@ -42,6 +63,8 @@ router.post(
         res.status(201).json({
           message: "Registration successful! Please check your email for verification code.",
           email: user.email,
+          registrationSource: user.registrationSource,
+          registrationPlatform: user.registrationPlatform,
         })
       } catch (emailError) {
         console.error("Failed to send verification email:", emailError)
@@ -49,6 +72,8 @@ router.post(
           message:
             "Registration successful! However, we couldn't send the verification email. Please try to resend it.",
           email: user.email,
+          registrationSource: user.registrationSource,
+          registrationPlatform: user.registrationPlatform,
         })
       }
     } else {
@@ -90,6 +115,8 @@ router.post(
         email: user.email,
         isAdmin: user.isAdmin,
         isEmailVerified: user.isEmailVerified,
+        registrationSource: user.registrationSource,
+        registrationPlatform: user.registrationPlatform,
         token: generateToken(user._id),
       })
     } else {
@@ -227,6 +254,8 @@ router.post(
         email: user.email,
         isAdmin: user.isAdmin,
         isEmailVerified: user.isEmailVerified,
+        registrationSource: user.registrationSource,
+        registrationPlatform: user.registrationPlatform,
         token: generateToken(user._id),
       })
     } else {

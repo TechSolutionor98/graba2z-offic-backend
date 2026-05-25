@@ -6,10 +6,20 @@ import DeliveryCharge from "../models/deliveryChargeModel.js"
 import { protect, admin } from "../middleware/authMiddleware.js"
 import { logActivity } from "../middleware/permissionMiddleware.js"
 import { sendOrderPlacedEmail, sendOrderStatusUpdateEmail } from "../utils/emailService.js"
+import { resolveAppDiscountForOrder } from "../services/appDiscountService.js"
 
 const router = express.Router()
 const ORDER_DOCUMENT_QUERY = {
   $or: [{ documentType: "order" }, { documentType: { $exists: false } }],
+}
+
+const resolveOrderSource = (payloadSource, headers = {}) => {
+  const headerSource = headers["x-order-source"] || headers["x-client-source"]
+  const normalized = String(payloadSource || headerSource || "")
+    .trim()
+    .toLowerCase()
+
+  return normalized === "app" ? "app" : "web"
 }
 
 // Middleware to optionally protect routes (sets req.user if token exists)
@@ -66,6 +76,7 @@ router.post(
       shippingPrice,
       deliveryChargeId,
       totalPrice,
+      orderSource,
       customerNotes,
       paymentMethod,
       actualPaymentMethod,
@@ -131,19 +142,47 @@ router.post(
       }
     }
 
+    const normalizedOrderSource = resolveOrderSource(orderSource, req.headers)
     const parsedTotalPrice = Number(totalPrice)
-    const normalizedTotalPrice = Number.isFinite(parsedTotalPrice)
+    const normalizedBaseTotal = Number.isFinite(parsedTotalPrice)
       ? Math.max(0, parsedTotalPrice - Math.max(0, requestedShippingPrice) + normalizedShippingPrice)
       : normalizedItemsPrice + normalizedShippingPrice
+
+    let appDiscountMeta = null
+    let appliedAppDiscountAmount = 0
+    if (normalizedOrderSource === "app" && req.user) {
+      const appDiscountResult = await resolveAppDiscountForOrder({
+        user: req.user,
+        orderItems,
+      })
+
+      if (appDiscountResult?.applied) {
+        appDiscountMeta = appDiscountResult.discount
+        appliedAppDiscountAmount = Math.min(
+          Math.max(0, Number(appDiscountResult.discountAmount || 0)),
+          normalizedBaseTotal,
+        )
+      }
+    }
+
+    const normalizedTotalPrice = Math.max(0, normalizedBaseTotal - appliedAppDiscountAmount)
 
     const order = new Order({
       orderItems,
       user: req.user ? req.user._id : null, // Always set user field, null for guests
+      orderSource: normalizedOrderSource,
       deliveryType,
       shippingAddress: deliveryType === "home" ? shippingAddress : undefined,
       pickupDetails: deliveryType === "pickup" ? pickupDetails : undefined,
       itemsPrice: normalizedItemsPrice,
       shippingPrice: normalizedShippingPrice,
+      discountAmount: appliedAppDiscountAmount,
+      appDiscountApplied: Boolean(appDiscountMeta && appliedAppDiscountAmount > 0),
+      appDiscountId: appDiscountMeta?._id || null,
+      appDiscountName: appDiscountMeta?.name || "",
+      appDiscountType: appDiscountMeta?.discountType || "",
+      appDiscountValue: Number(appDiscountMeta?.discountValue || 0),
+      appDiscountAmount: appliedAppDiscountAmount,
       totalPrice: normalizedTotalPrice,
       customerNotes,
       paymentMethod: paymentMethod || "cod",

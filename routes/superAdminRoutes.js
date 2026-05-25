@@ -658,6 +658,7 @@ router.get(
       { key: "offerPages", label: "Offer Pages", description: "Manage offer pages" },
       { key: "gamingZone", label: "Gaming Zone", description: "Manage gaming zone" },
       { key: "coupons", label: "Coupons", description: "Manage discount coupons" },
+      { key: "appDiscounts", label: "App Discounts", description: "Manage app-only registration discounts" },
       { key: "deliveryCharges", label: "Delivery Charges", description: "Manage delivery charges" },
       { key: "settings", label: "Settings", description: "Manage site settings" },
       { key: "emailTemplates", label: "Email Templates", description: "Manage email templates" },

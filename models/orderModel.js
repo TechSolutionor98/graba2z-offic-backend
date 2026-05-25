@@ -35,6 +35,11 @@ const orderSchema = mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
     },
+    orderSource: {
+      type: String,
+      enum: ["web", "app"],
+      default: "web",
+    },
     orderItems: [
       {
         name: { type: String, required: true },
@@ -142,6 +147,32 @@ const orderSchema = mongoose.Schema(
     discountAmount: {
       type: Number,
       default: 0.0,
+    },
+    appDiscountApplied: {
+      type: Boolean,
+      default: false,
+    },
+    appDiscountId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "AppDiscount",
+      default: null,
+    },
+    appDiscountName: {
+      type: String,
+      default: "",
+    },
+    appDiscountType: {
+      type: String,
+      enum: ["percentage", "fixed", ""],
+      default: "",
+    },
+    appDiscountValue: {
+      type: Number,
+      default: 0,
+    },
+    appDiscountAmount: {
+      type: Number,
+      default: 0,
     },
     couponCode: {
       type: String,

@@ -61,6 +61,7 @@ const userSchema = mongoose.Schema(
       sizes: { type: Boolean, default: false },
       adminManagement: { type: Boolean, default: false },
       activityLogs: { type: Boolean, default: false },
+      appDiscounts: { type: Boolean, default: false },
     },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
@@ -113,6 +114,20 @@ const userSchema = mongoose.Schema(
     resetPasswordExpires: Date,
     deleteAccountCode: String,
     deleteAccountExpires: Date,
+    registrationSource: {
+      type: String,
+      enum: ["web", "app"],
+      default: "web",
+    },
+    registrationPlatform: {
+      type: String,
+      enum: ["android", "ios", "unknown", null],
+      default: null,
+    },
+    appRegisteredAt: {
+      type: Date,
+      default: null,
+    },
   },
   {
     timestamps: true,
