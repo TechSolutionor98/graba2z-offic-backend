@@ -459,6 +459,34 @@ function escapeRegex(string) {
   return string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }
 
+// Build search conditions for multi-word queries.
+// Splits the query into individual words; each word must match at least one field (AND logic across words).
+async function buildSearchConditions(search, BrandModel) {
+  if (!search || typeof search !== "string" || !search.trim()) return null
+  const searchTerms = search.trim().split(/\s+/).filter(Boolean)
+  if (searchTerms.length === 0) return null
+
+  // For each word, check if it matches a brand name; only add the brand filter for that specific word.
+  const wordConditions = await Promise.all(searchTerms.map(async (term) => {
+    const safeTerm = escapeRegex(term)
+    const termRegex = new RegExp(safeTerm, "i")
+    const orClause = [
+      { name: termRegex },
+      { description: termRegex },
+      { sku: termRegex },
+      { barcode: termRegex },
+      { tags: termRegex },
+    ]
+    const matchingBrands = await BrandModel.find({ name: termRegex }).select("_id").lean()
+    if (matchingBrands.length > 0) {
+      orClause.push({ brand: { $in: matchingBrands.map(b => b._id) } })
+    }
+    return { $or: orClause }
+  }))
+
+  return wordConditions.length > 1 ? { $and: wordConditions } : wordConditions[0]
+}
+
 const normalizeLookupValue = (value) =>
   String(value || "")
     .replace(/[\u200B-\u200D\uFEFF]/g, "")
@@ -814,21 +842,9 @@ router.get("/admin", protect, admin, async (req, res) => {
     }
 
     if (typeof search === "string" && search.trim() !== "") {
-      const safeSearch = escapeRegex(search)
-      const regex = new RegExp(safeSearch, "i")
-      // Find matching brands by name
-      const matchingBrands = await Brand.find({ name: regex }).select("_id")
-      const brandIds = matchingBrands.map((b) => b._id)
-      orConditions.push(
-        { name: regex },
-        { description: regex },
-        { sku: regex },
-        { barcode: regex },
-        { tags: regex },
-        { brand: { $in: brandIds } },
-      )
+      const searchCondition = await buildSearchConditions(search, Brand)
+      if (searchCondition) andConditions.push(searchCondition)
     }
-    if (orConditions.length > 0) andConditions.push({ $or: orConditions })
 
     const finalQuery = andConditions.length > 0 ? { ...query, $and: andConditions } : query
 
@@ -907,21 +923,9 @@ router.get("/admin/count", protect, admin, async (req, res) => {
     }
 
     if (typeof search === "string" && search.trim() !== "") {
-      const safeSearch = escapeRegex(search)
-      const regex = new RegExp(safeSearch, "i")
-      // Find matching brands by name
-      const matchingBrands = await Brand.find({ name: regex }).select("_id")
-      const brandIds = matchingBrands.map((b) => b._id)
-      orConditions.push(
-        { name: regex },
-        { description: regex },
-        { sku: regex },
-        { barcode: regex },
-        { tags: regex },
-        { brand: { $in: brandIds } },
-      )
+      const searchCondition = await buildSearchConditions(search, Brand)
+      if (searchCondition) andConditions.push(searchCondition)
     }
-    if (orConditions.length > 0) andConditions.push({ $or: orConditions })
 
     const finalQuery = andConditions.length > 0 ? { ...query, $and: andConditions } : query
 
@@ -1017,23 +1021,8 @@ router.get(
 
     // Search filter
     if (typeof search === "string" && search.trim()) {
-      const safeSearch = escapeRegex(search.trim())
-      const regex = new RegExp(safeSearch, "i")
-
-      // Find matching brands by name for search
-      const matchingBrands = await Brand.find({ name: regex }).select("_id").lean()
-      const brandIds = matchingBrands.map((b) => b._id)
-
-      andConditions.push({
-        $or: [
-          { name: regex },
-          { description: regex },
-          { sku: regex },
-          { barcode: regex },
-          { tags: regex },
-          { brand: { $in: brandIds } },
-        ],
-      })
+      const searchCondition = await buildSearchConditions(search, Brand)
+      if (searchCondition) andConditions.push(searchCondition)
     }
 
     // Brand filter
@@ -1156,21 +1145,8 @@ router.get(
     if (soldByIds.length > 0) andConditions.push({ soldBy: { $in: soldByIds } })
 
     if (search) {
-      const safeSearch = escapeRegex(search)
-      const regex = new RegExp(safeSearch, "i")
-      const matchingBrands = await Brand.find({ name: regex }).select("_id").lean()
-      const matchingBrandIds = matchingBrands.map((item) => item._id)
-
-      andConditions.push({
-        $or: [
-          { name: regex },
-          { description: regex },
-          { sku: regex },
-          { barcode: regex },
-          { tags: regex },
-          { brand: { $in: matchingBrandIds } },
-        ],
-      })
+      const searchCondition = await buildSearchConditions(search, Brand)
+      if (searchCondition) andConditions.push(searchCondition)
     }
 
     const stockFilterCondition = buildPublicStockFilterCondition(stockStatuses)
@@ -1260,21 +1236,8 @@ router.get(
     }
 
     if (typeof search === "string" && search.trim()) {
-      const safeSearch = escapeRegex(search.trim())
-      const regex = new RegExp(safeSearch, "i")
-      const matchingBrands = await Brand.find({ name: regex }).select("_id").lean()
-      const brandIds = matchingBrands.map((b) => b._id)
-
-      andConditions.push({
-        $or: [
-          { name: regex },
-          { description: regex },
-          { sku: regex },
-          { barcode: regex },
-          { tags: regex },
-          { brand: { $in: brandIds } },
-        ],
-      })
+      const searchCondition = await buildSearchConditions(search, Brand)
+      if (searchCondition) andConditions.push(searchCondition)
     }
 
     if (brand) {

@@ -6,6 +6,35 @@ import Brand from "../models/brandModel.js"
 
 const router = express.Router()
 
+function escapeRegex(string) {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}
+
+async function buildSearchConditions(search, BrandModel) {
+  if (!search || typeof search !== "string" || !search.trim()) return null
+  const searchTerms = search.trim().split(/\s+/).filter(Boolean)
+  if (searchTerms.length === 0) return null
+
+  const wordConditions = await Promise.all(searchTerms.map(async (term) => {
+    const safeTerm = escapeRegex(term)
+    const termRegex = new RegExp(safeTerm, "i")
+    const orClause = [
+      { name: termRegex },
+      { description: termRegex },
+      { sku: termRegex },
+      { barcode: termRegex },
+      { tags: termRegex },
+    ]
+    const matchingBrands = await BrandModel.find({ name: termRegex }).select("_id").lean()
+    if (matchingBrands.length > 0) {
+      orClause.push({ brand: { $in: matchingBrands.map(b => b._id) } })
+    }
+    return { $or: orClause }
+  }))
+
+  return wordConditions.length > 1 ? { $and: wordConditions } : wordConditions[0]
+}
+
 // @desc    Get products with advanced filtering for mobile app
 // @route   GET /api/mobile/products
 // @access  Public
@@ -63,22 +92,8 @@ router.get("/products", async (req, res) => {
 
     // Search filter
     if (search && typeof search === "string" && search.trim() !== "") {
-      const searchRegex = new RegExp(search.trim(), "i")
-
-      // Find matching brands by name for search
-      const matchingBrands = await Brand.find({ name: searchRegex }).select("_id")
-      const brandIds = matchingBrands.map((b) => b._id)
-
-      andConditions.push({
-        $or: [
-          { name: searchRegex },
-          { description: searchRegex },
-          { tags: searchRegex },
-          { sku: searchRegex },
-          { barcode: searchRegex },
-          { brand: { $in: brandIds } },
-        ],
-      })
+      const searchCondition = await buildSearchConditions(search.trim(), Brand)
+      if (searchCondition) andConditions.push(searchCondition)
     }
 
     // Price range filter - MODIFIED LOGIC
