@@ -437,6 +437,21 @@ const productSchema = mongoose.Schema(
         },
       },
     ],
+    variationsDisplayType: {
+      type: String,
+      enum: ["button", "card"],
+      default: "button",
+    },
+    availableModelsDisplayType: {
+      type: String,
+      enum: ["button", "card"],
+      default: "button",
+    },
+    colorVariationsDisplayType: {
+      type: String,
+      enum: ["button", "card"],
+      default: "card",
+    },
     // SEO Fields (only used for meta tags, not displayed on frontend)
     seoTitle: {
       type: String,

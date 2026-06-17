@@ -148,6 +148,14 @@ const orderSchema = mongoose.Schema(
       type: Number,
       default: 0.0,
     },
+    codFee: {
+      type: Number,
+      default: 0.0,
+    },
+    codShippingFee: {
+      type: Number,
+      default: 0.0,
+    },
     appDiscountApplied: {
       type: Boolean,
       default: false,
