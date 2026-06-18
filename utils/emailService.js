@@ -833,7 +833,7 @@ const getEmailTemplate = (type, data) => {
               <div class="order-summary">
                 <div class="summary-row"><span>Date</span><span>${escapeHtml(quotationDate)}</span></div>
                 <div class="summary-row"><span>Subtotal</span><span>${formatCurrency(data.itemsPrice || 0)}</span></div>
-                <div class="summary-row"><span>Shipping</span><span>${formatCurrency(data.shippingPrice || 0)}</span></div>
+                <div class="summary-row"><span>Shipping</span><span>${(data.shippingPrice || 0) === 0 ? "Free" : formatCurrency(data.shippingPrice || 0)}</span></div>
                 <div class="summary-row"><span>Tax</span><span>${formatCurrency(data.taxPrice || 0)}</span></div>
                 <div class="summary-row total"><span>Total</span><span>${formatCurrency(data.totalPrice || 0)}</span></div>
               </div>
@@ -1764,7 +1764,7 @@ const getAdminOrderNotificationTemplate = (data) => {
           <h3 style="margin:0 0 10px 0;font-size:16px;">Amount Summary</h3>
           <table style="width:100%;border-collapse:collapse;">
             <tr><td style="padding:8px;border:1px solid #ddd;width:220px;background:#f9fafb;"><strong>Items Price</strong></td><td style="padding:8px;border:1px solid #ddd;text-align:right;">${formatCurrency(itemsPrice)}</td></tr>
-            <tr><td style="padding:8px;border:1px solid #ddd;background:#f9fafb;"><strong>Shipping Price</strong></td><td style="padding:8px;border:1px solid #ddd;text-align:right;">${formatCurrency(shippingPrice)}</td></tr>
+            <tr><td style="padding:8px;border:1px solid #ddd;background:#f9fafb;"><strong>Shipping Price</strong></td><td style="padding:8px;border:1px solid #ddd;text-align:right;">${(shippingPrice || 0) === 0 ? "Free" : formatCurrency(shippingPrice)}</td></tr>
             <tr><td style="padding:8px;border:1px solid #ddd;background:#f9fafb;"><strong>Total Price</strong></td><td style="padding:8px;border:1px solid #ddd;text-align:right;"><strong>${formatCurrency(totalPrice)}</strong></td></tr>
           </table>
         </div>
