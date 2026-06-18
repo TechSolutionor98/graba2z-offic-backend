@@ -156,6 +156,12 @@ const orderSchema = mongoose.Schema(
       type: Number,
       default: 0.0,
     },
+    paymentCharges: [
+      {
+        name: { type: String },
+        amount: { type: Number }
+      }
+    ],
     appDiscountApplied: {
       type: Boolean,
       default: false,

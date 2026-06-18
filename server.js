@@ -35,6 +35,7 @@ import warrantyRoutes from "./routes/warrantyRoutes.js"
 import taxRoutes from "./routes/taxRoutes.js"
 import productSystemOptionRoutes from "./routes/productSystemOptionRoutes.js"
 import deliveryChargeRoutes from "./routes/deliveryChargeRoutes.js"
+import paymentMethodChargeRoutes from "./routes/paymentMethodChargeRoutes.js"
 import couponRoutes from "./routes/couponRoutes.js"
 import appDiscountRoutes from "./routes/appDiscountRoutes.js"
 import bannerRoutes from "./routes/bannerRoutes.js"
@@ -249,6 +250,7 @@ app.use("/api/wishlist", wishlistRoutes)
 app.use("/api/request-callback", requestCallbackRoutes)
 app.use("/api/bulk-purchase", bulkPurchaseRoutes)
 app.use("/api/payment", paymentRoutes)
+app.use("/api/payment-charges", paymentMethodChargeRoutes)
 app.use("/api/admin", adminRoutes)
 app.use("/api/super-admin", superAdminRoutes)
 app.use("/api/reports", reportsRoutes)

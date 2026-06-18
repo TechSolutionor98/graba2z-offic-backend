@@ -187,6 +187,7 @@ router.post(
       customerNotes,
       paymentMethod: paymentMethod || "cod",
       actualPaymentMethod: actualPaymentMethod || paymentMethod || "cod",
+      paymentCharges: req.body.paymentCharges || [],
       status: "New",
     })
 
