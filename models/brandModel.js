@@ -105,6 +105,11 @@ const brandSchema = mongoose.Schema(
       ref: "User",
       required: true,
     },
+    paymentMethods: {
+      type: [String],
+      enum: ["card", "cod", "tamara", "tabby"],
+      default: undefined,
+    },
   },
   {
     timestamps: true,

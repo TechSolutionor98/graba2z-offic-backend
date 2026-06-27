@@ -111,6 +111,11 @@ const subCategorySchema = mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
     },
+    paymentMethods: {
+      type: [String],
+      enum: ["card", "cod", "tamara", "tabby"],
+      default: undefined,
+    },
   },
   {
     timestamps: true,

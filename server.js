@@ -80,6 +80,7 @@ import homepageRoutes from "./routes/homepageRoutes.js"
 import seoPageRoutes from "./routes/seoPageRoutes.js"
 import staticPageTranslationRoutes from "./routes/staticPageTranslationRoutes.js"
 import arabicConversionRoutes from "./routes/arabicConversionRoutes.js"
+import productPaymentMethodRoutes from "./routes/productPaymentMethodRoutes.js"
 import { ensureSubCategorySlugIndexes } from "./utils/ensureSubCategorySlugIndexes.js"
 
 dotenv.config()
@@ -268,6 +269,7 @@ app.use("/api/custom-slider-items", customSliderItemRoutes)
 app.use("/api/seo-pages", seoPageRoutes)
 app.use("/api/static-page-translations", staticPageTranslationRoutes)
 app.use("/api/admin/arabic-conversion", arabicConversionRoutes)
+app.use("/api/product-payment-methods", productPaymentMethodRoutes)
 // @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
 

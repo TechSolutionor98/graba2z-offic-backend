@@ -106,6 +106,7 @@ const categorySchema = mongoose.Schema(
       trim: true,
       maxlength: 300, // Increased limit for better SEO flexibility
     },
+
     metaDescriptionAr: {
       type: String,
       default: "",
@@ -141,6 +142,11 @@ const categorySchema = mongoose.Schema(
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
+    },
+    paymentMethods: {
+      type: [String],
+      enum: ["card", "cod", "tamara", "tabby"],
+      default: undefined,
     },
   },
   {
