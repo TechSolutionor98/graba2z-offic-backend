@@ -304,7 +304,7 @@ router.get(
     
     // Find orders directly associated with user
     const userOrders = await Order.find({ $and: [ORDER_DOCUMENT_QUERY, { user: req.user._id }] })
-      .populate('orderItems.product', 'name image')
+      .populate('orderItems.product', 'name image slug')
       .sort({ createdAt: -1 })
     
     console.log(`[MYORDERS] Found ${userOrders.length} orders directly associated with user`)
@@ -319,7 +319,7 @@ router.get(
         },
       ],
     })
-      .populate('orderItems.product', 'name image')
+      .populate('orderItems.product', 'name image slug')
       .sort({ createdAt: -1 })
     
     console.log(`[MYORDERS] Found ${emailOrders.length} orphaned orders with null user`)
@@ -334,7 +334,7 @@ router.get(
         },
       ],
     })
-      .populate('orderItems.product', 'name image')
+      .populate('orderItems.product', 'name image slug')
       .sort({ createdAt: -1 })
     
     console.log(`[MYORDERS] Found ${undefinedUserOrders.length} orders with undefined user field`)
