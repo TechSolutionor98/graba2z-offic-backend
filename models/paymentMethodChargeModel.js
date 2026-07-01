@@ -23,6 +23,11 @@ const paymentMethodChargeSchema = mongoose.Schema(
           required: true,
           min: 0,
         },
+        type: {
+          type: String,
+          enum: ["fixed", "percentage"],
+          default: "fixed",
+        },
       },
     ],
     isActive: {
