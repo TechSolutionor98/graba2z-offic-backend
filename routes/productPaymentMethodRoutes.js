@@ -145,7 +145,15 @@ router.post(
       let updatedEntity = null
 
       if (entityType === "product") {
-        updatedEntity = await Product.findByIdAndUpdate(entityId, { paymentMethods }, { new: true })
+        if (entityId === "all") {
+          updatedEntity = await Product.updateMany({}, { paymentMethods })
+          return res.json({ message: "Configurations saved successfully for all products", updatedCount: updatedEntity.modifiedCount })
+        } else if (Array.isArray(entityId)) {
+          updatedEntity = await Product.updateMany({ _id: { $in: entityId } }, { paymentMethods })
+          return res.json({ message: "Configurations saved successfully", updatedCount: updatedEntity.modifiedCount })
+        } else {
+          updatedEntity = await Product.findByIdAndUpdate(entityId, { paymentMethods }, { new: true })
+        }
       } else if (entityType === "category") {
         updatedEntity = await Category.findByIdAndUpdate(entityId, { paymentMethods }, { new: true })
       } else if (entityType === "subcategory") {
@@ -203,6 +211,46 @@ router.post(
       res.json({ message: "Configuration reset successfully" })
     } catch (error) {
       res.status(500).json({ message: "Failed to reset configuration", error: error.message })
+    }
+  }),
+)
+
+// @desc    Bulk Reset custom payment methods for an array of entities
+// @route   POST /api/product-payment-methods/bulk-reset
+// @access  Private/Admin
+router.post(
+  "/bulk-reset",
+  protect,
+  admin,
+  asyncHandler(async (req, res) => {
+    const { items } = req.body // Array of { entityType, entityId }
+
+    if (!items || !Array.isArray(items)) {
+      return res.status(400).json({ message: "Items array is required" })
+    }
+
+    try {
+      const productIds = items.filter((i) => i.entityType === "product").map((i) => i.entityId)
+      const categoryIds = items.filter((i) => i.entityType === "category").map((i) => i.entityId)
+      const subCategoryIds = items.filter((i) => i.entityType === "subcategory").map((i) => i.entityId)
+      const brandIds = items.filter((i) => i.entityType === "brand").map((i) => i.entityId)
+
+      if (productIds.length > 0) {
+        await Product.updateMany({ _id: { $in: productIds } }, { $unset: { paymentMethods: "" } })
+      }
+      if (categoryIds.length > 0) {
+        await Category.updateMany({ _id: { $in: categoryIds } }, { $unset: { paymentMethods: "" } })
+      }
+      if (subCategoryIds.length > 0) {
+        await SubCategory.updateMany({ _id: { $in: subCategoryIds } }, { $unset: { paymentMethods: "" } })
+      }
+      if (brandIds.length > 0) {
+        await Brand.updateMany({ _id: { $in: brandIds } }, { $unset: { paymentMethods: "" } })
+      }
+
+      res.json({ message: "Bulk reset completed successfully" })
+    } catch (error) {
+      res.status(500).json({ message: "Failed to bulk reset configuration", error: error.message })
     }
   }),
 )
