@@ -1,5 +1,6 @@
 import AppDiscount from "../models/appDiscountModel.js"
 import Order from "../models/orderModel.js"
+import Product from "../models/productModel.js"
 
 const ACTIVE_ORDER_QUERY = {
   status: { $nin: ["Cancelled", "Deleted"] },
@@ -57,11 +58,19 @@ const getActiveAppDiscounts = async () => {
 }
 
 const checkUserLevelEligibility = async ({ user, discount, hasAnyOrder }) => {
-  if (discount.onlyNewAppUsers && hasAnyOrder) {
+  const isOnlyNewUsers = discount.userEligibility 
+    ? discount.userEligibility === "new" 
+    : discount.onlyNewAppUsers
+
+  if (isOnlyNewUsers && hasAnyOrder) {
     return { eligible: false, reason: "not_first_order_anymore" }
   }
 
-  if (discount.singleUsePerUser) {
+  const isSingleUse = discount.usageLimitType 
+    ? discount.usageLimitType === "one-time" 
+    : discount.singleUsePerUser
+
+  if (isSingleUse) {
     const usedBefore = await Order.exists({
       user: user._id,
       appDiscountApplied: true,
@@ -112,6 +121,9 @@ export const getFirstUserAppDiscountStatus = async ({ user }) => {
         maxDiscountAmount: discount.maxDiscountAmount ?? null,
         onlyNewAppUsers: discount.onlyNewAppUsers,
         singleUsePerUser: discount.singleUsePerUser,
+        userEligibility: discount.userEligibility || (discount.onlyNewAppUsers ? "new" : "all"),
+        usageLimitType: discount.usageLimitType || (discount.singleUsePerUser ? "one-time" : "unlimited"),
+        rules: discount.rules || [],
         startsAt: discount.startsAt,
         endsAt: discount.endsAt,
       },
@@ -125,7 +137,7 @@ export const getFirstUserAppDiscountStatus = async ({ user }) => {
   }
 }
 
-export const resolveAppDiscountForOrder = async ({ user, orderItems }) => {
+export const resolveAppDiscountForOrder = async ({ user, orderItems, code }) => {
   if (!user?._id) {
     return { applied: false, reason: "auth_required" }
   }
@@ -140,6 +152,18 @@ export const resolveAppDiscountForOrder = async ({ user, orderItems }) => {
     return { applied: false, reason: "no_active_discount" }
   }
 
+  // App discount name is the coupon code and must match
+  if (!code) {
+    return { applied: false, reason: "coupon_code_required" }
+  }
+
+  const searchCode = String(code).trim().toUpperCase()
+  const matchingDiscounts = activeDiscounts.filter((d) => d.name.toUpperCase() === searchCode)
+
+  if (!matchingDiscounts.length) {
+    return { applied: false, reason: "invalid_or_expired_coupon" }
+  }
+
   const normalizedItems = sanitizeOrderItems(orderItems)
   if (!normalizedItems.length) {
     return { applied: false, reason: "no_eligible_items" }
@@ -148,14 +172,33 @@ export const resolveAppDiscountForOrder = async ({ user, orderItems }) => {
   const userOrderCount = await Order.countDocuments({ user: user._id, ...ACTIVE_ORDER_QUERY })
   const hasAnyOrder = userOrderCount > 0
 
-  for (const discount of activeDiscounts) {
+  for (const discount of matchingDiscounts) {
     const userEligibility = await checkUserLevelEligibility({ user, discount, hasAnyOrder })
     if (!userEligibility.eligible) continue
 
     let eligibleItems = normalizedItems
-    if (discount.appliesTo === "products") {
-      const productIds = new Set((discount.products || []).map((id) => String(id)))
-      eligibleItems = normalizedItems.filter((item) => item.productId && productIds.has(item.productId))
+    if (["products", "categories", "subcategories"].includes(discount.appliesTo)) {
+      const productIdsInCart = normalizedItems.map((item) => item.productId).filter(Boolean)
+      const productsDetails = await Product.find({ _id: { $in: productIdsInCart } }).lean()
+      const productDetailsMap = new Map(productsDetails.map((p) => [String(p._id), p]))
+
+      if (discount.appliesTo === "products") {
+        const targetProductIds = new Set((discount.products || []).map((id) => String(id)))
+        eligibleItems = normalizedItems.filter((item) => item.productId && targetProductIds.has(String(item.productId)))
+      } else if (discount.appliesTo === "categories") {
+        const targetCategoryIds = new Set((discount.categories || []).map((id) => String(id)))
+        eligibleItems = normalizedItems.filter((item) => {
+          const details = productDetailsMap.get(String(item.productId))
+          return details && details.parentCategory && targetCategoryIds.has(String(details.parentCategory))
+        })
+      } else if (discount.appliesTo === "subcategories") {
+        const targetSubcategoryIds = new Set((discount.subcategories || []).map((id) => String(id)))
+        eligibleItems = normalizedItems.filter((item) => {
+          const details = productDetailsMap.get(String(item.productId))
+          const subCatId = details && (details.category || details.subCategory)
+          return details && subCatId && targetSubcategoryIds.has(String(subCatId))
+        })
+      }
     }
 
     const eligibleSubtotal = calculateEligibleSubtotal(eligibleItems)
@@ -163,15 +206,31 @@ export const resolveAppDiscountForOrder = async ({ user, orderItems }) => {
       continue
     }
 
-    const minOrderAmount = Number(discount.minOrderAmount || 0)
-    if (minOrderAmount > 0 && eligibleSubtotal < minOrderAmount) {
-      continue
+    let discountType = discount.discountType
+    let discountValue = discount.discountValue
+    let maxDiscountAmount = discount.maxDiscountAmount
+
+    if (Array.isArray(discount.rules) && discount.rules.length > 0) {
+      const matchingRule = discount.rules.find(
+        (r) => eligibleSubtotal >= r.minCartAmount && eligibleSubtotal <= r.maxCartAmount
+      )
+      if (!matchingRule) {
+        continue
+      }
+      discountType = matchingRule.discountType
+      discountValue = matchingRule.discountValue
+      maxDiscountAmount = null
+    } else {
+      const minOrderAmount = Number(discount.minOrderAmount || 0)
+      if (minOrderAmount > 0 && eligibleSubtotal < minOrderAmount) {
+        continue
+      }
     }
 
     const discountAmount = calculateDiscountAmount({
-      discountType: discount.discountType,
-      discountValue: discount.discountValue,
-      maxDiscountAmount: discount.maxDiscountAmount,
+      discountType,
+      discountValue,
+      maxDiscountAmount,
       eligibleSubtotal,
     })
 
@@ -187,11 +246,12 @@ export const resolveAppDiscountForOrder = async ({ user, orderItems }) => {
         _id: discount._id,
         name: discount.name,
         appliesTo: discount.appliesTo,
-        discountType: discount.discountType,
-        discountValue: discount.discountValue,
-        maxDiscountAmount: discount.maxDiscountAmount,
-        onlyNewAppUsers: discount.onlyNewAppUsers,
-        singleUsePerUser: discount.singleUsePerUser,
+        discountType,
+        discountValue,
+        maxDiscountAmount,
+        userEligibility: discount.userEligibility || (discount.onlyNewAppUsers ? "new" : "all"),
+        usageLimitType: discount.usageLimitType || (discount.singleUsePerUser ? "one-time" : "unlimited"),
+        rules: discount.rules || [],
       },
     }
   }

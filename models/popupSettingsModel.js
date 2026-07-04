@@ -5,6 +5,7 @@ const popupSettingsSchema = mongoose.Schema(
     // ── Enable / Pages ──────────────────────────────────────────────────────────
     isEnabled: { type: Boolean, default: true },
     showOnPages: { type: [String], default: ["home"] },
+    showLimit: { type: String, enum: ["once", "always"], default: "once" },
 
     // ── LEFT PANEL (green image side) ───────────────────────────────────────────
     // The big promotional image that covers the entire left column

@@ -154,6 +154,7 @@ router.post(
       const appDiscountResult = await resolveAppDiscountForOrder({
         user: req.user,
         orderItems,
+        code: req.body.couponCode,
       })
 
       if (appDiscountResult?.applied) {
@@ -184,6 +185,7 @@ router.post(
       appDiscountValue: Number(appDiscountMeta?.discountValue || 0),
       appDiscountAmount: appliedAppDiscountAmount,
       totalPrice: normalizedTotalPrice,
+      couponCode: appDiscountMeta ? appDiscountMeta.name : (req.body.couponCode || ""),
       customerNotes,
       paymentMethod: paymentMethod || "cod",
       actualPaymentMethod: actualPaymentMethod || paymentMethod || "cod",

@@ -111,6 +111,7 @@ router.put(
       "googlePlayLink",
       "appStoreLink",
       "continueButtonText",
+      "showLimit",
     ]
     fields.forEach((key) => {
       const v = str(b[key])

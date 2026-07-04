@@ -1,15 +1,34 @@
 import mongoose from "mongoose"
 
+const appDiscountRuleSchema = mongoose.Schema({
+  minCartAmount: {
+    type: Number,
+    required: true,
+    min: 0,
+  },
+  maxCartAmount: {
+    type: Number,
+    required: true,
+    min: 0,
+  },
+  discountType: {
+    type: String,
+    enum: ["percentage", "fixed"],
+    required: true,
+    default: "percentage",
+  },
+  discountValue: {
+    type: Number,
+    required: true,
+    min: 0,
+  },
+})
+
 const appDiscountSchema = mongoose.Schema(
   {
     name: {
       type: String,
       required: true,
-      trim: true,
-    },
-    description: {
-      type: String,
-      default: "",
       trim: true,
     },
     isActive: {
@@ -18,7 +37,7 @@ const appDiscountSchema = mongoose.Schema(
     },
     appliesTo: {
       type: String,
-      enum: ["all", "products"],
+      enum: ["all", "products", "categories", "subcategories"],
       default: "all",
     },
     products: [
@@ -27,6 +46,19 @@ const appDiscountSchema = mongoose.Schema(
         ref: "Product",
       },
     ],
+    categories: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Category",
+      },
+    ],
+    subcategories: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "SubCategory",
+      },
+    ],
+    // For backwards compatibility:
     discountType: {
       type: String,
       enum: ["percentage", "fixed"],
@@ -34,7 +66,7 @@ const appDiscountSchema = mongoose.Schema(
     },
     discountValue: {
       type: Number,
-      required: true,
+      default: 0,
       min: 0,
     },
     minOrderAmount: {
@@ -46,6 +78,20 @@ const appDiscountSchema = mongoose.Schema(
       type: Number,
       default: null,
       min: 0,
+    },
+    userEligibility: {
+      type: String,
+      enum: ["all", "new"],
+      default: "all",
+    },
+    usageLimitType: {
+      type: String,
+      enum: ["one-time", "unlimited"],
+      default: "one-time",
+    },
+    rules: {
+      type: [appDiscountRuleSchema],
+      default: [],
     },
     onlyNewAppUsers: {
       type: Boolean,
@@ -63,10 +109,6 @@ const appDiscountSchema = mongoose.Schema(
       type: Date,
       required: true,
     },
-    priority: {
-      type: Number,
-      default: 0,
-    },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -79,7 +121,7 @@ const appDiscountSchema = mongoose.Schema(
 )
 
 appDiscountSchema.index({ isActive: 1, startsAt: 1, endsAt: 1 })
-appDiscountSchema.index({ priority: -1, createdAt: -1 })
+appDiscountSchema.index({ createdAt: -1 })
 
 const AppDiscount = mongoose.model("AppDiscount", appDiscountSchema)
 

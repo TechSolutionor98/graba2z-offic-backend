@@ -3,6 +3,10 @@ import asyncHandler from "express-async-handler"
 import Coupon from "../models/couponModel.js"
 import Category from "../models/categoryModel.js"
 import Product from "../models/productModel.js"
+import AppDiscount from "../models/appDiscountModel.js"
+import User from "../models/userModel.js"
+import Order from "../models/orderModel.js"
+import jwt from "jsonwebtoken"
 import { protect, admin } from "../middleware/authMiddleware.js"
 import { logActivity } from "../middleware/permissionMiddleware.js"
 
@@ -81,20 +85,203 @@ router.get(
 router.post(
   "/validate",
   asyncHandler(async (req, res) => {
-    const { code, cartItems } = req.body
+    const { code, cartItems, orderSource } = req.body
+    if (!code) {
+      res.status(400)
+      throw new Error("Coupon code is required")
+    }
 
-    const coupon = await Coupon.findOne({
-      code: code.toUpperCase(),
+    const searchCode = String(code).trim().toUpperCase()
+    const source = (orderSource || req.headers["x-order-source"] || req.headers["x-client-source"] || "web")
+      .toString()
+      .trim()
+      .toLowerCase()
+    const isApp = source === "app"
+
+    // 1. Check in Coupon collection first
+    let coupon = await Coupon.findOne({
+      code: searchCode,
       isActive: true,
       validFrom: { $lte: new Date() },
       validUntil: { $gte: new Date() },
     }).populate("categories", "name")
 
+    // 2. Check in AppDiscount collection if not found in Coupon
+    let appDiscount = null
     if (!coupon) {
+      appDiscount = await AppDiscount.findOne({
+        name: searchCode,
+        isActive: true,
+        startsAt: { $lte: new Date() },
+        endsAt: { $gte: new Date() },
+      }).populate("categories", "name").populate("subcategories", "name")
+    }
+
+    if (!coupon && !appDiscount) {
       res.status(400)
       throw new Error("Invalid or expired coupon code")
     }
 
+    // ── IF IT IS AN APP DISCOUNT ─────────────────────────────────────────────
+    if (appDiscount) {
+      if (!isApp) {
+        res.status(400)
+        throw new Error("This coupon is only valid on the GrabA2Z Mobile App.")
+      }
+
+      // Check User Eligibility if token is present
+      let user = null
+      if (req.headers.authorization && req.headers.authorization.startsWith("Bearer")) {
+        try {
+          const token = req.headers.authorization.split(" ")[1]
+          const decoded = jwt.verify(token, process.env.JWT_SECRET)
+          user = await User.findById(decoded.id).select("-password")
+        } catch (err) {
+          // ignore auth token parse errors for validation
+        }
+      }
+
+      if (user) {
+        const ACTIVE_ORDER_QUERY = {
+          status: { $nin: ["Cancelled", "Deleted"] },
+          documentType: { $ne: "quotation" },
+        }
+        const userOrderCount = await Order.countDocuments({ user: user._id, ...ACTIVE_ORDER_QUERY })
+        const hasAnyOrder = userOrderCount > 0
+
+        const isOnlyNewUsers = appDiscount.userEligibility
+          ? appDiscount.userEligibility === "new"
+          : appDiscount.onlyNewAppUsers
+
+        if (isOnlyNewUsers && hasAnyOrder) {
+          res.status(400)
+          throw new Error("This coupon is only valid for new app users on their first order.")
+        }
+
+        const isSingleUse = appDiscount.usageLimitType
+          ? appDiscount.usageLimitType === "one-time"
+          : appDiscount.singleUsePerUser
+
+        if (isSingleUse) {
+          const usedBefore = await Order.exists({
+            user: user._id,
+            appDiscountApplied: true,
+            appDiscountId: appDiscount._id,
+          })
+          if (usedBefore) {
+            res.status(400)
+            throw new Error("You have already used this coupon code.")
+          }
+        }
+      }
+
+      // Calculate eligible subtotal and items
+      let eligibleItems = []
+      let totalEligibleAmount = 0
+
+      if (appDiscount.appliesTo === "products") {
+        const targetProductIds = new Set((appDiscount.products || []).map((id) => id.toString()))
+        for (const item of cartItems) {
+          const prodId = item.product || item.productId
+          if (prodId && targetProductIds.has(prodId.toString())) {
+            eligibleItems.push(item)
+            const product = await Product.findById(prodId)
+            if (product) {
+              const price = (product.offerPrice && product.offerPrice > 0) ? product.offerPrice : product.price
+              totalEligibleAmount += price * (item.qty || item.quantity || 0)
+            }
+          }
+        }
+      } else if (appDiscount.appliesTo === "categories") {
+        const targetCategoryIds = new Set((appDiscount.categories || []).map((id) => id.toString()))
+        for (const item of cartItems) {
+          const prodId = item.product || item.productId
+          const product = await Product.findById(prodId).populate("parentCategory")
+          if (product && product.parentCategory && targetCategoryIds.has(product.parentCategory._id.toString())) {
+            eligibleItems.push(item)
+            const price = (product.offerPrice && product.offerPrice > 0) ? product.offerPrice : product.price
+            totalEligibleAmount += price * (item.qty || item.quantity || 0)
+          }
+        }
+      } else if (appDiscount.appliesTo === "subcategories") {
+        const targetSubcategoryIds = new Set((appDiscount.subcategories || []).map((id) => id.toString()))
+        for (const item of cartItems) {
+          const prodId = item.product || item.productId
+          const product = await Product.findById(prodId)
+          const subCatId = product && (product.category || product.subCategory)
+          if (product && subCatId && targetSubcategoryIds.has(subCatId.toString())) {
+            eligibleItems.push(item)
+            const price = (product.offerPrice && product.offerPrice > 0) ? product.offerPrice : product.price
+            totalEligibleAmount += price * (item.qty || item.quantity || 0)
+          }
+        }
+      } else {
+        eligibleItems = cartItems
+        for (const item of cartItems) {
+          const prodId = item.product || item.productId
+          const product = await Product.findById(prodId)
+          if (product) {
+            const price = (product.offerPrice && product.offerPrice > 0) ? product.offerPrice : product.price
+            totalEligibleAmount += price * (item.qty || item.quantity || 0)
+          }
+        }
+      }
+
+      if (eligibleItems.length === 0) {
+        res.status(400)
+        throw new Error("No eligible items in cart for this coupon.")
+      }
+
+      // Check rule slabs
+      let discountType = appDiscount.discountType
+      let discountValue = appDiscount.discountValue
+      let maxDiscountAmount = appDiscount.maxDiscountAmount
+
+      if (Array.isArray(appDiscount.rules) && appDiscount.rules.length > 0) {
+        const matchingRule = appDiscount.rules.find(
+          (r) => totalEligibleAmount >= r.minCartAmount && totalEligibleAmount <= r.maxCartAmount
+        )
+        if (!matchingRule) {
+          res.status(400)
+          throw new Error(`This coupon is not applicable for your cart total of AED ${totalEligibleAmount}.`)
+        }
+        discountType = matchingRule.discountType
+        discountValue = matchingRule.discountValue
+        maxDiscountAmount = null
+      } else {
+        if (appDiscount.minOrderAmount && totalEligibleAmount < appDiscount.minOrderAmount) {
+          res.status(400)
+          throw new Error(`Minimum order amount of AED ${appDiscount.minOrderAmount} required for this coupon.`)
+        }
+      }
+
+      let discountAmount = 0
+      if (discountType === "percentage") {
+        discountAmount = (totalEligibleAmount * discountValue) / 100
+        if (maxDiscountAmount && discountAmount > maxDiscountAmount) {
+          discountAmount = maxDiscountAmount
+        }
+      } else {
+        discountAmount = Math.min(discountValue, totalEligibleAmount)
+      }
+
+      return res.json({
+        valid: true,
+        coupon: {
+          _id: appDiscount._id,
+          code: appDiscount.name,
+          discountType,
+          discountValue,
+          categories: appDiscount.categories || [],
+          isAppDiscount: true,
+        },
+        discountAmount,
+        eligibleItems,
+        totalEligibleAmount,
+      })
+    }
+
+    // ── IF IT IS A NORMAL COUPON ─────────────────────────────────────────────
     // Check usage limit
     if (coupon.usageLimit && coupon.usedCount >= coupon.usageLimit) {
       res.status(400)
