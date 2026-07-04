@@ -2,9 +2,12 @@ import mongoose from "mongoose"
 
 const popupSettingsSchema = mongoose.Schema(
   {
-    // ── Enable / Pages ──────────────────────────────────────────────────────────
+    name: { type: String, required: true, trim: true, default: "Default Promo Popup" },
+
+    // ── Enable / Pages / Platforms ──────────────────────────────────────────────
     isEnabled: { type: Boolean, default: true },
     showOnPages: { type: [String], default: ["home"] },
+    platforms: { type: [String], default: ["web", "app"] }, // target platforms
     showLimit: { type: String, enum: ["once", "always"], default: "once" },
 
     // ── LEFT PANEL (green image side) ───────────────────────────────────────────
