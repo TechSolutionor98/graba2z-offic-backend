@@ -123,6 +123,7 @@ export const getFirstUserAppDiscountStatus = async ({ user }) => {
         singleUsePerUser: discount.singleUsePerUser,
         userEligibility: discount.userEligibility || (discount.onlyNewAppUsers ? "new" : "all"),
         usageLimitType: discount.usageLimitType || (discount.singleUsePerUser ? "one-time" : "unlimited"),
+        applicationMode: discount.applicationMode || "manual",
         rules: discount.rules || [],
         startsAt: discount.startsAt,
         endsAt: discount.endsAt,
@@ -251,6 +252,7 @@ export const resolveAppDiscountForOrder = async ({ user, orderItems, code }) => 
         maxDiscountAmount,
         userEligibility: discount.userEligibility || (discount.onlyNewAppUsers ? "new" : "all"),
         usageLimitType: discount.usageLimitType || (discount.singleUsePerUser ? "one-time" : "unlimited"),
+        applicationMode: discount.applicationMode || "manual",
         rules: discount.rules || [],
       },
     }

@@ -89,6 +89,11 @@ const appDiscountSchema = mongoose.Schema(
       enum: ["one-time", "unlimited"],
       default: "one-time",
     },
+    applicationMode: {
+      type: String,
+      enum: ["automatic", "manual"],
+      default: "manual",
+    },
     rules: {
       type: [appDiscountRuleSchema],
       default: [],

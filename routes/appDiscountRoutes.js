@@ -58,6 +58,9 @@ const buildPayload = async (body, { forUpdate = false } = {}) => {
     payload.usageLimitType = String(body.usageLimitType || "one-time").trim().toLowerCase()
     payload.singleUsePerUser = payload.usageLimitType === "one-time"
   }
+  if (body.applicationMode !== undefined) {
+    payload.applicationMode = String(body.applicationMode || "manual").trim().toLowerCase()
+  }
 
   if (body.products !== undefined) {
     payload.products = normalizeIds(body.products)
@@ -218,7 +221,7 @@ router.get(
       endsAt: { $gte: now },
     })
       .select(
-        "name description appliesTo discountType discountValue minOrderAmount maxDiscountAmount onlyNewAppUsers singleUsePerUser userEligibility usageLimitType rules startsAt endsAt priority",
+        "name description appliesTo discountType discountValue minOrderAmount maxDiscountAmount onlyNewAppUsers singleUsePerUser userEligibility usageLimitType applicationMode rules startsAt endsAt priority",
       )
       .sort({ priority: -1, createdAt: -1 })
       .lean()
