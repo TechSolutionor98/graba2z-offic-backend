@@ -1835,6 +1835,7 @@ router.post(
       shippingAddress,
       pickupDetails,
       paymentMethod = "Cash on Delivery",
+      actualPaymentMethod,
       itemsPrice,
       shippingPrice = 0,
       taxPrice = 0,
@@ -1895,6 +1896,11 @@ router.post(
       shippingAddress: deliveryType === "home" ? shippingAddress : undefined,
       pickupDetails: deliveryType === "pickup" ? pickupDetails : undefined,
       paymentMethod,
+      actualPaymentMethod: actualPaymentMethod || 
+        (paymentMethod === "Cash on Delivery" || paymentMethod === "cod" ? "cod" : 
+         paymentMethod === "card" || paymentMethod === "Credit Card" ? "card" : 
+         paymentMethod === "tabby" ? "tabby" : 
+         paymentMethod === "tamara" ? "tamara" : "cod"),
       itemsPrice: Number(computedItemsPrice.toFixed(2)),
       shippingPrice: Number(Number(shippingPrice || 0).toFixed(2)),
       taxPrice: Number(Number(taxPrice || 0).toFixed(2)),
