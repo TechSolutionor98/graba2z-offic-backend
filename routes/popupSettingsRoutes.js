@@ -122,9 +122,14 @@ router.post(
   "/",
   protect,
   admin,
-  upload.single("leftImage"),
+  upload.fields([
+    { name: "leftImage", maxCount: 1 },
+    { name: "mobileImage", maxCount: 1 },
+  ]),
   asyncHandler(async (req, res) => {
     const b = req.body
+    const leftImageFile = req.files && req.files["leftImage"] ? req.files["leftImage"][0] : null
+    const mobileImageFile = req.files && req.files["mobileImage"] ? req.files["mobileImage"][0] : null
 
     const showOnPages = b.showOnPages
       ? typeof b.showOnPages === "string" && b.showOnPages.startsWith("[")
@@ -159,7 +164,8 @@ router.post(
       googlePlayLink: b.googlePlayLink || "https://play.google.com/store/apps/details?id=ae.grabatoz1.grabatoz1",
       appStoreLink: b.appStoreLink || "https://apps.apple.com/pk/app/graba2z/id6742447046",
       continueButtonText: b.continueButtonText || "Continue to Website",
-      leftImageUrl: req.file ? `/uploads/popup/${req.file.filename}` : "",
+      leftImageUrl: leftImageFile ? `/uploads/popup/${leftImageFile.filename}` : "",
+      mobileImageUrl: mobileImageFile ? `/uploads/popup/${mobileImageFile.filename}` : "",
       updatedBy: req.user._id,
     })
 
@@ -186,7 +192,10 @@ router.put(
   "/:id",
   protect,
   admin,
-  upload.single("leftImage"),
+  upload.fields([
+    { name: "leftImage", maxCount: 1 },
+    { name: "mobileImage", maxCount: 1 },
+  ]),
   asyncHandler(async (req, res) => {
     const popup = await PopupSettings.findById(req.params.id)
     if (!popup) {
@@ -255,9 +264,16 @@ router.put(
     }
 
     // Handle left panel image upload
-    if (req.file) {
+    if (req.files && req.files["leftImage"]) {
+      const leftFile = req.files["leftImage"][0]
       deleteLocalFile(popup.leftImageUrl)
-      popup.leftImageUrl = `/uploads/popup/${req.file.filename}`
+      popup.leftImageUrl = `/uploads/popup/${leftFile.filename}`
+    }
+    // Handle mobile banner image upload
+    if (req.files && req.files["mobileImage"]) {
+      const mobileFile = req.files["mobileImage"][0]
+      deleteLocalFile(popup.mobileImageUrl)
+      popup.mobileImageUrl = `/uploads/popup/${mobileFile.filename}`
     }
 
     popup.updatedBy = req.user._id
@@ -294,8 +310,9 @@ router.delete(
     const name = popup.name
     const targetId = popup._id
 
-    // Delete associated image file
+    // Delete associated image files
     deleteLocalFile(popup.leftImageUrl)
+    deleteLocalFile(popup.mobileImageUrl)
 
     await popup.deleteOne()
 

@@ -13,6 +13,7 @@ const popupSettingsSchema = mongoose.Schema(
     // ── LEFT PANEL (green image side) ───────────────────────────────────────────
     // The big promotional image that covers the entire left column
     leftImageUrl: { type: String, default: "", trim: true },
+    mobileImageUrl: { type: String, default: "", trim: true },
 
     // ── RIGHT PANEL — "Why Download" section ───────────────────────────────────
     sectionTitle: { type: String, default: "Why Download Our App?", trim: true },
