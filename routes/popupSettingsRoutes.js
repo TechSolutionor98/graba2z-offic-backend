@@ -268,12 +268,18 @@ router.put(
       const leftFile = req.files["leftImage"][0]
       deleteLocalFile(popup.leftImageUrl)
       popup.leftImageUrl = `/uploads/popup/${leftFile.filename}`
+    } else if (b.removeLeftImage === "true") {
+      deleteLocalFile(popup.leftImageUrl)
+      popup.leftImageUrl = ""
     }
     // Handle mobile banner image upload
     if (req.files && req.files["mobileImage"]) {
       const mobileFile = req.files["mobileImage"][0]
       deleteLocalFile(popup.mobileImageUrl)
       popup.mobileImageUrl = `/uploads/popup/${mobileFile.filename}`
+    } else if (b.removeMobileImage === "true") {
+      deleteLocalFile(popup.mobileImageUrl)
+      popup.mobileImageUrl = ""
     }
 
     popup.updatedBy = req.user._id
