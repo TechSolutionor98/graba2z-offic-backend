@@ -1,5 +1,29 @@
 import mongoose from "mongoose"
 
+const couponRuleSchema = mongoose.Schema({
+  minCartAmount: {
+    type: Number,
+    required: true,
+    min: 0,
+  },
+  maxCartAmount: {
+    type: Number,
+    required: true,
+    min: 0,
+  },
+  discountType: {
+    type: String,
+    enum: ["percentage", "fixed"],
+    required: true,
+    default: "percentage",
+  },
+  discountValue: {
+    type: Number,
+    required: true,
+    min: 0,
+  },
+})
+
 const couponSchema = mongoose.Schema(
   {
     code: {
@@ -60,6 +84,10 @@ const couponSchema = mongoose.Schema(
       type: String,
       enum: ["public", "private"],
       default: "public",
+    },
+    rules: {
+      type: [couponRuleSchema],
+      default: [],
     },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,

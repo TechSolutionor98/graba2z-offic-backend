@@ -12,6 +12,65 @@ import { logActivity } from "../middleware/permissionMiddleware.js"
 
 const router = express.Router()
 
+const validateRules = (rulesList) => {
+  if (!rulesList) return []
+  if (typeof rulesList === "string") {
+    try {
+      rulesList = JSON.parse(rulesList)
+    } catch (err) {
+      throw new Error("Invalid rules format")
+    }
+  }
+  if (!Array.isArray(rulesList)) {
+    throw new Error("Rules must be an array")
+  }
+
+  const validatedRules = []
+  for (const r of rulesList) {
+    const minCartAmount = Number(r.minCartAmount)
+    const maxCartAmount = Number(r.maxCartAmount)
+    const discountValue = Number(r.discountValue)
+    const discountType = String(r.discountType || "percentage").trim().toLowerCase()
+
+    if (Number.isNaN(minCartAmount) || minCartAmount < 0) {
+      throw new Error("Minimum cart amount must be a number greater than or equal to 0")
+    }
+    if (Number.isNaN(maxCartAmount) || maxCartAmount < minCartAmount) {
+      throw new Error("Maximum cart amount must be a number greater than or equal to the minimum cart amount")
+    }
+    if (!["percentage", "fixed"].includes(discountType)) {
+      throw new Error("Discount type must be percentage or fixed")
+    }
+    if (Number.isNaN(discountValue) || discountValue < 0) {
+      throw new Error("Discount value must be a number greater than or equal to 0")
+    }
+    if (discountType === "percentage" && discountValue > 100) {
+      throw new Error("Percentage discount value cannot exceed 100%")
+    }
+    if (discountType === "fixed" && discountValue > minCartAmount) {
+      throw new Error(`Fixed discount value (AED ${discountValue}) cannot exceed the minimum cart amount (AED ${minCartAmount})`)
+    }
+
+    validatedRules.push({
+      minCartAmount,
+      maxCartAmount,
+      discountType,
+      discountValue,
+    })
+  }
+
+  // Check for overlaps
+  validatedRules.sort((a, b) => a.minCartAmount - b.minCartAmount)
+  for (let i = 1; i < validatedRules.length; i++) {
+    if (validatedRules[i].minCartAmount <= validatedRules[i - 1].maxCartAmount) {
+      throw new Error(
+        `Overlapping ranges detected: Slab [AED ${validatedRules[i - 1].minCartAmount} - AED ${validatedRules[i - 1].maxCartAmount}] overlaps with Slab [AED ${validatedRules[i].minCartAmount} - AED ${validatedRules[i].maxCartAmount}]`
+      )
+    }
+  }
+  return validatedRules
+}
+
 // @desc    Get all coupons
 // @route   GET /api/coupons
 // @access  Public
@@ -325,21 +384,38 @@ router.post(
       )
     }
 
-    // Check minimum order amount
-    if (coupon.minOrderAmount && totalEligibleAmount < coupon.minOrderAmount) {
-      res.status(400)
-      throw new Error(`Minimum order amount of ${coupon.minOrderAmount} required for this coupon`)
+    // Check minimum order amount and rules
+    let discountType = coupon.discountType
+    let discountValue = coupon.discountValue
+    let maxDiscountAmount = coupon.maxDiscountAmount
+
+    if (Array.isArray(coupon.rules) && coupon.rules.length > 0) {
+      const matchingRule = coupon.rules.find(
+        (r) => totalEligibleAmount >= r.minCartAmount && totalEligibleAmount <= r.maxCartAmount
+      )
+      if (!matchingRule) {
+        res.status(400)
+        throw new Error(`This coupon is not applicable for your cart total of AED ${totalEligibleAmount}.`)
+      }
+      discountType = matchingRule.discountType
+      discountValue = matchingRule.discountValue
+      maxDiscountAmount = null
+    } else {
+      if (coupon.minOrderAmount && totalEligibleAmount < coupon.minOrderAmount) {
+        res.status(400)
+        throw new Error(`Minimum order amount of ${coupon.minOrderAmount} required for this coupon`)
+      }
     }
 
     // Calculate discount
     let discountAmount = 0
-    if (coupon.discountType === "percentage") {
-      discountAmount = (totalEligibleAmount * coupon.discountValue) / 100
-      if (coupon.maxDiscountAmount && discountAmount > coupon.maxDiscountAmount) {
-        discountAmount = coupon.maxDiscountAmount
+    if (discountType === "percentage") {
+      discountAmount = (totalEligibleAmount * discountValue) / 100
+      if (maxDiscountAmount && discountAmount > maxDiscountAmount) {
+        discountAmount = maxDiscountAmount
       }
     } else {
-      discountAmount = Math.min(coupon.discountValue, totalEligibleAmount)
+      discountAmount = Math.min(discountValue, totalEligibleAmount)
     }
 
     res.json({
@@ -347,8 +423,8 @@ router.post(
       coupon: {
         _id: coupon._id,
         code: coupon.code,
-        discountType: coupon.discountType,
-        discountValue: coupon.discountValue,
+        discountType: discountType,
+        discountValue: discountValue,
         categories: coupon.categories,
       },
       discountAmount,
@@ -384,10 +460,22 @@ router.post(
       throw new Error("Coupon code already exists")
     }
 
+    // Validate rules if provided
+    let validatedRules = []
+    if (couponData.rules !== undefined) {
+      try {
+        validatedRules = validateRules(couponData.rules)
+      } catch (err) {
+        res.status(400)
+        throw new Error(err.message)
+      }
+    }
+
     const coupon = new Coupon({
       ...couponData, // includes visibility
       code: couponData.code.toUpperCase(),
       categories,
+      rules: validatedRules,
       createdBy: req.user._id,
     })
 
@@ -437,6 +525,16 @@ router.put(
         }
       }
 
+      // Validate rules if provided
+      if (updateData.rules !== undefined) {
+        try {
+          updateData.rules = validateRules(updateData.rules)
+        } catch (err) {
+          res.status(400)
+          throw new Error(err.message)
+        }
+      }
+
       // Update coupon fields
       Object.keys(updateData).forEach((key) => {
         if (key === "code") {
@@ -446,7 +544,7 @@ router.put(
         }
       })
 
-      if (categories && categories.length > 0) coupon.categories = categories
+      if (categories) coupon.categories = categories
 
       const updatedCoupon = await coupon.save()
       const populatedCoupon = await Coupon.findById(updatedCoupon._id)
