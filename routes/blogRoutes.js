@@ -8,6 +8,7 @@ import BlogBrand from "../models/blogBrandModel.js"
 import { protect, admin } from "../middleware/authMiddleware.js"
 import { logActivity } from "../middleware/permissionMiddleware.js"
 import { cacheMiddleware, invalidateCache } from "../middleware/cacheMiddleware.js"
+import { submitBlog } from "../services/indexNowService.js"
 import {
   buildBlogArabicPayload,
   shouldAutoTranslateArabic,
@@ -369,6 +370,10 @@ router.post(
 
     const createdBlog = await blog.save()
 
+    if (createdBlog.status === "published") {
+      submitBlog(createdBlog, "create", req.user?._id).catch(err => console.error("IndexNow error:", err))
+    }
+
     // Populate the created blog before returning
     const populatedBlog = await Blog.findById(createdBlog._id)
       .populate("blogCategory", "name nameAr slug")
@@ -480,6 +485,10 @@ router.put(
 
     const updatedBlog = await blog.save()
 
+    if (updatedBlog.status === "published") {
+      submitBlog(updatedBlog, "update", req.user?._id).catch(err => console.error("IndexNow error:", err))
+    }
+
     // Populate the updated blog before returning
     const populatedBlog = await Blog.findById(updatedBlog._id)
       .populate("blogCategory", "name nameAr slug")
@@ -534,6 +543,10 @@ router.patch(
 
     await invalidateCache(["blogs", "blogCategories", "blogTopics", "blogBrands"])
 
+    if (blog.status === "published") {
+      submitBlog(blog, "update", req.user?._id).catch(err => console.error("IndexNow error:", err))
+    }
+
     res.json(blog)
   }),
 )
@@ -561,6 +574,9 @@ router.delete(
 
     const blogTitle = blog.title
     await blog.deleteOne()
+
+    // Submit to IndexNow
+    submitBlog(blog, "delete", req.user?._id).catch(err => console.error("IndexNow error:", err))
 
     // Log activity
     if (req.user) {

@@ -18,6 +18,7 @@ const __dirname = path.dirname(__filename)
 import googleMerchantRoutes from "./routes/googleMerchantRoutes.js"
 import acerProductsRoutes from "./routes/acerProductsRoutes.js"
 import sitemapRoutes from './routes/sitemapRoutes.js'
+import indexNowRoutes from "./routes/indexNowRoutes.js"
 
 // Routes
 import userRoutes from "./routes/userRoutes.js"
@@ -272,6 +273,7 @@ app.use("/api/seo-pages", seoPageRoutes)
 app.use("/api/static-page-translations", staticPageTranslationRoutes)
 app.use("/api/admin/arabic-conversion", arabicConversionRoutes)
 app.use("/api/product-payment-methods", productPaymentMethodRoutes)
+app.use("/api/indexnow", indexNowRoutes)
 // @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
 

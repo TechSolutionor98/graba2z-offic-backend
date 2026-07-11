@@ -9,6 +9,7 @@ import { deleteLocalFile, isCloudinaryUrl } from "../config/multer.js"
 import { cacheMiddleware, invalidateCache } from "../middleware/cacheMiddleware.js"
 import { translateEnToAr } from "../utils/translateWithFallback.js"
 import { requireSeoUnlockIfBodyHas } from "../middleware/seoUnlockMiddleware.js"
+import { submitCategory } from "../services/indexNowService.js"
 
 const router = express.Router()
 
@@ -568,6 +569,11 @@ router.post(
     // Invalidate category cache
     await invalidateCache(['categories', 'products'])
     
+    // Submit to IndexNow
+    if (createdCategory.isActive && !createdCategory.isDeleted) {
+      submitCategory(createdCategory, "create", req.user?._id).catch(err => console.error("IndexNow error:", err))
+    }
+    
     res.status(201).json(createdCategory)
   }),
 )
@@ -691,6 +697,11 @@ router.put(
       
       // Invalidate category cache
       await invalidateCache(['categories', 'products'])
+      
+      // Submit to IndexNow
+      if (updatedCategory.isActive && !updatedCategory.isDeleted) {
+        submitCategory(updatedCategory, "update", req.user?._id).catch(err => console.error("IndexNow error:", err))
+      }
       
       res.json(updatedCategory)
     } else {
@@ -862,6 +873,9 @@ router.delete(
       // Delete the category
       await Category.findByIdAndDelete(req.params.id)
 
+      // Submit to IndexNow
+      submitCategory(category, "delete", req.user?._id).catch(err => console.error("IndexNow error:", err))
+
       res.json({ 
         message: "Category, subcategories, and products permanently deleted",
         deletedCount: {
@@ -901,6 +915,9 @@ router.delete(
           req,
         })
       }
+
+      // Submit to IndexNow
+      submitCategory(category, "delete", req.user?._id).catch(err => console.error("IndexNow error:", err))
 
       res.json({ message: "Category deleted successfully" })
     } else {

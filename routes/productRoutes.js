@@ -22,6 +22,7 @@ import Volume from "../models/volumeModel.js"
 import mongoose from "mongoose"
 import { deleteLocalFile, isCloudinaryUrl } from "../config/multer.js"
 import { requireSeoUnlockIfBodyHas } from "../middleware/seoUnlockMiddleware.js"
+import { submitProduct } from "../services/indexNowService.js"
 
 const router = express.Router()
 const __filename = fileURLToPath(import.meta.url)
@@ -2014,6 +2015,11 @@ router.post(
     // Invalidate product cache
     await invalidateCache('products')
 
+    // Submit to IndexNow
+    if (createdProduct.isActive && !createdProduct.isDeleted) {
+      submitProduct(createdProduct, "create", req.user?._id).catch(err => console.error("IndexNow error:", err))
+    }
+
     res.status(201).json(populatedProduct)
   }),
 )
@@ -2381,6 +2387,11 @@ router.put(
 
       // Invalidate product cache
       await invalidateCache('products')
+
+      // Submit to IndexNow
+      if (updatedProduct.isActive && !updatedProduct.isDeleted) {
+        submitProduct(updatedProduct, "update", req.user?._id).catch(err => console.error("IndexNow error:", err))
+      }
 
       res.json(populatedProduct)
     } else {
@@ -2818,6 +2829,9 @@ router.delete(
       // Invalidate product cache
       await invalidateCache('products')
       
+      // Submit to IndexNow
+      submitProduct(product, "delete", req.user?._id).catch(err => console.error("IndexNow error:", err))
+
       res.json({ message: "Product removed" })
     } else {
       res.status(404)

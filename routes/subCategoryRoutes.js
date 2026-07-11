@@ -485,6 +485,7 @@ import { logActivity } from "../middleware/permissionMiddleware.js"
 import { translateEnToAr } from "../utils/translateWithFallback.js"
 import { cacheMiddleware, invalidateCache } from "../middleware/cacheMiddleware.js"
 import { requireSeoUnlockIfBodyHas } from "../middleware/seoUnlockMiddleware.js"
+import { submitSubCategory } from "../services/indexNowService.js"
 
 const router = express.Router()
 
@@ -1054,6 +1055,11 @@ router.post(
 
       await invalidateCache(["categories", "subCategories", "products"])
       
+      // Submit to IndexNow
+      if (createdSubCategory.isActive && !createdSubCategory.isDeleted) {
+        submitSubCategory(createdSubCategory, createdSubCategory.category?.slug || "", "create", req.user?._id).catch(err => console.error("IndexNow error:", err))
+      }
+      
       console.log('Subcategory created successfully:', responseData)
       res.status(201).json(responseData)
     } catch (error) {
@@ -1272,6 +1278,11 @@ router.put(
       await logActivity(req, "UPDATE", "SUBCATEGORIES", `Updated subcategory: ${updatedSubCategory.name}`, updatedSubCategory._id, updatedSubCategory.name)
 
       await invalidateCache(["categories", "subCategories", "products"])
+      
+      // Submit to IndexNow
+      if (updatedSubCategory.isActive && !updatedSubCategory.isDeleted) {
+        submitSubCategory(updatedSubCategory, updatedSubCategory.category?.slug || "", "update", req.user?._id).catch(err => console.error("IndexNow error:", err))
+      }
       
       console.log('Subcategory updated successfully:', responseData)
       res.json(responseData)
@@ -1532,6 +1543,9 @@ router.delete(
       // Delete the subcategory itself
       await SubCategory.findByIdAndDelete(req.params.id)
 
+      // Submit to IndexNow
+      submitSubCategory(subcategory, subcategory.category?.slug || "", "delete", req.user?._id).catch(err => console.error("IndexNow error:", err))
+
       res.json({ 
         message: "Subcategory, child subcategories, and products permanently deleted",
         deletedCount: {
@@ -1562,6 +1576,9 @@ router.delete(
 
       // Log activity
       await logActivity(req, "DELETE", "SUBCATEGORIES", `Moved subcategory to trash: ${subcategory.name}`, subcategory._id, subcategory.name)
+
+      // Submit to IndexNow
+      submitSubCategory(subcategory, subcategory.category?.slug || "", "delete", req.user?._id).catch(err => console.error("IndexNow error:", err))
 
       res.json({ message: "Subcategory moved to trash successfully" })
     } else {

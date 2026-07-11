@@ -8,12 +8,14 @@ import Blog from "../models/blogModel.js"
 import BlogCategory from "../models/blogCategoryModel.js"
 import OfferPage from "../models/offerPageModel.js"
 import GamingZonePage from "../models/gamingZonePageModel.js"
+import config from "../config/config.js"
 
 const router = express.Router()
 const baseUrl = "https://www.grabatoz.ae"
 const localePrefixes = ["/ae-en", "/ae-ar"]
 const sitemapPaths = ["/sitemap.xml", "/ae-en/sitemap.xml", "/ae-ar/sitemap.xml"]
 const robotsPaths = ["/robots.txt", "/ae-en/robots.txt", "/ae-ar/robots.txt"]
+const indexNowKeyPaths = ["/:key.txt", "/ae-en/:key.txt", "/ae-ar/:key.txt"]
 
 const formatDate = (date) => {
   const parsed = date ? new Date(date) : new Date()
@@ -297,5 +299,17 @@ router.get(
 )
 
 router.get(robotsPaths, sendRobots)
+
+router.get(indexNowKeyPaths, (req, res, next) => {
+  const expectedKey = config.INDEXNOW_KEY
+  if (req.params.key === expectedKey) {
+    res.set({
+      "Content-Type": "text/plain; charset=utf-8",
+      "Cache-Control": "public, max-age=86400",
+    })
+    return res.send(expectedKey)
+  }
+  next()
+})
 
 export default router
