@@ -97,9 +97,10 @@ router.get(
   protect,
   admin,
   asyncHandler(async (req, res) => {
-    const clientUrl = (process.env.CLIENT_URL || "https://www.grabatoz.ae").replace(/\/+$/, "")
     const key = config.INDEXNOW_KEY
-    const verifyUrl = `${clientUrl}/${key}.txt`
+    const protocol = req.protocol
+    const host = req.headers.host
+    const verifyUrl = `${protocol}://${host}/${key}.txt`
 
     try {
       console.log(`[IndexNow Status] Verifying hosted key at ${verifyUrl}`)
