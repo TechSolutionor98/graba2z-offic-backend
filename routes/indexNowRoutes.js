@@ -115,6 +115,7 @@ router.get(
 
       if (content === key) {
         return res.json({
+          success: true,
           verified: true,
           keyLocation: verifyUrl,
           message: "API key verified successfully! The hosted key matches.",
@@ -122,6 +123,7 @@ router.get(
         })
       } else {
         return res.json({
+          success: false,
           verified: false,
           keyLocation: verifyUrl,
           message: `File found but content did not match key. Expected '${key}', got '${content.substring(0, 100)}'`,
@@ -130,6 +132,7 @@ router.get(
       }
     } catch (error) {
       return res.json({
+        success: false,
         verified: false,
         keyLocation: verifyUrl,
         message: `Could not reach hosted verification file: ${error.message}`,
