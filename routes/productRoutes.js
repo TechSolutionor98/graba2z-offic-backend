@@ -1939,52 +1939,7 @@ router.post(
       }
     }
 
-    // Bidirectional available model sync: same group-link behavior as product variations
-    if (productData.availableModels && Array.isArray(productData.availableModels)) {
-      const availableModelIds = productData.availableModels
-        .filter(v => v && v.product && v.product !== createdProduct._id.toString())
-        .map(v => v.product)
-
-      console.log(`[AVAILABLE MODELS SYNC] Product ${createdProduct._id} adding models:`, availableModelIds)
-
-      for (const modelId of availableModelIds) {
-        const modelProduct = await Product.findById(modelId)
-        if (modelProduct) {
-          let modified = false
-
-          const existingModelIndex = modelProduct.availableModels.findIndex(
-            v => (v.product || v).toString() === createdProduct._id.toString()
-          )
-          if (existingModelIndex === -1) {
-            console.log(`[AVAILABLE MODELS SYNC] Adding product ${createdProduct._id} to ${modelProduct._id}'s available models`)
-            modelProduct.availableModels.push({
-              product: createdProduct._id,
-              variationText: "",
-            })
-            modelProduct.markModified('availableModels')
-            modified = true
-          }
-
-          const otherModelIds = availableModelIds.filter(id => id !== modelId)
-          for (const otherId of otherModelIds) {
-            const hasOther = modelProduct.availableModels.some(
-              v => (v.product || v).toString() === otherId
-            )
-            if (!hasOther) {
-              console.log(`[AVAILABLE MODELS SYNC] Adding cross-model ${otherId} to ${modelProduct._id}`)
-              modelProduct.availableModels.push({ product: otherId, variationText: "" })
-              modelProduct.markModified('availableModels')
-              modified = true
-            }
-          }
-
-          if (modified) {
-            await modelProduct.save()
-            console.log(`[AVAILABLE MODELS SYNC] Saved ${modelProduct._id} with ${modelProduct.availableModels.length} available models`)
-          }
-        }
-      }
-    }
+    // One-way availableModels linking: no sync back to modelProduct is performed.
     
 
     
@@ -2298,68 +2253,7 @@ router.put(
         }
       }
       
-      // Bidirectional available model sync: same group-link behavior as product variations
-      if (updateData.availableModels && Array.isArray(updateData.availableModels)) {
-        const availableModelIds = updateData.availableModels
-          .filter(v => v && v.product && v.product !== product._id.toString())
-          .map(v => v.product)
-
-        console.log(`[UPDATE AVAILABLE MODELS SYNC] Product ${product._id} updating models:`, availableModelIds)
-
-        for (const modelId of availableModelIds) {
-          const modelProduct = await Product.findById(modelId)
-          if (modelProduct) {
-            let modified = false
-
-            const existingModelIndex = modelProduct.availableModels.findIndex(
-              v => (v.product || v).toString() === product._id.toString()
-            )
-            if (existingModelIndex === -1) {
-              console.log(`[UPDATE AVAILABLE MODELS SYNC] Adding product ${product._id} to ${modelProduct._id}'s available models`)
-              modelProduct.availableModels.push({
-                product: product._id,
-                variationText: "",
-              })
-              modelProduct.markModified('availableModels')
-              modified = true
-            }
-
-            const otherModelIds = availableModelIds.filter(id => id !== modelId)
-            for (const otherId of otherModelIds) {
-              const hasOther = modelProduct.availableModels.some(
-                v => (v.product || v).toString() === otherId
-              )
-              if (!hasOther) {
-                console.log(`[UPDATE AVAILABLE MODELS SYNC] Adding cross-model ${otherId} to ${modelProduct._id}`)
-                modelProduct.availableModels.push({ product: otherId, variationText: "" })
-                modelProduct.markModified('availableModels')
-                modified = true
-              }
-            }
-
-            if (modified) {
-              await modelProduct.save()
-              console.log(`[UPDATE AVAILABLE MODELS SYNC] Saved ${modelProduct._id} with ${modelProduct.availableModels.length} available models`)
-            }
-          }
-        }
-
-        const allModelProducts = await Product.find({
-          "availableModels.product": product._id,
-          _id: { $ne: product._id },
-        })
-        console.log(`[UPDATE AVAILABLE MODELS SYNC] Found ${allModelProducts.length} products with current product in available models`)
-        for (const relatedProduct of allModelProducts) {
-          if (!availableModelIds.includes(relatedProduct._id.toString())) {
-            console.log(`[UPDATE AVAILABLE MODELS SYNC] Removing product ${product._id} from ${relatedProduct._id}'s available models`)
-            relatedProduct.availableModels = relatedProduct.availableModels.filter(
-              v => (v.product || v).toString() !== product._id.toString()
-            )
-            relatedProduct.markModified('availableModels')
-            await relatedProduct.save()
-          }
-        }
-      }
+      // One-way availableModels linking: no sync back or removal from modelProduct is performed.
 
       const populatedProduct = await Product.findById(updatedProduct._id)
         .populate("parentCategory", "name slug")
