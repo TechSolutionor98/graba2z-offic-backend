@@ -46,7 +46,7 @@ const config = {
   CLOUDINARY_API_SECRET: process.env.CLOUDINARY_API_SECRET,
 
   // IndexNow Configuration
-  INDEXNOW_KEY: process.env.INDEXNOW_KEY || "efbecd6ca3b644ecbfe7759b87d8e886",
+  INDEXNOW_KEY: process.env.INDEXNOW_KEY || "514fe7113eb04ed98d7e94f191678d37",
 }
 
 export default config
