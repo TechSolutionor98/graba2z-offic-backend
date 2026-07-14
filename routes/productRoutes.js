@@ -464,7 +464,22 @@ function escapeRegex(string) {
 // Splits the query into individual words; each word must match at least one field (AND logic across words).
 async function buildSearchConditions(search, BrandModel) {
   if (!search || typeof search !== "string" || !search.trim()) return null
-  const searchTerms = search.trim().split(/\s+/).filter(Boolean)
+  let queryStr = search.trim()
+
+  // If the query is a product URL, extract the slug
+  if (queryStr.includes("/product/")) {
+    try {
+      const cleanUrl = queryStr.split("?")[0].replace(/\/$/, "")
+      const parts = cleanUrl.split("/product/")
+      if (parts.length > 1) {
+        queryStr = decodeURIComponent(parts[1])
+      }
+    } catch (e) {
+      // fallback to original search string
+    }
+  }
+
+  const searchTerms = queryStr.split(/\s+/).filter(Boolean)
   if (searchTerms.length === 0) return null
 
   // For each word, check if it matches a brand name; only add the brand filter for that specific word.
@@ -477,6 +492,7 @@ async function buildSearchConditions(search, BrandModel) {
       { sku: termRegex },
       { barcode: termRegex },
       { tags: termRegex },
+      { slug: termRegex },
     ]
     const matchingBrands = await BrandModel.find({ name: termRegex }).select("_id").lean()
     if (matchingBrands.length > 0) {
