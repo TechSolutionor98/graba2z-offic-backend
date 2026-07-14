@@ -255,6 +255,44 @@ const orderSchema = mongoose.Schema(
   },
 )
 
+orderSchema.post("init", function (doc) {
+  if (
+    (!doc.itemsPrice || doc.itemsPrice <= 0 || !doc.totalPrice || doc.totalPrice <= 0) &&
+    doc.orderItems &&
+    doc.orderItems.length > 0
+  ) {
+    let computedItemsPrice = 0
+    for (const item of doc.orderItems) {
+      computedItemsPrice += (Number(item.price) || 0) * (Number(item.quantity) || 1)
+    }
+
+    if (!doc.itemsPrice || doc.itemsPrice <= 0) {
+      doc.itemsPrice = computedItemsPrice
+    }
+
+    if (!doc.totalPrice || doc.totalPrice <= 0) {
+      const shipping = Number(doc.shippingPrice) || 0
+      const tax = Number(doc.taxPrice) || 0
+      const discount = Number(doc.discountAmount) || 0
+      const codFee = Number(doc.codFee) || 0
+      const codShipping = Number(doc.codShippingFee) || 0
+
+      const paymentChargesTotal = Array.isArray(doc.paymentCharges)
+        ? doc.paymentCharges.reduce((sum, charge) => sum + (Number(charge.amount) || 0), 0)
+        : 0
+
+      let computedTotal = computedItemsPrice + shipping + tax - discount
+      if (paymentChargesTotal > 0) {
+        computedTotal += paymentChargesTotal
+      } else {
+        computedTotal += codFee + codShipping
+      }
+
+      doc.totalPrice = Math.max(0, computedTotal)
+    }
+  }
+})
+
 const Order = mongoose.model("Order", orderSchema)
 
 export default Order

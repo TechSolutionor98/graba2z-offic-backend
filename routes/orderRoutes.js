@@ -1,8 +1,10 @@
-
 import express from "express"
 import asyncHandler from "express-async-handler"
 import Order from "../models/orderModel.js"
 import DeliveryCharge from "../models/deliveryChargeModel.js"
+import Product from "../models/productModel.js"
+import BuyerProtection from "../models/buyerProtectionModel.js"
+import Coupon from "../models/couponModel.js"
 import { protect, admin } from "../middleware/authMiddleware.js"
 import { logActivity } from "../middleware/permissionMiddleware.js"
 import { sendOrderPlacedEmail, sendOrderStatusUpdateEmail } from "../utils/emailService.js"
@@ -143,17 +145,139 @@ router.post(
     }
 
     const normalizedOrderSource = resolveOrderSource(orderSource, req.headers)
-    const parsedTotalPrice = Number(totalPrice)
-    const normalizedBaseTotal = Number.isFinite(parsedTotalPrice)
-      ? Math.max(0, parsedTotalPrice - Math.max(0, requestedShippingPrice) + normalizedShippingPrice)
-      : normalizedItemsPrice + normalizedShippingPrice
 
+    // Server-side Recalculation & Validation of Items
+    let calculatedItemsPrice = 0
+    const verifiedOrderItems = []
+
+    for (const item of orderItems) {
+      if (item.isProtection) {
+        // Buyer protection item
+        const protection = await BuyerProtection.findById(item.protectionData)
+        if (!protection || !protection.isActive) {
+          res.status(400)
+          throw new Error(`Invalid or inactive buyer protection item: ${item.name}`)
+        }
+
+        let protectionPrice = 0
+        // Find parent item in the order
+        const parentItem = verifiedOrderItems.find(
+          (oi) => oi.product && oi.product.toString() === item.protectionFor?.toString()
+        )
+        if (parentItem) {
+          const parentPrice = parentItem.price
+          if (protection.pricingType === "percentage") {
+            protectionPrice = (parentPrice * protection.pricePercentage) / 100
+            if (protection.minPrice && protectionPrice < protection.minPrice) {
+              protectionPrice = protection.minPrice
+            }
+            if (protection.maxPrice && protectionPrice > protection.maxPrice) {
+              protectionPrice = protection.maxPrice
+            }
+          } else {
+            protectionPrice = protection.price
+          }
+        } else {
+          res.status(400)
+          throw new Error(`Parent product for buyer protection item not found in order items`)
+        }
+
+        verifiedOrderItems.push({
+          name: item.name,
+          quantity: Number(item.quantity) || 1,
+          image: item.image,
+          price: protectionPrice,
+          isProtection: true,
+          protectionFor: item.protectionFor,
+          protectionData: item.protectionData,
+        })
+        calculatedItemsPrice += protectionPrice * (Number(item.quantity) || 1)
+      } else {
+        // Regular product item
+        const product = await Product.findById(item.product)
+        if (!product || !product.isActive) {
+          res.status(400)
+          throw new Error(`Product not found or inactive: ${item.name}`)
+        }
+
+        let dbPrice = 0
+        // Check DOS variation
+        if (
+          item.selectedDosIndex !== null &&
+          item.selectedDosIndex !== undefined &&
+          product.dosVariations &&
+          product.dosVariations[item.selectedDosIndex]
+        ) {
+          const dosVar = product.dosVariations[item.selectedDosIndex]
+          dbPrice = dosVar.offerPrice > 0 ? dosVar.offerPrice : dosVar.price
+        }
+        // Check Color variation
+        else if (
+          item.selectedColorIndex !== null &&
+          item.selectedColorIndex !== undefined &&
+          product.colorVariations &&
+          product.colorVariations[item.selectedColorIndex]
+        ) {
+          const colorVar = product.colorVariations[item.selectedColorIndex]
+          dbPrice = colorVar.offerPrice > 0 ? colorVar.offerPrice : colorVar.price
+        }
+        // Default product price
+        else {
+          dbPrice = product.offerPrice > 0 ? product.offerPrice : product.price
+        }
+
+        const quantity = Number(item.quantity) || 1
+        
+        const verifiedItem = {
+          name: product.name,
+          quantity,
+          image: product.image,
+          price: dbPrice,
+          product: product._id,
+        }
+
+        if (item.selectedColorIndex !== null && item.selectedColorIndex !== undefined) {
+          verifiedItem.selectedColorIndex = item.selectedColorIndex
+          const cv = product.colorVariations[item.selectedColorIndex]
+          if (cv) {
+            verifiedItem.selectedColorData = {
+              color: cv.color,
+              image: cv.image,
+              price: cv.price,
+              offerPrice: cv.offerPrice,
+              sku: cv.sku,
+            }
+          }
+        }
+
+        if (item.selectedDosIndex !== null && item.selectedDosIndex !== undefined) {
+          verifiedItem.selectedDosIndex = item.selectedDosIndex
+          const dv = product.dosVariations[item.selectedDosIndex]
+          if (dv) {
+            verifiedItem.selectedDosData = {
+              dosType: dv.dosType,
+              image: dv.image,
+              price: dv.price,
+              offerPrice: dv.offerPrice,
+              sku: dv.sku,
+            }
+          }
+        }
+
+        verifiedOrderItems.push(verifiedItem)
+        calculatedItemsPrice += dbPrice * quantity
+      }
+    }
+
+    const normalizedBaseTotal = calculatedItemsPrice + normalizedShippingPrice
+
+    // Server-side App Discount validation
     let appDiscountMeta = null
     let appliedAppDiscountAmount = 0
     if (normalizedOrderSource === "app" && req.user) {
       const appDiscountResult = await resolveAppDiscountForOrder({
         user: req.user,
-        orderItems,
+        orderItems: verifiedOrderItems,
         code: req.body.couponCode,
       })
 
@@ -166,18 +290,80 @@ router.post(
       }
     }
 
-    const normalizedTotalPrice = Math.max(0, normalizedBaseTotal - appliedAppDiscountAmount)
+    // Server-side Web Coupon validation
+    let couponDiscount = 0
+    if (req.body.couponCode && normalizedOrderSource === "web") {
+      const searchCode = String(req.body.couponCode).trim().toUpperCase()
+      const coupon = await Coupon.findOne({
+        code: searchCode,
+        isActive: true,
+        validFrom: { $lte: new Date() },
+        validUntil: { $gte: new Date() },
+      })
+
+      if (coupon) {
+        let totalEligibleAmount = 0
+        if (coupon.appliesTo === "products") {
+          const targetProductIds = new Set((coupon.products || []).map((id) => id.toString()))
+          for (const item of verifiedOrderItems) {
+            if (item.product && targetProductIds.has(item.product.toString())) {
+              totalEligibleAmount += item.price * item.quantity
+            }
+          }
+        } else if (coupon.appliesTo === "categories") {
+          const targetCategoryIds = new Set((coupon.categories || []).map((id) => id.toString()))
+          for (const item of verifiedOrderItems) {
+            if (item.product) {
+              const product = await Product.findById(item.product).lean()
+              if (product && product.parentCategory && targetCategoryIds.has(product.parentCategory.toString())) {
+                totalEligibleAmount += item.price * item.quantity
+              }
+            }
+          }
+        } else if (coupon.appliesTo === "subcategories") {
+          const targetSubcategoryIds = new Set((coupon.subcategories || []).map((id) => id.toString()))
+          for (const item of verifiedOrderItems) {
+            if (item.product) {
+              const product = await Product.findById(item.product).lean()
+              const subCatId = product && (product.category || product.subCategory)
+              if (product && subCatId && targetSubcategoryIds.has(subCatId.toString())) {
+                totalEligibleAmount += item.price * item.quantity
+              }
+            }
+          }
+        } else {
+          totalEligibleAmount = verifiedOrderItems.reduce(
+            (sum, item) => sum + (item.isProtection ? 0 : item.price * item.quantity),
+            0
+          )
+        }
+
+        if (totalEligibleAmount > 0 && (!coupon.minOrderAmount || totalEligibleAmount >= coupon.minOrderAmount)) {
+          if (coupon.discountType === "percentage") {
+            couponDiscount = (totalEligibleAmount * coupon.discountValue) / 100
+            if (coupon.maxDiscountAmount && couponDiscount > coupon.maxDiscountAmount) {
+              couponDiscount = coupon.maxDiscountAmount
+            }
+          } else {
+            couponDiscount = Math.min(coupon.discountValue, totalEligibleAmount)
+          }
+        }
+      }
+    }
+
+    const finalDiscountAmount = appliedAppDiscountAmount > 0 ? appliedAppDiscountAmount : couponDiscount
+    const normalizedTotalPrice = Math.max(0, normalizedBaseTotal - finalDiscountAmount)
 
     const order = new Order({
-      orderItems,
-      user: req.user ? req.user._id : null, // Always set user field, null for guests
+      orderItems: verifiedOrderItems,
+      user: req.user ? req.user._id : null,
       orderSource: normalizedOrderSource,
       deliveryType,
       shippingAddress: deliveryType === "home" ? shippingAddress : undefined,
       pickupDetails: deliveryType === "pickup" ? pickupDetails : undefined,
-      itemsPrice: normalizedItemsPrice,
+      itemsPrice: calculatedItemsPrice,
       shippingPrice: normalizedShippingPrice,
-      discountAmount: appliedAppDiscountAmount,
+      discountAmount: finalDiscountAmount,
       appDiscountApplied: Boolean(appDiscountMeta && appliedAppDiscountAmount > 0),
       appDiscountId: appDiscountMeta?._id || null,
       appDiscountName: appDiscountMeta?.name || "",
