@@ -955,6 +955,14 @@ const normalizeTamaraWebhookUrl = (url) => {
   return normalized.replace(/\/api\/webhooks\/tamara\/?$/i, "/api/payment/tamara/webhook")
 }
 
+const getVerifiedOrderTotal = (order) => {
+  const basePrice = Number(order.totalPrice) || 0
+  const paymentChargesTotal = Array.isArray(order.paymentCharges)
+    ? order.paymentCharges.reduce((sum, charge) => sum + (Number(charge.amount) || 0), 0)
+    : 0
+  return Number((basePrice + paymentChargesTotal).toFixed(2))
+}
+
 const NGENIUS_PAID_STATES = new Set(["PURCHASED", "CAPTURED", "AUTHORIZED", "AUTHORISED", "PAID"])
 const NGENIUS_FAILED_STATES = new Set(["FAILED", "DECLINED", "CANCELED", "CANCELLED", "EXPIRED"])
 
@@ -1067,6 +1075,26 @@ router.post("/tamara/checkout", optionalProtect, async (req, res) => {
         received: Object.keys(req.body),
       })
     }
+
+    if (!order_reference_id) {
+      return res.status(400).json({ message: "order_reference_id is required" })
+    }
+
+    const order = await Order.findById(order_reference_id)
+    if (!order) {
+      return res.status(404).json({ message: "Order not found" })
+    }
+
+    const verifiedAmount = getVerifiedOrderTotal(order)
+    const clientAmount = Number(total_amount?.amount)
+
+    if (isNaN(clientAmount) || Math.abs(verifiedAmount - clientAmount) > 0.1) {
+      console.warn(`[TAMARA OVERRIDE BLOCK] Order ${order_reference_id} client price tampered: client: ${clientAmount}, DB: ${verifiedAmount}`)
+      return res.status(400).json({ message: "Payment amount verification failed (mismatch with order total)." })
+    }
+
+    // Override with verified database amount
+    total_amount.amount = verifiedAmount
 
     if (!process.env.TAMARA_API_KEY || process.env.TAMARA_API_KEY === "your_tamara_api_key_here") {
       console.error("❌ TAMARA_API_KEY not configured properly")
@@ -1593,6 +1621,27 @@ router.post("/tamara/authorize/:orderId", protect, async (req, res) => {
 
 const handleTabbyCheckout = async (req, res) => {
   try {
+    const orderId = req.body.payment?.order?.reference_id || req.body.payment?.meta?.order_id
+    if (!orderId) {
+      return res.status(400).json({ message: "Order ID (reference_id) is required" })
+    }
+
+    const order = await Order.findById(orderId)
+    if (!order) {
+      return res.status(404).json({ message: "Order not found" })
+    }
+
+    const verifiedAmount = getVerifiedOrderTotal(order)
+    const clientAmount = Number(req.body.payment?.amount)
+
+    if (isNaN(clientAmount) || Math.abs(verifiedAmount - clientAmount) > 0.1) {
+      console.warn(`[TABBY OVERRIDE BLOCK] Order ${orderId} client price tampered: client: ${clientAmount}, DB: ${verifiedAmount}`)
+      return res.status(400).json({ message: "Payment amount verification failed (mismatch with order total)." })
+    }
+
+    // Override with verified database amount
+    req.body.payment.amount = Number(verifiedAmount).toFixed(2)
+
     const tabbyConfig = {
       headers: {
         Authorization: `Bearer ${process.env.TABBY_SECRET_KEY}`,
@@ -1662,18 +1711,31 @@ router.post("/ngenius/card", async (req, res) => {
     paymentMethod = "card",
   } = req.body
 
-  if (!amount) {
-    return res.status(400).json({ error: "Amount is required" })
+  if (!orderId) {
+    return res.status(400).json({ error: "Order ID is required" })
   }
 
   try {
+    const order = await Order.findById(orderId)
+    if (!order) {
+      return res.status(404).json({ error: "Order not found" })
+    }
+
+    const verifiedAmount = getVerifiedOrderTotal(order)
+    const clientAmount = Number(amount)
+
+    if (isNaN(clientAmount) || Math.abs(verifiedAmount - clientAmount) > 0.1) {
+      console.warn(`[NGENIUS OVERRIDE BLOCK] Order ${orderId} client price tampered: client: ${clientAmount}, DB: ${verifiedAmount}`)
+      return res.status(400).json({ error: "Payment amount verification failed (mismatch with order total)." })
+    }
+
     const accessToken = await getNgeniusAccessToken()
 
     const defaultFrontendUrl = process.env.FRONTEND_URL || "https://www.graba2z.ae"
     const redirectWithParams = appendQueryParams(redirectUrl || `${defaultFrontendUrl}/payment/success`, {
       orderId,
       payment_method: paymentMethod,
-      amount,
+      amount: verifiedAmount,
     })
     const cancelWithParams = appendQueryParams(cancelUrl || `${defaultFrontendUrl}/payment/cancel`, {
       orderId,
@@ -1685,7 +1747,7 @@ router.post("/ngenius/card", async (req, res) => {
       action: "PURCHASE",
       amount: {
         currencyCode,
-        value: Math.round(amount * 100),
+        value: Math.round(verifiedAmount * 100),
       },
       merchantAttributes: {
         redirectUrl: redirectWithParams,
