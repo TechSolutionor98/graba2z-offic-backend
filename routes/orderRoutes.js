@@ -545,8 +545,9 @@ router.get(
       })
     }
 
-    // Combine and sort all orders
+    // Combine, filter out Deleted orders, and sort all orders
     const allOrders = [...userOrders, ...ordersToUpdate]
+      .filter(order => order.status !== "Deleted")
       .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
     
     console.log(`[MYORDERS] Returning total of ${allOrders.length} orders to user`)
