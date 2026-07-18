@@ -97,6 +97,14 @@ const offerPageSchema = new mongoose.Schema(
       default: 1,
       min: 1,
     },
+    showCategorySlider: {
+      type: Boolean,
+      default: true,
+    },
+    showBrandSlider: {
+      type: Boolean,
+      default: true,
+    },
   },
   {
     timestamps: true,

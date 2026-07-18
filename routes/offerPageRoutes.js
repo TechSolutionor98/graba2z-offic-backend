@@ -88,6 +88,8 @@ router.put('/:id', protect, admin, async (req, res) => {
       offerPage.cardImages = req.body.cardImages !== undefined ? req.body.cardImages : offerPage.cardImages;
       offerPage.isActive = req.body.isActive !== undefined ? req.body.isActive : offerPage.isActive;
       offerPage.order = req.body.order !== undefined ? req.body.order : offerPage.order;
+      offerPage.showCategorySlider = req.body.showCategorySlider !== undefined ? req.body.showCategorySlider : offerPage.showCategorySlider;
+      offerPage.showBrandSlider = req.body.showBrandSlider !== undefined ? req.body.showBrandSlider : offerPage.showBrandSlider;
       
       const updatedOfferPage = await offerPage.save();
       res.json(updatedOfferPage);
