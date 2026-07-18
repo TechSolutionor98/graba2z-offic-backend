@@ -87,6 +87,18 @@ const userSchema = mongoose.Schema(
       zipCode: String,
       country: String,
     },
+    addresses: [
+      {
+        name: { type: String, required: true },
+        phone: { type: String, required: true },
+        email: { type: String },
+        address: { type: String, required: true },
+        city: { type: String, required: true },
+        state: { type: String },
+        zipCode: { type: String },
+        isDefault: { type: Boolean, default: false },
+      }
+    ],
     dateOfBirth: {
       type: Date,
     },

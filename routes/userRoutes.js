@@ -331,6 +331,7 @@ router.get(
         isEmailVerified: user.isEmailVerified,
         phone: user.phone,
         address: user.address,
+        addresses: user.addresses || [],
         dateOfBirth: user.dateOfBirth,
         gender: user.gender,
         preferences: user.preferences,
@@ -362,6 +363,15 @@ router.put(
       user.preferences = req.body.preferences || user.preferences
 
       if (req.body.password) {
+        if (!req.body.currentPassword) {
+          res.status(400)
+          throw new Error("Please provide your current password to change it")
+        }
+        const isMatch = await user.matchPassword(req.body.currentPassword)
+        if (!isMatch) {
+          res.status(400)
+          throw new Error("Incorrect current password")
+        }
         user.password = req.body.password
       }
 
@@ -375,11 +385,172 @@ router.put(
         isEmailVerified: updatedUser.isEmailVerified,
         phone: updatedUser.phone,
         address: updatedUser.address,
+        addresses: updatedUser.addresses || [],
         dateOfBirth: updatedUser.dateOfBirth,
         gender: updatedUser.gender,
         preferences: updatedUser.preferences,
         token: generateToken(updatedUser._id),
       })
+    } else {
+      res.status(404)
+      throw new Error("User not found")
+    }
+  }),
+)
+
+// @desc    Get user saved addresses
+// @route   GET /api/users/addresses
+// @access  Private
+router.get(
+  "/addresses",
+  protect,
+  asyncHandler(async (req, res) => {
+    const user = await User.findById(req.user._id)
+    if (user) {
+      res.json(user.addresses || [])
+    } else {
+      res.status(404)
+      throw new Error("User not found")
+    }
+  }),
+)
+
+// @desc    Add a new address
+// @route   POST /api/users/addresses
+// @access  Private
+router.post(
+  "/addresses",
+  protect,
+  asyncHandler(async (req, res) => {
+    const user = await User.findById(req.user._id)
+    if (user) {
+      const { name, phone, email, address, city, state, zipCode, isDefault } = req.body
+
+      if (!name || !phone || !address || !city) {
+        res.status(400)
+        throw new Error("Please provide name, phone, address, and city")
+      }
+
+      if (isDefault) {
+        user.addresses.forEach((addr) => {
+          addr.isDefault = false
+        })
+      }
+
+      const newAddress = {
+        name,
+        phone,
+        email,
+        address,
+        city,
+        state,
+        zipCode,
+        isDefault: isDefault || user.addresses.length === 0,
+      }
+
+      user.addresses.push(newAddress)
+      await user.save()
+      res.status(201).json(user.addresses)
+    } else {
+      res.status(404)
+      throw new Error("User not found")
+    }
+  }),
+)
+
+// @desc    Update a saved address
+// @route   PUT /api/users/addresses/:addressId
+// @access  Private
+router.put(
+  "/addresses/:addressId",
+  protect,
+  asyncHandler(async (req, res) => {
+    const user = await User.findById(req.user._id)
+    if (user) {
+      const address = user.addresses.id(req.params.addressId)
+      if (address) {
+        const { name, phone, email, address: addressText, city, state, zipCode, isDefault } = req.body
+
+        address.name = name !== undefined ? name : address.name
+        address.phone = phone !== undefined ? phone : address.phone
+        address.email = email !== undefined ? email : address.email
+        address.address = addressText !== undefined ? addressText : address.address
+        address.city = city !== undefined ? city : address.city
+        address.state = state !== undefined ? state : address.state
+        address.zipCode = zipCode !== undefined ? zipCode : address.zipCode
+
+        if (isDefault) {
+          user.addresses.forEach((addr) => {
+            if (addr._id.toString() !== req.params.addressId) {
+              addr.isDefault = false
+            }
+          })
+          address.isDefault = true
+        }
+
+        await user.save()
+        res.json(user.addresses)
+      } else {
+        res.status(404)
+        throw new Error("Address not found")
+      }
+    } else {
+      res.status(404)
+      throw new Error("User not found")
+    }
+  }),
+)
+
+// @desc    Delete a saved address
+// @route   DELETE /api/users/addresses/:addressId
+// @access  Private
+router.delete(
+  "/addresses/:addressId",
+  protect,
+  asyncHandler(async (req, res) => {
+    const user = await User.findById(req.user._id)
+    if (user) {
+      user.addresses = user.addresses.filter((addr) => addr._id.toString() !== req.params.addressId)
+
+      if (user.addresses.length > 0 && !user.addresses.some((addr) => addr.isDefault)) {
+        user.addresses[0].isDefault = true
+      }
+
+      await user.save()
+      res.json(user.addresses)
+    } else {
+      res.status(404)
+      throw new Error("User not found")
+    }
+  }),
+)
+
+// @desc    Set address as default
+// @route   PUT /api/users/addresses/:addressId/default
+// @access  Private
+router.put(
+  "/addresses/:addressId/default",
+  protect,
+  asyncHandler(async (req, res) => {
+    const user = await User.findById(req.user._id)
+    if (user) {
+      let addressFound = false
+      user.addresses.forEach((addr) => {
+        if (addr._id.toString() === req.params.addressId) {
+          addr.isDefault = true
+          addressFound = true
+        } else {
+          addr.isDefault = false
+        }
+      })
+
+      if (addressFound) {
+        await user.save()
+        res.json(user.addresses)
+      } else {
+        res.status(404)
+        throw new Error("Address not found")
+      }
     } else {
       res.status(404)
       throw new Error("User not found")
