@@ -51,6 +51,7 @@ const homeSectionSchema = new mongoose.Schema(
         'simple-cards',
         'vertical-grid',
         'banner-cards', // Keep for backward compatibility
+        'banner-section', // Added for custom dynamic banner layouts
         'hero',
         'products',
         'custom'
