@@ -2,11 +2,11 @@ import express from 'express';
 import BannerCard from '../models/bannerCardModel.js';
 import { protect, admin } from '../middleware/authMiddleware.js';
 import { logActivity } from '../middleware/permissionMiddleware.js';
-import { translateEnToAr } from "../utils/translateWithFallback.js"
+import { translateEnToAr } from "../utils/translateWithFallback.js";
 
 const router = express.Router();
 
-const translateText = translateEnToAr
+const translateText = translateEnToAr;
 
 // @desc    Get all banner cards (admin)
 // @route   GET /api/banner-cards/admin
@@ -65,6 +65,7 @@ router.post('/', protect, admin, async (req, res) => {
       slug,
       details,
       image,
+      mobileImage,
       bgImage,
       section,
       linkUrl,
@@ -89,7 +90,8 @@ router.post('/', protect, admin, async (req, res) => {
       slug,
       details,
       detailsAr,
-      image,
+      image: image || '',
+      mobileImage: mobileImage || '',
       bgImage: bgImage || '',
       section,
       linkUrl,
@@ -119,6 +121,7 @@ router.put('/:id', protect, admin, async (req, res) => {
       slug,
       details,
       image,
+      mobileImage,
       bgImage,
       section,
       linkUrl,
@@ -141,7 +144,8 @@ router.put('/:id', protect, admin, async (req, res) => {
       bannerCard.name = name || bannerCard.name;
       bannerCard.slug = slug || bannerCard.slug;
       bannerCard.details = details !== undefined ? details : bannerCard.details;
-      bannerCard.image = image || bannerCard.image;
+      bannerCard.image = image !== undefined ? image : bannerCard.image;
+      bannerCard.mobileImage = mobileImage !== undefined ? mobileImage : bannerCard.mobileImage;
       bannerCard.bgImage = bgImage !== undefined ? bgImage : bannerCard.bgImage;
       bannerCard.section = section || bannerCard.section;
       bannerCard.linkUrl = linkUrl !== undefined ? linkUrl : bannerCard.linkUrl;

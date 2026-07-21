@@ -29,6 +29,10 @@ const bannerCardSchema = new mongoose.Schema(
       type: String,
       default: '',
     },
+    mobileImage: {
+      type: String,
+      default: '',
+    },
     bgImage: {
       type: String,
       default: '',
