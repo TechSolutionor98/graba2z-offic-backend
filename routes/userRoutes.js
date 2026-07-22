@@ -323,6 +323,31 @@ router.get(
     const user = await User.findById(req.user._id)
 
     if (user) {
+      // Auto-migrate legacy address to addresses array if addresses array is empty
+      if (
+        (!user.addresses || user.addresses.length === 0) &&
+        user.address &&
+        (user.address.street || user.address.city)
+      ) {
+        const street = (user.address.street || "").trim()
+        const city = (user.address.city || "").trim()
+        const phone = (user.phone || "").trim()
+
+        if (street && city) {
+          const migratedAddress = {
+            name: "Default Address",
+            phone: phone || "0500000000",
+            address: street,
+            city: city,
+            state: user.address.state || "",
+            zipCode: user.address.zipCode || "",
+            isDefault: true,
+          }
+          user.addresses.push(migratedAddress)
+          await user.save()
+        }
+      }
+
       res.json({
         _id: user._id,
         name: user.name,
@@ -407,6 +432,30 @@ router.get(
   asyncHandler(async (req, res) => {
     const user = await User.findById(req.user._id)
     if (user) {
+      // Auto-migrate legacy address to addresses array if addresses array is empty
+      if (
+        (!user.addresses || user.addresses.length === 0) &&
+        user.address &&
+        (user.address.street || user.address.city)
+      ) {
+        const street = (user.address.street || "").trim()
+        const city = (user.address.city || "").trim()
+        const phone = (user.phone || "").trim()
+
+        if (street && city) {
+          const migratedAddress = {
+            name: "Default Address",
+            phone: phone || "0500000000",
+            address: street,
+            city: city,
+            state: user.address.state || "",
+            zipCode: user.address.zipCode || "",
+            isDefault: true,
+          }
+          user.addresses.push(migratedAddress)
+          await user.save()
+        }
+      }
       res.json(user.addresses || [])
     } else {
       res.status(404)

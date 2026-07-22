@@ -1117,13 +1117,34 @@ router.get(
   admin,
   asyncHandler(async (req, res) => {
     const { search } = req.query
+    const page = req.query.page ? Number(req.query.page) : null
+    const limit = req.query.limit ? Number(req.query.limit) : 20
+
     const query = { isAdmin: false }
     if (search && String(search).trim()) {
       const regex = new RegExp(String(search).trim(), "i")
       query.$or = [{ name: regex }, { email: regex }]
     }
-    const users = await User.find(query).select("-password").sort({ createdAt: -1 }).limit(50)
-    res.json(users)
+
+    if (page) {
+      const skip = (page - 1) * limit
+      const count = await User.countDocuments(query)
+      const users = await User.find(query)
+        .select("-password")
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+
+      res.json({
+        users,
+        page,
+        pages: Math.ceil(count / limit),
+        total: count,
+      })
+    } else {
+      const users = await User.find(query).select("-password").sort({ createdAt: -1 }).limit(100)
+      res.json(users)
+    }
   }),
 )
 
