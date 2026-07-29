@@ -5,6 +5,20 @@ import Brand from "../models/brandModel.js"
 
 const router = express.Router()
 
+const getProductFeedId = (product) => {
+  const mongoId = String(product?._id || "")
+  const sku = String(product?.sku || "").trim()
+
+  const base = (sku || mongoId).toString().trim()
+  return base
+    .normalize("NFKD")
+    .replace(/[^\x00-\x7F]/g, "")
+    .replace(/[^A-Za-z0-9_-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .toLowerCase()
+}
+
 // Helper function to properly escape XML characters
 const escapeXml = (unsafe) => {
   if (!unsafe) return ""
@@ -259,8 +273,12 @@ router.get(
           const hasMpn = product.sku && product.sku.trim() !== ''
           const identifierExists = hasGtin || hasMpn
 
+          const hasColorVars = Array.isArray(product.colorVariations) && product.colorVariations.length > 0
+          const hasDosVars = Array.isArray(product.dosVariations) && product.dosVariations.length > 0
+          const productId = getProductFeedId(product)
+
           xml += `    <item>
-      <g:id>${escapeXml(product._id.toString())}</g:id>
+      <g:id>${escapeXml(productId)}</g:id>
       <g:title><![CDATA[${cleanForCDATA(truncatedTitle)}]]></g:title>
       <g:description><![CDATA[${cleanForCDATA(cleanDescription)}]]></g:description>
       <g:link>${productUrl}</g:link>
@@ -293,8 +311,14 @@ router.get(
           xml += `
       <g:identifier_exists>${identifierExists ? 'true' : 'false'}</g:identifier_exists>
       <g:google_product_category><![CDATA[${googleProductCategory}]]></g:google_product_category>
-      <g:product_type><![CDATA[${cleanForCDATA(productType)}]]></g:product_type>
-      <g:item_group_id>${escapeXml(product._id.toString())}</g:item_group_id>
+      <g:product_type><![CDATA[${cleanForCDATA(productType)}]]></g:product_type>`
+
+          if (hasColorVars || hasDosVars) {
+            xml += `
+      <g:item_group_id>${escapeXml(productId)}</g:item_group_id>`
+          }
+
+          xml += `
       <g:shipping>
         <g:country>AE</g:country>
         <g:service>Standard Shipping</g:service>

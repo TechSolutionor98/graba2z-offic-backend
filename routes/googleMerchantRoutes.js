@@ -153,27 +153,24 @@ const buildShortStableFeedId = (value, fallbackSeed) => {
 const getProductFeedId = (product) => {
   const mongoId = String(product?._id || "")
   const sku = String(product?.sku || "").trim()
-  const slug = String(product?.slug || "").trim()
 
-  if (sku) return buildShortStableFeedId(`sku-${sku}`, mongoId)
-  if (slug) return buildShortStableFeedId(`slug-${slug}`, mongoId)
-  return buildShortStableFeedId(`id-${mongoId}`, mongoId)
+  const base = (sku || mongoId).toString().trim()
+  return base
+    .normalize("NFKD")
+    .replace(/[^\x00-\x7F]/g, "")
+    .replace(/[^A-Za-z0-9_-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .toLowerCase()
 }
 
 const getItemGroupId = (product) => {
-  if (!product?.variations || product.variations.length === 0) return ""
+  const hasColorVars = Array.isArray(product?.colorVariations) && product.colorVariations.length > 0
+  const hasDosVars = Array.isArray(product?.dosVariations) && product.dosVariations.length > 0
+  
+  if (!hasColorVars && !hasDosVars) return ""
 
-  const ids = [
-    product._id?.toString(),
-    ...product.variations
-      .map((variation) => variation?.product || variation)
-      .map((id) => id?.toString())
-      .filter(Boolean),
-  ].filter(Boolean)
-
-  if (ids.length < 2) return ""
-  ids.sort()
-  return `grp${ids[0]}`
+  return getProductFeedId(product)
 }
 
 // Helper function to determine Google product category
