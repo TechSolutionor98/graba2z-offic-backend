@@ -64,6 +64,10 @@ const seoPageSchema = new mongoose.Schema(
       default: "",
       trim: true,
     },
+    seoContent: {
+      type: String,
+      default: "",
+    },
     isActive: {
       type: Boolean,
       default: true,

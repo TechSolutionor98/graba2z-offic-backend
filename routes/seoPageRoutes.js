@@ -533,6 +533,7 @@ router.get(
         ogTitle: record?.ogTitle || "",
         ogDescription: record?.ogDescription || "",
         ogImage: record?.ogImage || "",
+        seoContent: record?.seoContent || "",
       },
     })
   }),
@@ -572,6 +573,7 @@ router.get(
         ogTitle: record?.ogTitle || "",
         ogDescription: record?.ogDescription || "",
         ogImage: record?.ogImage || "",
+        seoContent: record?.seoContent || "",
       },
     })
   }),
@@ -610,7 +612,7 @@ router.get(
           ogTitle: true,
           ogDescription: true,
           ogImage: true,
-          seoContent: false,
+          seoContent: true,
         },
         seo: {
           title: record?.seoTitle || "",
@@ -622,6 +624,7 @@ router.get(
           ogTitle: record?.ogTitle || "",
           ogDescription: record?.ogDescription || "",
           ogImage: record?.ogImage || "",
+          seoContent: record?.seoContent || "",
         },
         updatedAt: record?.updatedAt || null,
       }
@@ -673,6 +676,7 @@ router.put(
     if (payload.ogTitle !== undefined) page.ogTitle = payload.ogTitle
     if (payload.ogDescription !== undefined) page.ogDescription = payload.ogDescription
     if (payload.ogImage !== undefined) page.ogImage = payload.ogImage
+    if (payload.seoContent !== undefined) page.seoContent = payload.seoContent
     page.updatedBy = req.user._id
 
     const updated = await page.save()
@@ -702,6 +706,7 @@ router.put(
         ogTitle: updated.ogTitle || "",
         ogDescription: updated.ogDescription || "",
         ogImage: updated.ogImage || "",
+        seoContent: updated.seoContent || "",
       },
       updatedAt: updated.updatedAt,
     })
