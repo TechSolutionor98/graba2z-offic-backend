@@ -242,7 +242,7 @@ router.get(
           if (!product.name || product.name.trim() === "") continue
 
           const cleanSlug = (product.slug || product._id.toString()).replace(/&/g, '%26')
-          const productUrl = `https://www.grabatoz.ae/product/${cleanSlug}`
+          const productUrl = `https://www.grabatoz.ae/ae-en/product/${cleanSlug}`
           
           let imageUrl = product.image
             ? product.image.startsWith("http")
