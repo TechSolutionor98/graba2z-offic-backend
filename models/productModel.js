@@ -209,6 +209,16 @@ const productSchema = mongoose.Schema(
       required: true,
       default: 0,
     },
+    targetCountries: {
+      type: [String],
+      default: ["ALL"],
+    },
+    countryStock: [
+      {
+        country: { type: String, required: true },
+        countInStock: { type: Number, default: 0 },
+      },
+    ],
     lowStockWarning: {
       type: Number,
       default: 5,

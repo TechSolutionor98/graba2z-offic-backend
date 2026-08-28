@@ -1060,7 +1060,7 @@ router.get(
 
     let productsQuery = Product.find(query)
       .select(
-        "name nameAr slug sku price offerPrice discount image countInStock stockStatus stockStatusAr brand category subCategory parentCategory subCategory2 subCategory3 subCategory4 featured tags createdAt rating numReviews",
+        "name nameAr slug sku price offerPrice discount image countInStock stockStatus stockStatusAr brand category subCategory parentCategory subCategory2 subCategory3 subCategory4 featured tags createdAt rating numReviews targetCountries countryStock",
       )
       .populate("brand", "name nameAr slug")
       .populate("series", "name optionType")
@@ -1097,7 +1097,7 @@ router.get(
   asyncHandler(async (req, res) => {
     const products = await Product.find({ isActive: true, hideFromShop: { $ne: true } })
       .select(
-        "name slug sku price basePrice offerPrice discount image galleryImages featured rating numReviews countInStock stockStatus brand parentCategory category subCategory subCategory2 subCategory3 subCategory4 parentCategoryName parentCategorySlug categoryName categorySlug subCategory2Name subCategory2Slug subCategory3Name subCategory3Slug subCategory4Name subCategory4Slug series model make manufacturer soldBy createdAt updatedAt",
+        "name slug sku price basePrice offerPrice discount image galleryImages featured rating numReviews countInStock stockStatus brand parentCategory category subCategory subCategory2 subCategory3 subCategory4 parentCategoryName parentCategorySlug categoryName categorySlug subCategory2Name subCategory2Slug subCategory3Name subCategory3Slug subCategory4Name subCategory4Slug series model make manufacturer soldBy createdAt updatedAt targetCountries countryStock",
       )
       .populate("brand", "name slug")
       .lean()

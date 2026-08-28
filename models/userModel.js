@@ -96,6 +96,7 @@ const userSchema = mongoose.Schema(
         city: { type: String, required: true },
         state: { type: String },
         zipCode: { type: String },
+        country: { type: String, default: "UAE" },
         isDefault: { type: Boolean, default: false },
       }
     ],

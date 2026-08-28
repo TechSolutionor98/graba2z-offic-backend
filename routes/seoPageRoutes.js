@@ -53,6 +53,7 @@ const STATIC_PAGE_DEFINITIONS = [
   { pageKey: "green-friday-promotional", pageName: "Green Friday Promotional", routePath: "/green-friday-promotional", defaultSeoTitle: "", defaultSeoDescription: "", defaultSeoKeywords: "" },
   { pageKey: "backtoschool-acer-professional", pageName: "Back To School Acer Professional", routePath: "/backtoschool-acer-professional", defaultSeoTitle: "", defaultSeoDescription: "", defaultSeoKeywords: "" },
   { pageKey: "track-order", pageName: "Track Order", routePath: "/track-order", defaultSeoTitle: "", defaultSeoDescription: "", defaultSeoKeywords: "" },
+  { pageKey: "country-select", pageName: "Country Selector", routePath: "/select-country", defaultSeoTitle: "Select Country & Language | Grab A2Z", defaultSeoDescription: "Select your country and language to start shopping across UAE, Saudi Arabia, Qatar, Oman, Bahrain, and Kuwait on Grab A2Z.", defaultSeoKeywords: "grab a2z, country selection, gcc shopping, uae, saudi arabia, qatar, oman, bahrain, kuwait" },
 ]
 
 const LEGACY_STATIC_SEO_DEFAULTS = {

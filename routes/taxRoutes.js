@@ -5,6 +5,12 @@ import { protect, admin } from "../middleware/authMiddleware.js"
 
 const router = express.Router()
 
+// "" is the default scope inherited by every country without its own tax.
+const normalizeCountryCode = (value) => {
+  const code = String(value ?? "").trim().toUpperCase()
+  return code === "DEFAULT" || code === "ALL" ? "" : code
+}
+
 // @desc    Fetch all taxes (Admin only - includes inactive)
 // @route   GET /api/tax/admin
 // @access  Private/Admin
@@ -13,7 +19,12 @@ router.get(
   protect,
   admin,
   asyncHandler(async (req, res) => {
-    const taxes = await Tax.find({ isDeleted: { $ne: true } }).sort({ sortOrder: 1, name: 1 })
+    const filter = { isDeleted: { $ne: true } }
+    if (req.query.countryCode !== undefined) {
+      filter.countryCode = normalizeCountryCode(req.query.countryCode)
+    }
+
+    const taxes = await Tax.find(filter).sort({ sortOrder: 1, name: 1 })
     res.json(taxes)
   }),
 )
@@ -24,8 +35,23 @@ router.get(
 router.get(
   "/",
   asyncHandler(async (req, res) => {
-    const taxes = await Tax.find({ isActive: true, isDeleted: { $ne: true } }).sort({ sortOrder: 1, name: 1 })
-    res.json(taxes)
+    const countryCode = normalizeCountryCode(req.query.countryCode)
+    const base = { isActive: true, isDeleted: { $ne: true } }
+
+    // A country with its own tax uses only that; otherwise it inherits the default.
+    if (countryCode) {
+      const countryTaxes = await Tax.find({ ...base, countryCode }).sort({ sortOrder: 1, name: 1 })
+      if (countryTaxes.length > 0) {
+        return res.json(countryTaxes)
+      }
+    }
+
+    const defaultTaxes = await Tax.find({
+      ...base,
+      $or: [{ countryCode: "" }, { countryCode: { $exists: false } }, { countryCode: null }],
+    }).sort({ sortOrder: 1, name: 1 })
+
+    res.json(defaultTaxes)
   }),
 )
 
@@ -37,13 +63,15 @@ router.post(
   protect,
   admin,
   asyncHandler(async (req, res) => {
-    const { name, rate, type, description } = req.body
+    const { name, rate, type, description, isActive } = req.body
 
     const tax = new Tax({
       name,
       rate,
       type,
       description,
+      countryCode: normalizeCountryCode(req.body.countryCode),
+      isActive: isActive !== undefined ? isActive : true,
       createdBy: req.user._id,
     })
 
@@ -70,6 +98,9 @@ router.put(
       tax.type = type || tax.type
       tax.description = description || tax.description
       tax.isActive = isActive !== undefined ? isActive : tax.isActive
+      if (req.body.countryCode !== undefined) {
+        tax.countryCode = normalizeCountryCode(req.body.countryCode)
+      }
 
       const updatedTax = await tax.save()
       res.json(updatedTax)

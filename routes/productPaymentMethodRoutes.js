@@ -5,6 +5,7 @@ import Category from "../models/categoryModel.js"
 import SubCategory from "../models/subCategoryModel.js"
 import Brand from "../models/brandModel.js"
 import { protect, admin } from "../middleware/authMiddleware.js"
+import { resolveCountryPaymentMethods, combinePaymentMethods } from "./countryPaymentMethodRoutes.js"
 
 const router = express.Router()
 
@@ -67,10 +68,16 @@ const resolveProductPaymentMethods = async (productId) => {
 router.post(
   "/resolve",
   asyncHandler(async (req, res) => {
-    const { productIds } = req.body
+    const { productIds, countryCode } = req.body
+
+    // Country rules apply even to an empty cart, so resolve them first.
+    const countryMethods = await resolveCountryPaymentMethods(countryCode)
 
     if (!productIds || !Array.isArray(productIds) || productIds.length === 0) {
-      return res.json({ paymentMethods: ["card", "cod"] })
+      return res.json({
+        paymentMethods: combinePaymentMethods(["card", "cod"], countryMethods),
+        countryMethods,
+      })
     }
 
     try {
@@ -83,7 +90,10 @@ router.post(
       }
 
       if (resolvedList.length === 0) {
-        return res.json({ paymentMethods: ["card", "cod"] })
+        return res.json({
+          paymentMethods: combinePaymentMethods(["card", "cod"], countryMethods),
+          countryMethods,
+        })
       }
 
       // Compute intersection
@@ -92,7 +102,11 @@ router.post(
         intersection = intersection.filter((method) => resolvedList[i].includes(method))
       }
 
-      res.json({ paymentMethods: intersection })
+      res.json({
+        paymentMethods: combinePaymentMethods(intersection, countryMethods),
+        productMethods: intersection,
+        countryMethods,
+      })
     } catch (error) {
       console.error("Error resolving payment methods:", error)
       res.status(500).json({ message: "Failed to resolve payment methods", error: error.message })

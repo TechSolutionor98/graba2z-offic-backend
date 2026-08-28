@@ -35,6 +35,20 @@ const deliveryChargeSchema = mongoose.Schema(
         trim: true,
       },
     ],
+    country: {
+      type: String,
+      default: "United Arab Emirates",
+      trim: true,
+    },
+    countryCode: {
+      type: String,
+      default: "AE",
+      trim: true,
+    },
+    isInternational: {
+      type: Boolean,
+      default: false,
+    },
     deliveryTime: {
       type: String,
       default: "1-2 business days",

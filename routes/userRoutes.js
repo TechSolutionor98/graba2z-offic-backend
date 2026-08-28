@@ -473,7 +473,7 @@ router.post(
   asyncHandler(async (req, res) => {
     const user = await User.findById(req.user._id)
     if (user) {
-      const { name, phone, email, address, city, state, zipCode, isDefault } = req.body
+      const { name, phone, email, address, city, state, zipCode, country, isDefault } = req.body
 
       if (!name || !phone || !address || !city) {
         res.status(400)
@@ -494,6 +494,7 @@ router.post(
         city,
         state,
         zipCode,
+        country: country || "UAE",
         isDefault: isDefault || user.addresses.length === 0,
       }
 
@@ -518,7 +519,7 @@ router.put(
     if (user) {
       const address = user.addresses.id(req.params.addressId)
       if (address) {
-        const { name, phone, email, address: addressText, city, state, zipCode, isDefault } = req.body
+        const { name, phone, email, address: addressText, city, state, zipCode, country, isDefault } = req.body
 
         address.name = name !== undefined ? name : address.name
         address.phone = phone !== undefined ? phone : address.phone
@@ -527,6 +528,7 @@ router.put(
         address.city = city !== undefined ? city : address.city
         address.state = state !== undefined ? state : address.state
         address.zipCode = zipCode !== undefined ? zipCode : address.zipCode
+        if (country !== undefined) address.country = country
 
         if (isDefault) {
           user.addresses.forEach((addr) => {

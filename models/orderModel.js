@@ -89,6 +89,25 @@ const orderSchema = mongoose.Schema(
       city: { type: String },
       state: { type: String },
       zipCode: { type: String },
+      country: { type: String },
+    },
+    billingAddress: {
+      name: { type: String },
+      email: { type: String },
+      phone: { type: String },
+      address: { type: String },
+      city: { type: String },
+      state: { type: String },
+      zipCode: { type: String },
+      country: { type: String },
+    },
+    currency: {
+      type: String,
+      default: "AED",
+    },
+    currencySymbol: {
+      type: String,
+      default: "AED",
     },
     deliveryType: {
       type: String,

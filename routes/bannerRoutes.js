@@ -43,6 +43,22 @@ const applyHeroLinkPolicy = (bannerLike) => {
   bannerLike.buttonLink = buttonLink || resolved
 }
 
+const sanitizeTargetCountries = (targetCountries) => {
+  if (!targetCountries) return ["ALL"]
+  let list = targetCountries
+  if (typeof targetCountries === "string") {
+    try {
+      list = JSON.parse(targetCountries)
+    } catch {
+      list = targetCountries.split(",").map((s) => s.trim())
+    }
+  }
+  if (!Array.isArray(list) || list.length === 0) return ["ALL"]
+  const cleaned = list.map((c) => String(c).trim().toUpperCase()).filter(Boolean)
+  if (cleaned.length === 0 || cleaned.includes("ALL")) return ["ALL"]
+  return cleaned
+}
+
 // @desc    Get all banners (public)
 // @route   GET /api/banners
 // @access  Public
@@ -50,7 +66,7 @@ router.get(
   "/",
   cacheMiddleware("banners"),
   asyncHandler(async (req, res) => {
-    const { position, category, active } = req.query
+    const { position, category, active, country } = req.query
 
     const query = {}
 
@@ -64,6 +80,15 @@ router.get(
 
     if (active !== undefined) {
       query.isActive = active === "true"
+    }
+
+    if (country) {
+      const countryCode = String(country).trim().toUpperCase()
+      query.$or = [
+        { targetCountries: { $in: ["ALL", countryCode] } },
+        { targetCountries: { $exists: false } },
+        { targetCountries: { $size: 0 } },
+      ]
     }
 
     const banners = await Banner.find(query).populate("category", "name slug").sort({ sortOrder: 1, createdAt: -1 })
@@ -117,7 +142,7 @@ router.post(
   admin,
   uploadBanner.single("image"),
   asyncHandler(async (req, res) => {
-    const { category, ...bannerData } = req.body
+    const { category, targetCountries, ...bannerData } = req.body
 
     debugBanners("POST /api/banners payload", {
       position: bannerData.position,
@@ -126,6 +151,7 @@ router.post(
       buttonLink: bannerData.buttonLink,
       link: bannerData.link,
       title: bannerData.title,
+      targetCountries,
     })
 
     // Verify category exists if provided and position is category
@@ -139,6 +165,7 @@ router.post(
 
     const banner = new Banner({
       ...bannerData,
+      targetCountries: sanitizeTargetCountries(targetCountries),
       category: bannerData.position === "category" ? category : null,
       createdBy: req.user._id,
     })
@@ -198,7 +225,7 @@ router.put(
     const banner = await Banner.findById(req.params.id)
 
     if (banner) {
-      const { category, ...updateData } = req.body
+      const { category, targetCountries, ...updateData } = req.body
 
       debugBanners("PUT /api/banners/:id payload", {
         id: req.params.id,
@@ -208,6 +235,7 @@ router.put(
         buttonLink: updateData.buttonLink,
         link: updateData.link,
         title: updateData.title,
+        targetCountries,
       })
 
       const finalPosition = updateData.position ?? banner.position
@@ -225,6 +253,10 @@ router.put(
       Object.keys(updateData).forEach((key) => {
         banner[key] = updateData[key]
       })
+
+      if (targetCountries !== undefined) {
+        banner.targetCountries = sanitizeTargetCountries(targetCountries)
+      }
 
       if (finalPosition === "hero") {
         applyHeroLinkPolicy(banner)

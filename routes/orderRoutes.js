@@ -9,6 +9,8 @@ import { protect, admin } from "../middleware/authMiddleware.js"
 import { logActivity } from "../middleware/permissionMiddleware.js"
 import { sendOrderPlacedEmail, sendOrderStatusUpdateEmail } from "../utils/emailService.js"
 import { resolveAppDiscountForOrder } from "../services/appDiscountService.js"
+import Country from "../models/countryModel.js"
+import { resolveCountryPaymentMethods } from "./countryPaymentMethodRoutes.js"
 
 const router = express.Router()
 const ORDER_DOCUMENT_QUERY = {
@@ -22,6 +24,47 @@ const resolveOrderSource = (payloadSource, headers = {}) => {
     .toLowerCase()
 
   return normalized === "app" ? "app" : "web"
+}
+
+// Map every stored spelling of a payment method onto its canonical id.
+const normalizePaymentMethodId = (value) => {
+  const method = String(value || "").trim().toLowerCase()
+
+  if (method === "cod" || method === "cash on delivery") return "cod"
+  if (method === "card" || method === "credit card" || method === "debit card") return "card"
+  if (method === "tamara") return "tamara"
+  if (method === "tabby") return "tabby"
+
+  return ""
+}
+
+// Work out which country an order belongs to, so its payment rules can be applied
+// and its currency recorded. Falls back to the currency when the client did not
+// send a country code.
+const resolveOrderCountry = async ({ countryCode, currency, currencySymbol }) => {
+  const fields = "code name currencyCode currencySymbol"
+
+  try {
+    const explicit = String(countryCode || "").trim().toUpperCase()
+    if (explicit) {
+      return await Country.findOne({ code: explicit }, fields).lean()
+    }
+
+    const currencyCode = String(currency || currencySymbol || "").trim().toUpperCase()
+    if (!currencyCode) return null
+
+    return await Country.findOne({ currencyCode }, fields).lean()
+  } catch (error) {
+    console.error("Failed to resolve order country:", error.message)
+    return null
+  }
+}
+
+const PAYMENT_METHOD_LABELS = {
+  card: "Pay by Card",
+  cod: "Cash on Delivery",
+  tamara: "Tamara",
+  tabby: "Tabby",
 }
 
 // Middleware to optionally protect routes (sets req.user if token exists)
@@ -82,6 +125,10 @@ router.post(
       customerNotes,
       paymentMethod,
       actualPaymentMethod,
+      billingAddress,
+      currency,
+      currencySymbol,
+      countryCode,
     } = req.body
 
     if (!orderItems || orderItems.length === 0) {
@@ -145,6 +192,24 @@ router.post(
     }
 
     const normalizedOrderSource = resolveOrderSource(orderSource, req.headers)
+
+    // Server-side validation of the country payment method rules.
+    // The storefront hides disabled methods, but the rule is enforced here too so
+    // a direct API call cannot pay by a method the country has switched off.
+    const orderCountry = await resolveOrderCountry({ countryCode, currency, currencySymbol })
+    const requestedPaymentMethod = normalizePaymentMethodId(actualPaymentMethod || paymentMethod)
+
+    if (orderCountry?.code && requestedPaymentMethod) {
+      const countryPaymentMethods = await resolveCountryPaymentMethods(orderCountry.code)
+
+      if (!countryPaymentMethods.includes(requestedPaymentMethod)) {
+        const available = countryPaymentMethods.map((m) => PAYMENT_METHOD_LABELS[m] || m).join(", ")
+        res.status(400)
+        throw new Error(
+          `${PAYMENT_METHOD_LABELS[requestedPaymentMethod] || requestedPaymentMethod} is not available in this country. Available options: ${available}`,
+        )
+      }
+    }
 
     // Server-side Recalculation & Validation of Items
     let calculatedItemsPrice = 0
@@ -360,7 +425,12 @@ router.post(
       orderSource: normalizedOrderSource,
       deliveryType,
       shippingAddress: deliveryType === "home" ? shippingAddress : undefined,
+      billingAddress: billingAddress || (deliveryType === "home" ? shippingAddress : undefined),
       pickupDetails: deliveryType === "pickup" ? pickupDetails : undefined,
+      // Fall back to the country's currency when the client omitted it, so an order
+      // placed outside the UAE is never silently recorded as AED.
+      currency: currency || orderCountry?.currencyCode || "AED",
+      currencySymbol: currencySymbol || currency || orderCountry?.currencySymbol || orderCountry?.currencyCode || "AED",
       itemsPrice: calculatedItemsPrice,
       shippingPrice: normalizedShippingPrice,
       discountAmount: finalDiscountAmount,

@@ -18,7 +18,8 @@
     "seed:blog-ar": "node scripts/seed-blog-arabic-translations.js",
     "seed:blog-ar:force": "node scripts/seed-blog-arabic-translations.js --force",
     "cache:clear": "node -e \"import('./services/cacheService.js').then(m => m.default.initialize().then(() => m.default.flushAll().then(() => process.exit(0))))\"",
-    "cache:warm": "node scripts/preload-cache.js"
+    "cache:warm": "node scripts/preload-cache.js",
+    "update:stock-quantities": "node scripts/update-missing-product-quantities.js"
   },
   "dependencies": {
     "@getbrevo/brevo": "^2.2.0",

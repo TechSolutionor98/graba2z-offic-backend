@@ -5,8 +5,15 @@ const paymentMethodChargeSchema = mongoose.Schema(
     paymentMethod: {
       type: String,
       required: true,
-      unique: true,
       enum: ["cod", "card", "tabby", "tamara", "bank_transfer", "paypal"],
+    },
+    // ISO-2 country code this configuration applies to.
+    // "" means it is the default rule used by every country without its own.
+    countryCode: {
+      type: String,
+      uppercase: true,
+      trim: true,
+      default: "",
     },
     description: {
       type: String,
@@ -43,6 +50,10 @@ const paymentMethodChargeSchema = mongoose.Schema(
     timestamps: true,
   },
 )
+
+// One configuration per payment method per country. The legacy single-field
+// unique index on paymentMethod is dropped by ensurePaymentChargeIndexes().
+paymentMethodChargeSchema.index({ paymentMethod: 1, countryCode: 1 }, { unique: true })
 
 const PaymentMethodCharge = mongoose.model("PaymentMethodCharge", paymentMethodChargeSchema)
 

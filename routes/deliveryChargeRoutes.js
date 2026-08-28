@@ -5,14 +5,48 @@ import { protect, admin } from "../middleware/authMiddleware.js"
 
 const router = express.Router()
 
-// @desc    Get all delivery charges
+// @desc    Get all delivery charges (with optional country filtering)
 // @route   GET /api/delivery-charges
 // @access  Public
 router.get(
   "/",
   asyncHandler(async (req, res) => {
-    const deliveryCharges = await DeliveryCharge.find({ isActive: true }).sort({ createdAt: -1 })
-    res.json(deliveryCharges)
+    const { country, countryCode } = req.query
+    let filter = { isActive: true }
+
+    if (country || countryCode) {
+      const countryQuery = []
+      if (country) {
+        countryQuery.push({ country: { $regex: new RegExp(`^${country}$`, "i") } })
+      }
+      if (countryCode) {
+        countryQuery.push({ countryCode: { $regex: new RegExp(`^${countryCode}$`, "i") } })
+      }
+
+      let deliveryCharges = await DeliveryCharge.find({
+        isActive: true,
+        $or: countryQuery,
+      }).sort({ createdAt: -1 })
+
+      // If no country-specific match found, check for international/fallback rules or legacy default rules
+      if (deliveryCharges.length === 0) {
+        deliveryCharges = await DeliveryCharge.find({
+          isActive: true,
+          $or: [
+            { isInternational: true },
+            { country: "International" },
+            { country: "All Other Countries" },
+            { country: "United Arab Emirates" },
+            { country: { $exists: false } },
+          ],
+        }).sort({ createdAt: -1 })
+      }
+
+      res.json(deliveryCharges)
+    } else {
+      const deliveryCharges = await DeliveryCharge.find({ isActive: true }).sort({ createdAt: -1 })
+      res.json(deliveryCharges)
+    }
   }),
 )
 
@@ -54,7 +88,18 @@ router.post(
   protect,
   admin,
   asyncHandler(async (req, res) => {
-    const { name, description, charge, minOrderAmount, maxOrderAmount, applicableAreas, deliveryTime } = req.body
+    const {
+      name,
+      description,
+      charge,
+      minOrderAmount,
+      maxOrderAmount,
+      applicableAreas,
+      deliveryTime,
+      country,
+      countryCode,
+      isInternational,
+    } = req.body
 
     const deliveryChargeData = {
       name,
@@ -64,14 +109,20 @@ router.post(
       maxOrderAmount: maxOrderAmount ? Number(maxOrderAmount) : null,
       applicableAreas: applicableAreas || [],
       deliveryTime: deliveryTime || "1-2 business days",
+      country: country || "United Arab Emirates",
+      countryCode: countryCode || "AE",
+      isInternational: isInternational !== undefined ? Boolean(isInternational) : false,
       createdBy: req.user._id,
     }
 
-    const deliveryChargeExists = await DeliveryCharge.findOne({ name: { $regex: new RegExp(`^${name}$`, "i") } })
+    const deliveryChargeExists = await DeliveryCharge.findOne({
+      name: { $regex: new RegExp(`^${name}$`, "i") },
+      country: { $regex: new RegExp(`^${deliveryChargeData.country}$`, "i") },
+    })
 
     if (deliveryChargeExists) {
       res.status(400)
-      throw new Error("Delivery charge with this name already exists")
+      throw new Error("Delivery charge with this name for this country already exists")
     }
 
     const deliveryCharge = await DeliveryCharge.create(deliveryChargeData)
@@ -87,27 +138,41 @@ router.put(
   protect,
   admin,
   asyncHandler(async (req, res) => {
-    const { name, description, charge, minOrderAmount, maxOrderAmount, applicableAreas, deliveryTime, isActive } =
-      req.body
+    const {
+      name,
+      description,
+      charge,
+      minOrderAmount,
+      maxOrderAmount,
+      applicableAreas,
+      deliveryTime,
+      isActive,
+      country,
+      countryCode,
+      isInternational,
+    } = req.body
 
     const deliveryCharge = await DeliveryCharge.findById(req.params.id)
 
     if (deliveryCharge) {
-      // Check if name already exists (excluding current record)
-      if (name && name !== deliveryCharge.name) {
+      const targetCountry = country || deliveryCharge.country || "United Arab Emirates"
+
+      // Check if name & country already exists (excluding current record)
+      if (name && (name !== deliveryCharge.name || targetCountry !== deliveryCharge.country)) {
         const nameExists = await DeliveryCharge.findOne({
           name: { $regex: new RegExp(`^${name}$`, "i") },
+          country: { $regex: new RegExp(`^${targetCountry}$`, "i") },
           _id: { $ne: req.params.id },
         })
 
         if (nameExists) {
           res.status(400)
-          throw new Error("Delivery charge with this name already exists")
+          throw new Error("Delivery charge with this name for this country already exists")
         }
       }
 
       deliveryCharge.name = name || deliveryCharge.name
-      deliveryCharge.description = description || deliveryCharge.description
+      deliveryCharge.description = description !== undefined ? description : deliveryCharge.description
       deliveryCharge.charge = charge !== undefined ? Number(charge) : deliveryCharge.charge
       deliveryCharge.minOrderAmount =
         minOrderAmount !== undefined ? Number(minOrderAmount) : deliveryCharge.minOrderAmount
@@ -116,6 +181,9 @@ router.put(
       deliveryCharge.applicableAreas = applicableAreas || deliveryCharge.applicableAreas
       deliveryCharge.deliveryTime = deliveryTime || deliveryCharge.deliveryTime
       deliveryCharge.isActive = isActive !== undefined ? isActive : deliveryCharge.isActive
+      deliveryCharge.country = country !== undefined ? country : deliveryCharge.country
+      deliveryCharge.countryCode = countryCode !== undefined ? countryCode : deliveryCharge.countryCode
+      deliveryCharge.isInternational = isInternational !== undefined ? Boolean(isInternational) : deliveryCharge.isInternational
 
       const updatedDeliveryCharge = await deliveryCharge.save()
       res.json(updatedDeliveryCharge)

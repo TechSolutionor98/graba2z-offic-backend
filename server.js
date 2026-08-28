@@ -83,14 +83,19 @@ import seoPageRoutes from "./routes/seoPageRoutes.js"
 import staticPageTranslationRoutes from "./routes/staticPageTranslationRoutes.js"
 import arabicConversionRoutes from "./routes/arabicConversionRoutes.js"
 import productPaymentMethodRoutes from "./routes/productPaymentMethodRoutes.js"
+import countryPaymentMethodRoutes from "./routes/countryPaymentMethodRoutes.js"
+import countryRoutes, { seedDefaultCountries } from "./routes/countryRoutes.js"
 import { ensureSubCategorySlugIndexes } from "./utils/ensureSubCategorySlugIndexes.js"
+import { ensurePaymentChargeIndexes } from "./utils/ensurePaymentChargeIndexes.js"
 
 dotenv.config()
 
 // Connect to databases - await both
 await connectDB()
 await ensureSubCategorySlugIndexes()
+await ensurePaymentChargeIndexes()
 await connectBlogDB()
+await seedDefaultCountries()
 
 // Initialize cache service
 await cacheService.initialize()
@@ -265,6 +270,7 @@ app.use("/api/newsletter", newsletterRoutes)
 app.use("/api/homepage", homepageRoutes)
 
 app.use("/api/price-adjustment", priceAdjustmentRoutes)
+app.use("/api/countries", countryRoutes)
 app.use("/api/redirects", redirectRoutes)
 app.use("/api/buyer-protection", buyerProtectionRoutes)
 app.use("/api/cache", cacheRoutes)
@@ -273,6 +279,7 @@ app.use("/api/seo-pages", seoPageRoutes)
 app.use("/api/static-page-translations", staticPageTranslationRoutes)
 app.use("/api/admin/arabic-conversion", arabicConversionRoutes)
 app.use("/api/product-payment-methods", productPaymentMethodRoutes)
+app.use("/api/country-payment-methods", countryPaymentMethodRoutes)
 app.use("/api/indexnow", indexNowRoutes)
 // @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 

@@ -75,6 +75,10 @@ const bannerSchema = mongoose.Schema(
       enum: ["desktop", "mobile"],
       default: "desktop",
     },
+    targetCountries: {
+      type: [String],
+      default: ["ALL"],
+    },
     validFrom: {
       type: Date,
       default: Date.now,

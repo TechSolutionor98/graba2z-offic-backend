@@ -22,6 +22,14 @@ const taxSchema = mongoose.Schema(
       type: String,
       trim: true,
     },
+    // ISO-2 country code this tax applies to.
+    // "" means it is the default tax used by every country without its own.
+    countryCode: {
+      type: String,
+      uppercase: true,
+      trim: true,
+      default: "",
+    },
     isActive: {
       type: Boolean,
       default: true,
