@@ -1,5 +1,6 @@
 import express from "express"
 import Product from "../models/productModel.js"
+import { buildProductUrl } from "../utils/publicSiteUrl.js"
 import Category from "../models/categoryModel.js"
 import SubCategory from "../models/subCategoryModel.js"
 import Brand from "../models/brandModel.js"
@@ -220,6 +221,10 @@ router.get("/products", async (req, res) => {
       // Check if on sale
       p.isOnSale = !!(p.offerPrice && p.offerPrice > 0 && p.offerPrice < p.price)
 
+      // Shareable storefront link. Clients must use this rather than building a
+      // URL from the API host, which is not a page a customer can open.
+      p.productUrl = buildProductUrl(p.slug || p._id, req.query.lang)
+
       return p
     })
 
@@ -401,6 +406,10 @@ router.get("/products/:id", async (req, res) => {
     }
 
     p.isOnSale = !!(p.offerPrice && p.offerPrice > 0 && p.offerPrice < p.price)
+
+    // Shareable storefront link. Clients must use this rather than building a
+    // URL from the API host, which is not a page a customer can open.
+    p.productUrl = buildProductUrl(p.slug || p._id, req.query.lang)
 
     res.json({ success: true, data: p })
   } catch (error) {

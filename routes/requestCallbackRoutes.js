@@ -3,6 +3,8 @@ import asyncHandler from 'express-async-handler';
 import RequestCallback from '../models/requestCallbackModel.js';
 import { protect, admin } from '../middleware/authMiddleware.js';
 import { sendVerificationEmail } from '../utils/emailService.js';
+import Product from '../models/productModel.js';
+import { buildProductUrl, isPublicSiteUrl } from '../utils/publicSiteUrl.js';
 
 const router = express.Router();
 
@@ -92,6 +94,31 @@ router.post(
     
     console.log('Request Callback - Received data:', { name, email, phone, countryCode, customerNote, productId, productName, productLink });
     
+    // Never store a client-supplied link that is not a storefront page. Apps and
+    // integrations only know the API host, so they tend to send that instead.
+    let resolvedProductLink = isPublicSiteUrl(productLink) ? productLink : '';
+    let resolvedProductName = productName || '';
+
+    if (productId) {
+      try {
+        const product = await Product.findById(productId).select('name slug').lean();
+        if (product) {
+          if (!resolvedProductLink) {
+            resolvedProductLink = buildProductUrl(product.slug || product._id);
+          }
+          if (!resolvedProductName) {
+            resolvedProductName = product.name || '';
+          }
+        }
+      } catch (lookupError) {
+        console.error('Request Callback - Could not resolve product link:', lookupError.message);
+      }
+    }
+
+    if (productLink && !resolvedProductLink) {
+      console.warn(`Request Callback - Ignored non-storefront productLink: ${productLink}`);
+    }
+
     try {
       const callback = await RequestCallback.create({ 
         name, 
@@ -100,8 +127,8 @@ router.post(
         countryCode: countryCode || '',
         customerNote: customerNote || '',
         productId: productId || null,
-        productName: productName || '',
-        productLink: productLink || ''
+        productName: resolvedProductName,
+        productLink: resolvedProductLink
       });
       
       console.log('Request Callback - Created successfully:', callback._id);
