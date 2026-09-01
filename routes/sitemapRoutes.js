@@ -164,8 +164,10 @@ const buildSitemapXml = async () => {
 
   for (const product of products) {
     if (!product.slug) continue
+    // Percent-encode so a stray "?" or ":" in a slug cannot break the URL.
+    // Clean slugs are unaffected, and the product lookup decodes before matching.
     addEntry({
-      path: `/product/${product.slug}`,
+      path: `/product/${encodeURIComponent(product.slug)}`,
       lastmod: product.updatedAt,
       changefreq: "weekly",
       priority: "0.8",

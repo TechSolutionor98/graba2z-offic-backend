@@ -19,7 +19,10 @@
     "seed:blog-ar:force": "node scripts/seed-blog-arabic-translations.js --force",
     "cache:clear": "node -e \"import('./services/cacheService.js').then(m => m.default.initialize().then(() => m.default.flushAll().then(() => process.exit(0))))\"",
     "cache:warm": "node scripts/preload-cache.js",
-    "update:stock-quantities": "node scripts/update-missing-product-quantities.js"
+    "update:stock-quantities": "node scripts/update-missing-product-quantities.js",
+    "scan:product-slugs": "node scripts/scan-invalid-product-slugs.js",
+    "fix:product-slugs": "node scripts/fix-invalid-product-slugs.js",
+    "fix:product-slugs:apply": "node scripts/fix-invalid-product-slugs.js --apply"
   },
   "dependencies": {
     "@getbrevo/brevo": "^2.2.0",

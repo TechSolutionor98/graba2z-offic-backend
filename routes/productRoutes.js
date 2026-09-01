@@ -23,6 +23,11 @@ import mongoose from "mongoose"
 import { deleteLocalFile, isCloudinaryUrl } from "../config/multer.js"
 import { requireSeoUnlockIfBodyHas } from "../middleware/seoUnlockMiddleware.js"
 import { submitProduct } from "../services/indexNowService.js"
+import {
+  escapeRegex,
+  buildSearchConditions,
+  buildRelevanceExpression,
+} from "../utils/productSearch.js"
 
 const router = express.Router()
 const __filename = fileURLToPath(import.meta.url)
@@ -455,55 +460,6 @@ const buildCategorySnapshotFromDocs = ({
   subCategory4Slug: level4SubCategoryDoc?.slug || "",
 })
 
-// Helper to escape regex special characters
-function escapeRegex(string) {
-  return string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-}
-
-// Build search conditions for multi-word queries.
-// Splits the query into individual words; each word must match at least one field (AND logic across words).
-async function buildSearchConditions(search, BrandModel) {
-  if (!search || typeof search !== "string" || !search.trim()) return null
-  let queryStr = search.trim()
-
-  // If the query is a product URL, extract the slug
-  if (queryStr.includes("/product/")) {
-    try {
-      const cleanUrl = queryStr.split("?")[0].replace(/\/$/, "")
-      const parts = cleanUrl.split("/product/")
-      if (parts.length > 1) {
-        queryStr = decodeURIComponent(parts[1])
-      }
-    } catch (e) {
-      // fallback to original search string
-    }
-  }
-
-  const searchTerms = queryStr.split(/\s+/).filter(Boolean)
-  if (searchTerms.length === 0) return null
-
-  // For each word, check if it matches a brand name; only add the brand filter for that specific word.
-  const wordConditions = await Promise.all(searchTerms.map(async (term) => {
-    const safeTerm = escapeRegex(term)
-    const termRegex = new RegExp(safeTerm, "i")
-    const orClause = [
-      { name: termRegex },
-      { description: termRegex },
-      { sku: termRegex },
-      { barcode: termRegex },
-      { tags: termRegex },
-      { slug: termRegex },
-    ]
-    const matchingBrands = await BrandModel.find({ name: termRegex }).select("_id").lean()
-    if (matchingBrands.length > 0) {
-      orClause.push({ brand: { $in: matchingBrands.map(b => b._id) } })
-    }
-    return { $or: orClause }
-  }))
-
-  return wordConditions.length > 1 ? { $and: wordConditions } : wordConditions[0]
-}
-
 const normalizeLookupValue = (value) =>
   String(value || "")
     .replace(/[\u200B-\u200D\uFEFF]/g, "")
@@ -859,7 +815,8 @@ router.get("/admin", protect, admin, async (req, res) => {
     }
 
     if (typeof search === "string" && search.trim() !== "") {
-      const searchCondition = await buildSearchConditions(search, Brand)
+      // Admin search stays broad: the back office does look products up by spec text.
+      const searchCondition = await buildSearchConditions(search, Brand, { includeDescription: true })
       if (searchCondition) andConditions.push(searchCondition)
     }
 
@@ -940,7 +897,8 @@ router.get("/admin/count", protect, admin, async (req, res) => {
     }
 
     if (typeof search === "string" && search.trim() !== "") {
-      const searchCondition = await buildSearchConditions(search, Brand)
+      // Admin search stays broad: the back office does look products up by spec text.
+      const searchCondition = await buildSearchConditions(search, Brand, { includeDescription: true })
       if (searchCondition) andConditions.push(searchCondition)
     }
 
@@ -1056,7 +1014,32 @@ router.get(
       andConditions.push({ featured: true })
     }
 
-    const query = andConditions.length > 1 ? { $and: andConditions } : andConditions[0]
+    let query = andConditions.length > 1 ? { $and: andConditions } : andConditions[0]
+
+    const parsedLimit = limit && !isNaN(limit) ? Number.parseInt(limit) : null
+
+    // This endpoint feeds the header search dropdown, where only a handful of rows are
+    // shown -- so the few that surface have to be the closest matches, not simply the
+    // most recently added products that happened to match. Ordering by relevance needs a
+    // second pass (aggregate for the order, then find for the populated documents), so it
+    // is only worth doing when the caller asked for a bounded number of rows.
+    let relevanceOrderedIds = null
+    if (search && typeof search === "string" && search.trim() && parsedLimit) {
+      const relevanceExpr = buildRelevanceExpression(search)
+      if (relevanceExpr) {
+        const ranked = await Product.aggregate([
+          { $match: query },
+          { $addFields: { _searchRelevance: relevanceExpr } },
+          { $sort: { _searchRelevance: -1, createdAt: -1, _id: -1 } },
+          { $limit: parsedLimit },
+          { $project: { _id: 1 } },
+        ])
+        if (ranked.length > 0) {
+          relevanceOrderedIds = ranked.map((doc) => doc._id)
+          query = { _id: { $in: relevanceOrderedIds } }
+        }
+      }
+    }
 
     let productsQuery = Product.find(query)
       .select(
@@ -1078,11 +1061,17 @@ router.get(
       .sort({ createdAt: -1 })
 
     // Apply limit only if specified (for specific use cases)
-    if (limit && !isNaN(limit)) {
-      productsQuery = productsQuery.limit(Number.parseInt(limit))
+    if (parsedLimit) {
+      productsQuery = productsQuery.limit(parsedLimit)
     }
 
     const products = await productsQuery
+
+    if (relevanceOrderedIds) {
+      // $in loses the ranked order, so restore it.
+      const rank = new Map(relevanceOrderedIds.map((id, index) => [String(id), index]))
+      products.sort((a, b) => (rank.get(String(a._id)) ?? 0) - (rank.get(String(b._id)) ?? 0))
+    }
 
     res.json(products)
   }),
@@ -1106,6 +1095,15 @@ router.get(
     res.json(products)
   }),
 )
+
+// One field list for the shop grid, shared by the find() and aggregate() paths below so
+// the two can never return different shapes.
+const SHOP_QUERY_SELECT =
+  "name slug sku price basePrice offerPrice discount image galleryImages featured rating numReviews countInStock stockStatus brand parentCategory category subCategory subCategory2 subCategory3 subCategory4 parentCategoryName parentCategorySlug categoryName categorySlug subCategory2Name subCategory2Slug subCategory3Name subCategory3Slug subCategory4Name subCategory4Slug series model make manufacturer soldBy createdAt updatedAt"
+const SHOP_QUERY_PROJECTION = SHOP_QUERY_SELECT.split(/\s+/).reduce((acc, field) => {
+  acc[field] = 1
+  return acc
+}, {})
 
 // @desc    Fetch first-paint optimized shop products with filters
 // @route   GET /api/products/shop-query
@@ -1161,11 +1159,6 @@ router.get(
     if (manufacturerIds.length > 0) andConditions.push({ manufacturer: { $in: manufacturerIds } })
     if (soldByIds.length > 0) andConditions.push({ soldBy: { $in: soldByIds } })
 
-    if (search) {
-      const searchCondition = await buildSearchConditions(search, Brand)
-      if (searchCondition) andConditions.push(searchCondition)
-    }
-
     const stockFilterCondition = buildPublicStockFilterCondition(stockStatuses)
     if (stockFilterCondition) {
       andConditions.push(stockFilterCondition)
@@ -1185,7 +1178,10 @@ router.get(
       }
     }
 
-    const query = andConditions.length > 1 ? { $and: andConditions } : andConditions[0]
+    const buildQuery = (searchCondition) => {
+      const conditions = searchCondition ? [...andConditions, searchCondition] : andConditions
+      return conditions.length > 1 ? { $and: conditions } : conditions[0]
+    }
 
     const sortSpec = (() => {
       switch (sortBy) {
@@ -1201,17 +1197,52 @@ router.get(
       }
     })()
 
-    const totalCount = await Product.countDocuments(query)
+    // Relevance only means something against a query; without one it degrades to newest.
+    const relevanceExpr = sortBy === "relevance" ? buildRelevanceExpression(search) : null
 
-    const products = await Product.find(query)
-      .select(
-        "name slug sku price basePrice offerPrice discount image galleryImages featured rating numReviews countInStock stockStatus brand parentCategory category subCategory subCategory2 subCategory3 subCategory4 parentCategoryName parentCategorySlug categoryName categorySlug subCategory2Name subCategory2Slug subCategory3Name subCategory3Slug subCategory4Name subCategory4Slug series model make manufacturer soldBy createdAt updatedAt",
-      )
-      .populate("brand", "name slug")
-      .lean()
-      .sort(sortSpec)
-      .skip((page - 1) * limit)
-      .limit(limit)
+    const fetchPage = async (query) => {
+      const totalCount = await Product.countDocuments(query)
+
+      if (relevanceExpr) {
+        const docs = await Product.aggregate([
+          { $match: query },
+          { $addFields: { _searchRelevance: relevanceExpr } },
+          { $sort: { _searchRelevance: -1, createdAt: -1, _id: -1 } },
+          { $skip: (page - 1) * limit },
+          { $limit: limit },
+          // Inclusion-only projection; it drops _searchRelevance on its own.
+          { $project: SHOP_QUERY_PROJECTION },
+        ])
+        // Aggregation skips Mongoose middleware, so brands are populated after the fact.
+        const products = await Product.populate(docs, { path: "brand", select: "name slug" })
+        return { products, totalCount }
+      }
+
+      const products = await Product.find(query)
+        .select(SHOP_QUERY_SELECT)
+        .populate("brand", "name slug")
+        .lean()
+        .sort(sortSpec)
+        .skip((page - 1) * limit)
+        .limit(limit)
+      return { products, totalCount }
+    }
+
+    const searchCondition = search ? await buildSearchConditions(search, Brand) : null
+    let result = await fetchPage(buildQuery(searchCondition))
+
+    // Nothing matched a name, code, tag, brand or category. Rather than show an empty
+    // page, widen the search into descriptions -- those hits score in the lowest
+    // relevance tier, so they can never bury a real match.
+    if (search && result.totalCount === 0) {
+      const wideCondition = await buildSearchConditions(search, Brand, { includeDescription: true })
+      if (wideCondition) {
+        const wideResult = await fetchPage(buildQuery(wideCondition))
+        if (wideResult.totalCount > 0) result = wideResult
+      }
+    }
+
+    const { products, totalCount } = result
 
     res.json({
       products,
@@ -3081,7 +3112,8 @@ router.post(
 
         previewProducts.push({
           name: row.name || "",
-          slug: row.slug || generateSlug(row.name || ""),
+          // Sanitize a spreadsheet-supplied slug; raw values let ? : , & into URLs.
+          slug: row.slug ? sanitizeSlug(row.slug) : generateSlug(row.name || ""),
           sku: row.sku || "",
           barcode: row.barcode || "",
           parentCategory: parentCategoryId,
@@ -3491,7 +3523,8 @@ router.post(
 
       previewProducts.push({
         name: row.name || "",
-        slug: row.slug || generateSlug(row.name || ""),
+        // Sanitize a spreadsheet-supplied slug; raw values let ? : , & into URLs.
+        slug: row.slug ? sanitizeSlug(row.slug) : generateSlug(row.name || ""),
         sku: row.sku || "",
         barcode: row.barcode || "",
         parentCategory: parentCategoryId,

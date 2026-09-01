@@ -4,37 +4,9 @@ import { buildProductUrl } from "../utils/publicSiteUrl.js"
 import Category from "../models/categoryModel.js"
 import SubCategory from "../models/subCategoryModel.js"
 import Brand from "../models/brandModel.js"
+import { buildSearchConditions, buildRelevanceExpression } from "../utils/productSearch.js"
 
 const router = express.Router()
-
-function escapeRegex(string) {
-  return string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-}
-
-async function buildSearchConditions(search, BrandModel) {
-  if (!search || typeof search !== "string" || !search.trim()) return null
-  const searchTerms = search.trim().split(/\s+/).filter(Boolean)
-  if (searchTerms.length === 0) return null
-
-  const wordConditions = await Promise.all(searchTerms.map(async (term) => {
-    const safeTerm = escapeRegex(term)
-    const termRegex = new RegExp(safeTerm, "i")
-    const orClause = [
-      { name: termRegex },
-      { description: termRegex },
-      { sku: termRegex },
-      { barcode: termRegex },
-      { tags: termRegex },
-    ]
-    const matchingBrands = await BrandModel.find({ name: termRegex }).select("_id").lean()
-    if (matchingBrands.length > 0) {
-      orClause.push({ brand: { $in: matchingBrands.map(b => b._id) } })
-    }
-    return { $or: orClause }
-  }))
-
-  return wordConditions.length > 1 ? { $and: wordConditions } : wordConditions[0]
-}
 
 // @desc    Get products with advanced filtering for mobile app
 // @route   GET /api/mobile/products
@@ -181,8 +153,29 @@ router.get("/products", async (req, res) => {
     // Pagination
     const skip = (Number(page) - 1) * Number(limit)
 
+    // A search is ordered by how well each product matches unless the caller asked for a
+    // specific order. Ranking needs an aggregation, so this resolves the page order first
+    // and then re-reads those documents through find() to keep the populate() calls below.
+    const wantsRelevance =
+      typeof search === "string" && search.trim() && (sortBy === "relevance" || !sortBy || sortBy === "newest")
+    let relevanceOrderedIds = null
+    if (wantsRelevance) {
+      const relevanceExpr = buildRelevanceExpression(search)
+      if (relevanceExpr) {
+        const ranked = await Product.aggregate([
+          { $match: query },
+          { $addFields: { _searchRelevance: relevanceExpr } },
+          { $sort: { _searchRelevance: -1, createdAt: -1, _id: -1 } },
+          { $skip: skip },
+          { $limit: Number(limit) },
+          { $project: { _id: 1 } },
+        ])
+        if (ranked.length > 0) relevanceOrderedIds = ranked.map((doc) => doc._id)
+      }
+    }
+
     // Execute query
-    const products = await Product.find(query)
+    const products = await Product.find(relevanceOrderedIds ? { _id: { $in: relevanceOrderedIds } } : query)
       .populate("category", "name slug")
       .populate("subCategory", "name slug")
       .populate("parentCategory", "name slug")
@@ -190,8 +183,14 @@ router.get("/products", async (req, res) => {
       .populate("tax", "name rate")
       .populate("deliveryCharge", "name charge")
       .sort(sortOption)
-      .skip(skip)
+      .skip(relevanceOrderedIds ? 0 : skip)
       .limit(Number(limit))
+
+    if (relevanceOrderedIds) {
+      // $in loses the ranked order, so restore it.
+      const rank = new Map(relevanceOrderedIds.map((id, index) => [String(id), index]))
+      products.sort((a, b) => (rank.get(String(a._id)) ?? 0) - (rank.get(String(b._id)) ?? 0))
+    }
 
     const totalProducts = await Product.countDocuments(query)
     const totalPages = Math.ceil(totalProducts / Number(limit))
@@ -338,6 +337,7 @@ router.get("/filters", async (req, res) => {
     ]
 
     const sortOptions = [
+      { value: "relevance", label: "Best Match" },
       { value: "newest", label: "Newest First" },
       { value: "price-low", label: "Price: Low to High" },
       { value: "price-high", label: "Price: High to Low" },
