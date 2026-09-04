@@ -659,6 +659,7 @@ router.get(
       { key: "gamingZone", label: "Gaming Zone", description: "Manage gaming zone" },
       { key: "coupons", label: "Coupons", description: "Manage discount coupons" },
       { key: "appDiscounts", label: "App Discounts", description: "Manage app-only registration discounts" },
+      { key: "loyalty", label: "Loyalty Points", description: "Manage the points programme, earning rules and customer balances" },
       { key: "deliveryCharges", label: "Delivery Charges", description: "Manage delivery charges" },
       { key: "settings", label: "Settings", description: "Manage site settings" },
       { key: "emailTemplates", label: "Email Templates", description: "Manage email templates" },

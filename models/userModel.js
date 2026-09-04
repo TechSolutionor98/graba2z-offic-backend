@@ -62,6 +62,7 @@ const userSchema = mongoose.Schema(
       adminManagement: { type: Boolean, default: false },
       activityLogs: { type: Boolean, default: false },
       appDiscounts: { type: Boolean, default: false },
+      loyalty: { type: Boolean, default: false },
     },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
@@ -127,6 +128,21 @@ const userSchema = mongoose.Schema(
     resetPasswordExpires: Date,
     deleteAccountCode: String,
     deleteAccountExpires: Date,
+    // Spendable loyalty balance. This is a counter, not the record of truth -- every
+    // movement is also written to LoyaltyTransaction, and the two are only ever changed
+    // together (atomic $inc here + a ledger row). Pending points are NOT included: they
+    // are summed from the ledger on demand.
+    loyaltyPoints: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    // Running total ever earned, for tier/reporting purposes. Never decreases.
+    loyaltyLifetimePoints: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
     registrationSource: {
       type: String,
       enum: ["web", "app"],

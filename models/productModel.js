@@ -509,6 +509,29 @@ const productSchema = mongoose.Schema(
       enum: ["card", "cod", "tamara", "tabby"],
       default: undefined,
     },
+
+    // Loyalty earning override for this product. Kept on the product (rather than in the
+    // LoyaltyRule collection) so the shop grid and product page can render "earn N points"
+    // from the document they already loaded.
+    //   inherit    -> fall through to the category rule, then the global rate
+    //   multiplier -> global rate x loyaltyPointsMultiplier
+    //   fixed      -> exactly loyaltyPointsFixed points per unit, whatever the price
+    //   none       -> this product never earns points
+    loyaltyPointsMode: {
+      type: String,
+      enum: ["inherit", "multiplier", "fixed", "none"],
+      default: "inherit",
+    },
+    loyaltyPointsMultiplier: {
+      type: Number,
+      default: 1,
+      min: 0,
+    },
+    loyaltyPointsFixed: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
   },
   {
     timestamps: true,

@@ -731,6 +731,12 @@ const parseFiniteNumber = (value) => {
   return Number.isFinite(parsed) ? parsed : null
 }
 
+// An explicit stockStatus is what the product card shows the shopper, so it decides here
+// too; countInStock only speaks for products whose status says nothing either way. Listed
+// once so the "in stock" and "out of stock" filters cannot drift apart.
+const IN_STOCK_STATUS_PATTERNS = [/^in\s*-?\s*stock$/i, /^available(\s*product)?$/i, /^pre\s*-?\s*order$/i]
+const OUT_OF_STOCK_STATUS_PATTERNS = [/^out\s*-?\s*of\s*-?\s*stock$/i, /^stock\s*out$/i]
+
 const buildPublicStockFilterCondition = (stockStatuses = []) => {
   if (!Array.isArray(stockStatuses) || stockStatuses.length === 0) return null
 
@@ -742,10 +748,11 @@ const buildPublicStockFilterCondition = (stockStatuses = []) => {
   if (hasInStock) {
     orConditions.push({
       $or: [
-        { stockStatus: /^in\s*-?\s*stock$/i },
-        { stockStatus: /^available(\s*product)?$/i },
-        { stockStatus: /^pre\s*-?\s*order$/i },
-        { countInStock: { $gt: 0 } },
+        ...IN_STOCK_STATUS_PATTERNS.map((pattern) => ({ stockStatus: pattern })),
+        // A product the admin marked out of stock stays out of stock, whatever the count says.
+        {
+          $and: [{ stockStatus: { $nin: OUT_OF_STOCK_STATUS_PATTERNS } }, { countInStock: { $gt: 0 } }],
+        },
       ],
     })
   }
@@ -753,13 +760,9 @@ const buildPublicStockFilterCondition = (stockStatuses = []) => {
   if (hasOutOfStock) {
     orConditions.push({
       $or: [
-        { stockStatus: /^out\s*-?\s*of\s*-?\s*stock$/i },
-        { stockStatus: /^stock\s*out$/i },
+        ...OUT_OF_STOCK_STATUS_PATTERNS.map((pattern) => ({ stockStatus: pattern })),
         {
-          $and: [
-            { stockStatus: { $nin: [/^in\s*-?\s*stock$/i, /^available(\s*product)?$/i, /^pre\s*-?\s*order$/i] } },
-            { countInStock: { $lte: 0 } },
-          ],
+          $and: [{ stockStatus: { $nin: IN_STOCK_STATUS_PATTERNS } }, { countInStock: { $lte: 0 } }],
         },
       ],
     })
@@ -1105,6 +1108,50 @@ const SHOP_QUERY_PROJECTION = SHOP_QUERY_SELECT.split(/\s+/).reduce((acc, field)
   return acc
 }, {})
 
+// The shop grid's ordering rules, written for the aggregation pipeline. They mirror
+// filterProducts() in client/src/services/productCache.js: available products first, then
+// the chosen sort, comparing the offer price whenever one is set. The server renders the
+// first page and the client's cached catalogue re-renders the same grid a moment later, so
+// any disagreement here would show up as the list visibly reshuffling under the shopper.
+const OUT_OF_STOCK_LABELS = ["out of stock", "stock out", "outofstock"]
+const IN_STOCK_LABELS = [
+  "in stock",
+  "instock",
+  "available",
+  "available product",
+  "availableproduct",
+  "pre-order",
+  "preorder",
+]
+const NORMALIZED_STOCK_STATUS_EXPR = { $toLower: { $trim: { input: { $ifNull: ["$stockStatus", ""] } } } }
+// 0 = available, 1 = unavailable. An explicit status wins; otherwise fall back to the count.
+const STOCK_RANK_EXPR = {
+  $switch: {
+    branches: [
+      { case: { $in: [NORMALIZED_STOCK_STATUS_EXPR, OUT_OF_STOCK_LABELS] }, then: 1 },
+      { case: { $in: [NORMALIZED_STOCK_STATUS_EXPR, IN_STOCK_LABELS] }, then: 0 },
+      { case: { $gt: [{ $ifNull: ["$countInStock", 0] }, 0] }, then: 0 },
+    ],
+    default: 1,
+  },
+}
+// What a shopper actually pays -- used by the price filter.
+const EFFECTIVE_PRICE_EXPR = { $cond: [{ $gt: ["$offerPrice", 0] }, "$offerPrice", "$price"] }
+// The price sorts park anything without a usable price at the far end, so a zero or a bad
+// negative can never lead the page.
+const SORT_PRICE_ASC_EXPR = {
+  $cond: [
+    { $gt: ["$offerPrice", 0] },
+    "$offerPrice",
+    { $cond: [{ $gt: ["$price", 0] }, "$price", Number.MAX_VALUE] },
+  ],
+}
+const SORT_PRICE_DESC_EXPR = {
+  $cond: [{ $gt: ["$offerPrice", 0] }, "$offerPrice", { $cond: [{ $gt: ["$price", 0] }, "$price", 0] }],
+}
+// Case- and whitespace-insensitive, so " asus" cannot sort ahead of "24U421A-B".
+const SORT_NAME_EXPR = { $toLower: { $trim: { input: { $ifNull: ["$name", ""] } } } }
+
 // @desc    Fetch first-paint optimized shop products with filters
 // @route   GET /api/products/shop-query
 // @access  Public
@@ -1165,13 +1212,12 @@ router.get(
     }
 
     if (priceMin !== null || priceMax !== null) {
-      const effectivePriceExpr = { $cond: [{ $gt: ["$offerPrice", 0] }, "$offerPrice", "$price"] }
       const priceExpressions = []
       if (priceMin !== null) {
-        priceExpressions.push({ $gte: [effectivePriceExpr, priceMin] })
+        priceExpressions.push({ $gte: [EFFECTIVE_PRICE_EXPR, priceMin] })
       }
       if (priceMax !== null) {
-        priceExpressions.push({ $lte: [effectivePriceExpr, priceMax] })
+        priceExpressions.push({ $lte: [EFFECTIVE_PRICE_EXPR, priceMax] })
       }
       if (priceExpressions.length > 0) {
         andConditions.push({ $expr: priceExpressions.length === 1 ? priceExpressions[0] : { $and: priceExpressions } })
@@ -1183,48 +1229,63 @@ router.get(
       return conditions.length > 1 ? { $and: conditions } : conditions[0]
     }
 
-    const sortSpec = (() => {
-      switch (sortBy) {
-        case "price-low":
-          return { offerPrice: 1, price: 1, createdAt: -1 }
-        case "price-high":
-          return { offerPrice: -1, price: -1, createdAt: -1 }
-        case "name":
-          return { name: 1, createdAt: -1 }
-        case "newest":
-        default:
-          return { createdAt: -1 }
-      }
-    })()
-
     // Relevance only means something against a query; without one it degrades to newest.
     const relevanceExpr = sortBy === "relevance" ? buildRelevanceExpression(search) : null
+
+    // Availability leads every sort, matching the client cache filter. `_id` closes each
+    // sort so paging stays stable when the preceding keys tie.
+    const sortStage = (() => {
+      switch (sortBy) {
+        case "price-low":
+          return { _stockRank: 1, _sortPriceAsc: 1, createdAt: -1, _id: -1 }
+        case "price-high":
+          return { _stockRank: 1, _sortPriceDesc: -1, createdAt: -1, _id: -1 }
+        case "name":
+          return { _stockRank: 1, _sortName: 1, createdAt: -1, _id: -1 }
+        case "relevance":
+          // No query to score against, so relevance degrades to newest.
+          return relevanceExpr
+            ? { _stockRank: 1, _searchRelevance: -1, createdAt: -1, _id: -1 }
+            : { _stockRank: 1, createdAt: -1, _id: -1 }
+        case "newest":
+        default:
+          return { _stockRank: 1, createdAt: -1, _id: -1 }
+      }
+    })()
 
     const fetchPage = async (query) => {
       const totalCount = await Product.countDocuments(query)
 
-      if (relevanceExpr) {
-        const docs = await Product.aggregate([
-          { $match: query },
-          { $addFields: { _searchRelevance: relevanceExpr } },
-          { $sort: { _searchRelevance: -1, createdAt: -1, _id: -1 } },
-          { $skip: (page - 1) * limit },
-          { $limit: limit },
-          // Inclusion-only projection; it drops _searchRelevance on its own.
-          { $project: SHOP_QUERY_PROJECTION },
-        ])
-        // Aggregation skips Mongoose middleware, so brands are populated after the fact.
-        const products = await Product.populate(docs, { path: "brand", select: "name slug" })
-        return { products, totalCount }
+      const sortFields = {
+        _stockRank: STOCK_RANK_EXPR,
+        _sortPriceAsc: SORT_PRICE_ASC_EXPR,
+        _sortPriceDesc: SORT_PRICE_DESC_EXPR,
+        _sortName: SORT_NAME_EXPR,
       }
+      if (relevanceExpr) sortFields._searchRelevance = relevanceExpr
 
-      const products = await Product.find(query)
-        .select(SHOP_QUERY_SELECT)
-        .populate("brand", "name slug")
-        .lean()
-        .sort(sortSpec)
-        .skip((page - 1) * limit)
-        .limit(limit)
+      // Keep only the grid's fields plus the computed sort keys before sorting. A blocking
+      // sort holds its input in memory, and a full product document averages 12 KB mostly
+      // of description text, so sorting the whole catalogue unprojected would approach
+      // MongoDB's 100 MB sort limit as the catalogue grows.
+      const sortProjection = { ...SHOP_QUERY_PROJECTION }
+      for (const field of Object.keys(sortFields)) sortProjection[field] = 1
+
+      // aggregate() does no schema casting, so an id that arrived as a string would match
+      // nothing here even though countDocuments() found it. Cast the filter exactly as
+      // find() would before handing it to $match.
+      const docs = await Product.aggregate([
+        { $match: Product.find(query).cast(Product) },
+        { $addFields: sortFields },
+        { $project: sortProjection },
+        { $sort: sortStage },
+        { $skip: (page - 1) * limit },
+        { $limit: limit },
+        // Inclusion-only projection; it drops the computed sort fields on its own.
+        { $project: SHOP_QUERY_PROJECTION },
+      ])
+      // Aggregation skips Mongoose middleware, so brands are populated after the fact.
+      const products = await Product.populate(docs, { path: "brand", select: "name slug" })
       return { products, totalCount }
     }
 

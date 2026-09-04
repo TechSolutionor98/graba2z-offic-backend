@@ -11,6 +11,18 @@ import { sendOrderPlacedEmail, sendOrderStatusUpdateEmail } from "../utils/email
 import { resolveAppDiscountForOrder } from "../services/appDiscountService.js"
 import Country from "../models/countryModel.js"
 import { resolveCountryPaymentMethods } from "./countryPaymentMethodRoutes.js"
+import LoyaltyTransaction from "../models/loyaltyTransactionModel.js"
+import User from "../models/userModel.js"
+import {
+  getLoyaltySettings,
+  getCategoryRuleMap,
+  computeRedemption,
+  calculateEarnedPoints,
+  redeemPointsForOrder,
+  recordPendingEarn,
+  syncOrderLoyaltyForStatus,
+  getUserLoyaltySummary,
+} from "../utils/loyalty.js"
 
 const router = express.Router()
 const ORDER_DOCUMENT_QUERY = {
@@ -88,6 +100,17 @@ const optionalProtect = asyncHandler(async (req, res, next) => {
 })
 
 // Helper function to get display name for payment method
+// Undo a redemption that was debited but never made it onto an order. The ledger row is
+// removed rather than offset, because it describes a checkout that did not happen.
+const refundUnlinkedRedemption = async (transaction) => {
+  if (!transaction?._id) return
+  const removed = await LoyaltyTransaction.findOneAndDelete({ _id: transaction._id, order: null })
+  // Only credit back if this call is the one that removed the row, so a retry cannot
+  // refund the same points twice.
+  if (!removed) return
+  await User.updateOne({ _id: removed.user }, { $inc: { loyaltyPoints: Math.abs(removed.points) } })
+}
+
 const getPaymentMethodDisplay = (actualPaymentMethod, paymentMethod) => {
   const method = actualPaymentMethod || paymentMethod
   switch (method?.toLowerCase()) {
@@ -214,6 +237,9 @@ router.post(
     // Server-side Recalculation & Validation of Items
     let calculatedItemsPrice = 0
     const verifiedOrderItems = []
+    // Loyalty needs the product document (for its earning rule) alongside the price
+    // actually charged, so it is collected here rather than re-fetched later.
+    const loyaltyEarnItems = []
 
     for (const item of orderItems) {
       if (item.isProtection) {
@@ -331,6 +357,7 @@ router.post(
 
         verifiedOrderItems.push(verifiedItem)
         calculatedItemsPrice += dbPrice * quantity
+        loyaltyEarnItems.push({ product, price: dbPrice, quantity })
       }
     }
 
@@ -417,7 +444,100 @@ router.post(
     }
 
     const finalDiscountAmount = appliedAppDiscountAmount > 0 ? appliedAppDiscountAmount : couponDiscount
-    const normalizedTotalPrice = Math.max(0, normalizedBaseTotal - finalDiscountAmount)
+
+    // ---- Loyalty points ----
+    //
+    // The client sends how many points the shopper chose to spend; everything else is
+    // recalculated here. Points are debited before the order is written so a shortfall
+    // fails the checkout outright rather than quietly charging full price, and the debit
+    // is refunded below if the order itself cannot be saved.
+    const loyaltySettings = await getLoyaltySettings()
+    const requestedLoyaltyPoints = Math.max(
+      0,
+      Math.floor(Number(req.body.loyaltyPointsRedeemed ?? req.body.loyaltyPoints ?? 0) || 0),
+    )
+
+    // Points come off the goods only -- never shipping or payment fees -- and only what is
+    // left after any coupon.
+    const loyaltyEligibleAmount = Math.max(0, calculatedItemsPrice - finalDiscountAmount)
+
+    let loyaltyPointsRedeemed = 0
+    let loyaltyDiscountAmount = 0
+    let loyaltyRedeemTransaction = null
+
+    if (requestedLoyaltyPoints > 0) {
+      if (!req.user) {
+        res.status(401)
+        throw new Error("Sign in to pay with points")
+      }
+      if (!loyaltySettings.isEnabled) {
+        res.status(400)
+        throw new Error("The points programme is not currently active")
+      }
+
+      const summary = await getUserLoyaltySummary(req.user._id)
+      const quote = computeRedemption({
+        eligibleAmountAed: loyaltyEligibleAmount,
+        availablePoints: summary.balance,
+        requestedPoints: requestedLoyaltyPoints,
+        settings: loyaltySettings,
+      })
+
+      // Asking for more than the cap allows is refused rather than quietly trimmed. The
+      // checkout screen priced the order against the number it asked for, so applying
+      // less would charge the customer more than they were shown.
+      if (requestedLoyaltyPoints > quote.maxPoints) {
+        res.status(400)
+        throw new Error(
+          quote.maxPoints > 0
+            ? `You can use at most ${quote.maxPoints} points on this order. Please review your order and try again.`
+            : "Your points cannot be applied to this order. Please review your order and try again.",
+        )
+      }
+
+      if (quote.appliedPoints <= 0) {
+        res.status(400)
+        const reasons = {
+          no_points: "You do not have any points to redeem",
+          below_minimum: `You need at least ${loyaltySettings.minPointsToRedeem} points to redeem`,
+          cap_below_minimum: "This order is too small to redeem points against",
+          empty_cart: "There is nothing to redeem points against",
+          disabled: "The points programme is not currently active",
+        }
+        throw new Error(reasons[quote.blockedReason] || "These points cannot be applied to this order")
+      }
+
+      loyaltyRedeemTransaction = await redeemPointsForOrder({
+        userId: req.user._id,
+        points: quote.appliedPoints,
+        order: null,
+        settings: loyaltySettings,
+      })
+
+      if (!loyaltyRedeemTransaction) {
+        // The balance moved between the quote and the debit -- another order spent them.
+        res.status(400)
+        throw new Error("Your points balance changed. Please review your order and try again.")
+      }
+
+      loyaltyPointsRedeemed = quote.appliedPoints
+      loyaltyDiscountAmount = quote.discountAed
+    }
+
+    // What this order will pay out, held pending until it is delivered.
+    const { totalPoints: loyaltyPointsEarned } = req.user
+      ? calculateEarnedPoints({
+          items: loyaltyEarnItems,
+          settings: loyaltySettings,
+          ruleMap: await getCategoryRuleMap(),
+          redeemedAmountAed: loyaltyDiscountAmount,
+        })
+      : { totalPoints: 0 }
+
+    const normalizedTotalPrice = Math.max(
+      0,
+      normalizedBaseTotal - finalDiscountAmount - loyaltyDiscountAmount,
+    )
 
     const order = new Order({
       orderItems: verifiedOrderItems,
@@ -440,6 +560,9 @@ router.post(
       appDiscountType: appDiscountMeta?.discountType || "",
       appDiscountValue: Number(appDiscountMeta?.discountValue || 0),
       appDiscountAmount: appliedAppDiscountAmount,
+      loyaltyPointsRedeemed,
+      loyaltyDiscountAmount,
+      loyaltyPointsEarned,
       totalPrice: normalizedTotalPrice,
       couponCode: appDiscountMeta ? appDiscountMeta.name : (req.body.couponCode || ""),
       customerNotes,
@@ -449,9 +572,45 @@ router.post(
       status: "New",
     })
 
-    const createdOrder = await order.save()
-    
+    let createdOrder
+    try {
+      createdOrder = await order.save()
+    } catch (error) {
+      // The points were already debited, so give them back rather than leaving the
+      // customer short for an order that does not exist.
+      if (loyaltyRedeemTransaction) {
+        await refundUnlinkedRedemption(loyaltyRedeemTransaction).catch((refundError) =>
+          console.error("Failed to refund loyalty points after order save failed:", refundError),
+        )
+      }
+      throw error
+    }
+
     console.log(`[ORDER CREATED] Order ID: ${createdOrder._id}, User: ${req.user ? req.user._id : 'GUEST'}, Email: ${deliveryType === 'home' ? shippingAddress?.email : pickupDetails?.email}`)
+
+    // Attach the redemption to the order now that it has an id, and register the pending
+    // award. Neither is allowed to fail the order the customer has already paid for.
+    if (loyaltyRedeemTransaction) {
+      await LoyaltyTransaction.updateOne(
+        { _id: loyaltyRedeemTransaction._id },
+        {
+          $set: {
+            order: createdOrder._id,
+            description: `Redeemed on order #${createdOrder._id.toString().slice(-6)}`,
+          },
+        },
+      ).catch((error) => console.error("Failed to link loyalty redemption to order:", error))
+    }
+
+    if (req.user && loyaltyPointsEarned > 0) {
+      await recordPendingEarn({
+        userId: req.user._id,
+        points: loyaltyPointsEarned,
+        order: createdOrder,
+        settings: loyaltySettings,
+        description: `Pending on order #${createdOrder._id.toString().slice(-6)}`,
+      }).catch((error) => console.error("Failed to record pending loyalty points:", error))
+    }
 
     // Populate the user information for the created order
     await createdOrder.populate("user", "name email")
@@ -520,6 +679,12 @@ router.put(
     }
 
     const updatedOrder = await order.save()
+
+    // Points earned on an order stay pending until it reaches the award status, so a
+    // cancelled or returned order never pays out.
+    if (oldStatus !== updatedOrder.status) {
+      await syncOrderLoyaltyForStatus(updatedOrder._id, updatedOrder.status)
+    }
 
     // Send status update email only when status actually changes
     if (oldStatus !== updatedOrder.status) {

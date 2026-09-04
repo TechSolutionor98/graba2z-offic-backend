@@ -1014,6 +1014,7 @@ import {
 import Review from "../models/reviewModel.js"
 import { logActivity } from "../middleware/permissionMiddleware.js"
 import { issueSeoUnlockToken, verifySeoUnlockPassword } from "../middleware/seoUnlockMiddleware.js"
+import { syncOrderLoyaltyForStatus } from "../utils/loyalty.js"
 
 const router = express.Router()
 const ORDER_DOCUMENT_QUERY = {
@@ -1277,6 +1278,12 @@ router.put(
 
       // Log activity
       await logActivity(req, "STATUS_CHANGE", "ORDERS", `Changed order ${order.trackingId || order._id} status from ${previousStatus} to ${normalized}`, order._id, order.trackingId || order._id)
+
+      // Points earned on an order stay pending until it reaches the award status, so a
+      // cancelled or returned order never pays out.
+      if (previousStatus !== normalized) {
+        await syncOrderLoyaltyForStatus(updatedOrder._id, normalized)
+      }
 
       // Send notification email only if status has changed
       if (previousStatus !== normalized) {

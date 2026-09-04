@@ -210,6 +210,43 @@ const orderSchema = mongoose.Schema(
     couponCode: {
       type: String,
     },
+
+    // ---- Loyalty ----
+    // Points spent on this order and the AED they took off the total. Debited from the
+    // customer at checkout, refunded if the order is cancelled or returned.
+    loyaltyPointsRedeemed: {
+      type: Number,
+      default: 0,
+    },
+    loyaltyDiscountAmount: {
+      type: Number,
+      default: 0,
+    },
+    // Points this order will pay out. Held pending until the order reaches the award
+    // status configured in LoyaltySettings, then confirmed.
+    loyaltyPointsEarned: {
+      type: Number,
+      default: 0,
+    },
+    loyaltyPointsAwarded: {
+      type: Boolean,
+      default: false,
+    },
+    loyaltyPointsAwardedAt: {
+      type: Date,
+      default: null,
+    },
+    // Set the moment a reversal is claimed. Reversing refunds the points spent and takes
+    // back the points earned, so it must happen exactly once however many times a
+    // cancelling status is applied.
+    loyaltyReversed: {
+      type: Boolean,
+      default: false,
+    },
+    loyaltyReversedAt: {
+      type: Date,
+      default: null,
+    },
     totalPrice: {
       type: Number,
       required: true,
