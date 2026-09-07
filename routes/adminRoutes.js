@@ -1015,6 +1015,7 @@ import Review from "../models/reviewModel.js"
 import { logActivity } from "../middleware/permissionMiddleware.js"
 import { issueSeoUnlockToken, verifySeoUnlockPassword } from "../middleware/seoUnlockMiddleware.js"
 import { syncOrderLoyaltyForStatus } from "../utils/loyalty.js"
+import { syncOrderReferralForStatus } from "../utils/referral.js"
 
 const router = express.Router()
 const ORDER_DOCUMENT_QUERY = {
@@ -1283,6 +1284,9 @@ router.put(
       // cancelled or returned order never pays out.
       if (previousStatus !== normalized) {
         await syncOrderLoyaltyForStatus(updatedOrder._id, normalized)
+        // A referral only pays the referrer once the friend's order is actually
+        // delivered, and is unwound if it is later cancelled or returned.
+        await syncOrderReferralForStatus(updatedOrder._id, normalized)
       }
 
       // Send notification email only if status has changed

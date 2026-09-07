@@ -67,6 +67,7 @@ const activityLogSchema = mongoose.Schema(
         "TAX",
         "SIZES",
         "ADMIN_MANAGEMENT",
+        "REFERRALS",
         "AUTH",
         "PERMISSIONS",
         "OTHER",

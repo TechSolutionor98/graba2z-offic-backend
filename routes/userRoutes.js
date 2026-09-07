@@ -6,6 +6,7 @@ import { protect } from "../middleware/authMiddleware.js"
 import { sendVerificationEmail, sendAccountDeletionEmail, sendGuestAccountCreatedEmail } from "../utils/emailService.js"
 import { sendResetPasswordEmail } from "../utils/emailService.js"
 import crypto from "crypto"
+import { attachReferralOnSignup } from "../utils/referral.js"
 
 const router = express.Router()
 
@@ -26,7 +27,7 @@ const normalizeRegistrationPlatform = (value) => {
 router.post(
   "/register",
   asyncHandler(async (req, res) => {
-    const { name, email, password, registrationSource, registrationPlatform } = req.body
+    const { name, email, password, registrationSource, registrationPlatform, referralCode } = req.body
 
     const userExists = await User.findOne({ email })
 
@@ -53,6 +54,15 @@ router.post(
     })
 
     if (user) {
+      // Link this signup to whoever invited them and hand over the welcome discount.
+      // Never throws -- a referral problem must not stop somebody creating an account --
+      // so the result is only used to tell the client whether the link took.
+      const referralResult = await attachReferralOnSignup({
+        refereeUser: user,
+        code: referralCode || req.headers["x-referral-code"],
+        source: resolvedSource,
+      })
+
       // Generate verification code
       const verificationCode = user.generateEmailVerificationCode()
       await user.save()
@@ -65,6 +75,7 @@ router.post(
           email: user.email,
           registrationSource: user.registrationSource,
           registrationPlatform: user.registrationPlatform,
+          referralApplied: referralResult.attached,
         })
       } catch (emailError) {
         console.error("Failed to send verification email:", emailError)
@@ -74,6 +85,7 @@ router.post(
           email: user.email,
           registrationSource: user.registrationSource,
           registrationPlatform: user.registrationPlatform,
+          referralApplied: referralResult.attached,
         })
       }
     } else {

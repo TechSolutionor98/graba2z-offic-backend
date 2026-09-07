@@ -247,6 +247,40 @@ const orderSchema = mongoose.Schema(
       type: Date,
       default: null,
     },
+    // ---- Referral reward ----
+    // A single-use, user-locked discount from the referral programme. Marked spent at
+    // checkout and handed back if the order is cancelled before it ships.
+    referralRewardId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "ReferralReward",
+      default: null,
+    },
+    // "referee" (welcome discount) or "referrer" (thank-you discount).
+    referralRewardRole: {
+      type: String,
+      enum: ["referee", "referrer", ""],
+      default: "",
+    },
+    referralDiscountType: {
+      type: String,
+      enum: ["percentage", "fixed", ""],
+      default: "",
+    },
+    referralDiscountValue: {
+      type: Number,
+      default: 0,
+    },
+    referralDiscountAmount: {
+      type: Number,
+      default: 0,
+    },
+    // Set the moment a referral reversal is claimed, so returning the reward happens
+    // exactly once however many times a cancelling status is applied.
+    referralRewardReturned: {
+      type: Boolean,
+      default: false,
+    },
+
     totalPrice: {
       type: Number,
       required: true,

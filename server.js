@@ -40,6 +40,7 @@ import paymentMethodChargeRoutes from "./routes/paymentMethodChargeRoutes.js"
 import couponRoutes from "./routes/couponRoutes.js"
 import appDiscountRoutes from "./routes/appDiscountRoutes.js"
 import loyaltyRoutes from "./routes/loyaltyRoutes.js"
+import referralRoutes from "./routes/referralRoutes.js"
 import popupSettingsRoutes from "./routes/popupSettingsRoutes.js"
 import bannerRoutes from "./routes/bannerRoutes.js"
 import bannerCardRoutes from "./routes/bannerCardRoutes.js"
@@ -238,6 +239,7 @@ app.use("/api/delivery-charges", deliveryChargeRoutes)
 app.use("/api/coupons", couponRoutes)
 app.use("/api/app-discounts", appDiscountRoutes)
 app.use("/api/loyalty", loyaltyRoutes)
+app.use("/api/referrals", referralRoutes)
 app.use("/api/popup-settings", popupSettingsRoutes)
 app.use("/api/banners", bannerRoutes)
 app.use("/api/banner-cards", bannerCardRoutes)

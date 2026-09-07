@@ -63,6 +63,7 @@ const userSchema = mongoose.Schema(
       activityLogs: { type: Boolean, default: false },
       appDiscounts: { type: Boolean, default: false },
       loyalty: { type: Boolean, default: false },
+      referrals: { type: Boolean, default: false },
     },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
@@ -143,6 +144,35 @@ const userSchema = mongoose.Schema(
       default: 0,
       min: 0,
     },
+    // ---- Referrals ----
+    // This customer's own share code. Generated on demand the first time they open the
+    // referral panel, so accounts that never use the programme never carry one. Sparse,
+    // because most rows have no value until then.
+    // No default: a sparse unique index skips documents where the field is absent, but
+    // still indexes an explicit null -- so defaulting to null would make the second
+    // customer to register collide with the first.
+    referralCode: {
+      type: String,
+      unique: true,
+      sparse: true,
+      uppercase: true,
+      trim: true,
+    },
+    // Who invited this customer, set once at registration and never changed. The
+    // relationship itself, and everything either side earned from it, lives on the
+    // Referral document; this is the denormalised pointer so a user row alone can answer
+    // "was this signup referred?".
+    referredBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+      index: true,
+    },
+    referredAt: {
+      type: Date,
+      default: null,
+    },
+
     registrationSource: {
       type: String,
       enum: ["web", "app"],

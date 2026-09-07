@@ -1,5 +1,6 @@
 import express from "express"
 import asyncHandler from "express-async-handler"
+import mongoose from "mongoose"
 import Order from "../models/orderModel.js"
 import DeliveryCharge from "../models/deliveryChargeModel.js"
 import Product from "../models/productModel.js"
@@ -23,6 +24,15 @@ import {
   syncOrderLoyaltyForStatus,
   getUserLoyaltySummary,
 } from "../utils/loyalty.js"
+import ReferralReward from "../models/referralRewardModel.js"
+import {
+  getReferralSettings,
+  computeRewardDiscount,
+  claimRewardForOrder,
+  releaseClaimedReward,
+  hasPreviousOrder,
+  syncOrderReferralForStatus,
+} from "../utils/referral.js"
 
 const router = express.Router()
 const ORDER_DOCUMENT_QUERY = {
@@ -445,6 +455,78 @@ router.post(
 
     const finalDiscountAmount = appliedAppDiscountAmount > 0 ? appliedAppDiscountAmount : couponDiscount
 
+    // ---- Referral reward ----
+    //
+    // The client sends which reward the shopper chose; everything else is recalculated
+    // here. The reward is claimed -- an atomic update that both checks it is still active
+    // and marks it spent -- before the order is written, so two checkouts cannot spend the
+    // same reward, and it is handed back below if the order itself cannot be saved.
+    const referralSettings = await getReferralSettings()
+    const requestedRewardId = String(req.body.referralRewardId || "").trim()
+
+    // A referral reward comes off the goods only -- never shipping or payment fees -- and
+    // only what is left after any coupon or app discount.
+    const referralEligibleAmount = Math.max(0, calculatedItemsPrice - finalDiscountAmount)
+
+    let referralReward = null
+    let referralDiscountAmount = 0
+
+    if (requestedRewardId) {
+      if (!req.user) {
+        res.status(401)
+        throw new Error("Sign in to use your referral discount")
+      }
+      if (!referralSettings.isEnabled) {
+        res.status(400)
+        throw new Error("The referral programme is not currently active")
+      }
+      if (!mongoose.Types.ObjectId.isValid(requestedRewardId)) {
+        res.status(400)
+        throw new Error("That referral discount could not be found")
+      }
+
+      // Scoped to the caller, so a guessed id can never spend somebody else's reward.
+      const candidate = await ReferralReward.findOne({ _id: requestedRewardId, user: req.user._id }).lean()
+      if (!candidate) {
+        res.status(400)
+        throw new Error("That referral discount could not be found on your account")
+      }
+
+      const isFirstOrder = candidate.firstOrderOnly ? !(await hasPreviousOrder(req.user._id)) : true
+      const quote = computeRewardDiscount({
+        reward: candidate,
+        eligibleAmountAed: referralEligibleAmount,
+        isFirstOrder,
+      })
+
+      if (quote.discountAed <= 0) {
+        res.status(400)
+        const reasons = {
+          not_active: "That referral discount has already been used or is no longer valid",
+          expired: "That referral discount has expired",
+          first_order_only: "That welcome discount can only be used on your first order",
+          below_minimum: `Your order must be at least ${candidate.minOrderAed} AED to use this discount`,
+          empty_cart: "There is nothing to apply the discount to",
+          no_value: "That referral discount cannot be applied to this order",
+        }
+        throw new Error(reasons[quote.blockedReason] || "That referral discount cannot be applied to this order")
+      }
+
+      referralReward = await claimRewardForOrder({
+        rewardId: candidate._id,
+        userId: req.user._id,
+        discountAed: quote.discountAed,
+      })
+
+      if (!referralReward) {
+        // It was spent between the quote and the claim -- another checkout got there first.
+        res.status(400)
+        throw new Error("That referral discount has just been used. Please review your order and try again.")
+      }
+
+      referralDiscountAmount = quote.discountAed
+    }
+
     // ---- Loyalty points ----
     //
     // The client sends how many points the shopper chose to spend; everything else is
@@ -458,70 +540,87 @@ router.post(
     )
 
     // Points come off the goods only -- never shipping or payment fees -- and only what is
-    // left after any coupon.
-    const loyaltyEligibleAmount = Math.max(0, calculatedItemsPrice - finalDiscountAmount)
+    // left after any coupon and any referral reward, so the three together can never take
+    // off more than the goods are worth.
+    const loyaltyEligibleAmount = Math.max(
+      0,
+      calculatedItemsPrice - finalDiscountAmount - referralDiscountAmount,
+    )
 
     let loyaltyPointsRedeemed = 0
     let loyaltyDiscountAmount = 0
     let loyaltyRedeemTransaction = null
 
-    if (requestedLoyaltyPoints > 0) {
-      if (!req.user) {
-        res.status(401)
-        throw new Error("Sign in to pay with points")
-      }
-      if (!loyaltySettings.isEnabled) {
-        res.status(400)
-        throw new Error("The points programme is not currently active")
-      }
+    // Guarded so that any failure from here on hands the referral reward back: it has
+    // already been claimed, and an order that is never placed must not consume it.
+    try {
+      if (requestedLoyaltyPoints > 0) {
+        if (!req.user) {
+          res.status(401)
+          throw new Error("Sign in to pay with points")
+        }
+        if (!loyaltySettings.isEnabled) {
+          res.status(400)
+          throw new Error("The points programme is not currently active")
+        }
 
-      const summary = await getUserLoyaltySummary(req.user._id)
-      const quote = computeRedemption({
-        eligibleAmountAed: loyaltyEligibleAmount,
-        availablePoints: summary.balance,
-        requestedPoints: requestedLoyaltyPoints,
-        settings: loyaltySettings,
-      })
+        const summary = await getUserLoyaltySummary(req.user._id)
+        const quote = computeRedemption({
+          eligibleAmountAed: loyaltyEligibleAmount,
+          availablePoints: summary.balance,
+          requestedPoints: requestedLoyaltyPoints,
+          settings: loyaltySettings,
+        })
 
-      // Asking for more than the cap allows is refused rather than quietly trimmed. The
-      // checkout screen priced the order against the number it asked for, so applying
-      // less would charge the customer more than they were shown.
-      if (requestedLoyaltyPoints > quote.maxPoints) {
-        res.status(400)
-        throw new Error(
-          quote.maxPoints > 0
-            ? `You can use at most ${quote.maxPoints} points on this order. Please review your order and try again.`
-            : "Your points cannot be applied to this order. Please review your order and try again.",
+        // Asking for more than the cap allows is refused rather than quietly trimmed. The
+        // checkout screen priced the order against the number it asked for, so applying
+        // less would charge the customer more than they were shown.
+        if (requestedLoyaltyPoints > quote.maxPoints) {
+          res.status(400)
+          throw new Error(
+            quote.maxPoints > 0
+              ? `You can use at most ${quote.maxPoints} points on this order. Please review your order and try again.`
+              : "Your points cannot be applied to this order. Please review your order and try again.",
+          )
+        }
+
+        if (quote.appliedPoints <= 0) {
+          res.status(400)
+          const reasons = {
+            no_points: "You do not have any points to redeem",
+            below_minimum: `You need at least ${loyaltySettings.minPointsToRedeem} points to redeem`,
+            cap_below_minimum: "This order is too small to redeem points against",
+            empty_cart: "There is nothing to redeem points against",
+            disabled: "The points programme is not currently active",
+          }
+          throw new Error(reasons[quote.blockedReason] || "These points cannot be applied to this order")
+        }
+
+        loyaltyRedeemTransaction = await redeemPointsForOrder({
+          userId: req.user._id,
+          points: quote.appliedPoints,
+          order: null,
+          settings: loyaltySettings,
+        })
+
+        if (!loyaltyRedeemTransaction) {
+          // The balance moved between the quote and the debit -- another order spent them.
+          res.status(400)
+          throw new Error("Your points balance changed. Please review your order and try again.")
+        }
+
+        loyaltyPointsRedeemed = quote.appliedPoints
+        loyaltyDiscountAmount = quote.discountAed
+      }
+    } catch (error) {
+      // A points failure happens after the referral reward was already claimed, so hand
+      // the reward back rather than burning it on an order that was never placed.
+      if (referralReward) {
+        await releaseClaimedReward(referralReward._id).catch((releaseError) =>
+          console.error("Failed to release referral reward after loyalty redemption failed:", releaseError),
         )
       }
-
-      if (quote.appliedPoints <= 0) {
-        res.status(400)
-        const reasons = {
-          no_points: "You do not have any points to redeem",
-          below_minimum: `You need at least ${loyaltySettings.minPointsToRedeem} points to redeem`,
-          cap_below_minimum: "This order is too small to redeem points against",
-          empty_cart: "There is nothing to redeem points against",
-          disabled: "The points programme is not currently active",
-        }
-        throw new Error(reasons[quote.blockedReason] || "These points cannot be applied to this order")
-      }
-
-      loyaltyRedeemTransaction = await redeemPointsForOrder({
-        userId: req.user._id,
-        points: quote.appliedPoints,
-        order: null,
-        settings: loyaltySettings,
-      })
-
-      if (!loyaltyRedeemTransaction) {
-        // The balance moved between the quote and the debit -- another order spent them.
-        res.status(400)
-        throw new Error("Your points balance changed. Please review your order and try again.")
-      }
-
-      loyaltyPointsRedeemed = quote.appliedPoints
-      loyaltyDiscountAmount = quote.discountAed
+      throw error
     }
 
     // What this order will pay out, held pending until it is delivered.
@@ -530,13 +629,13 @@ router.post(
           items: loyaltyEarnItems,
           settings: loyaltySettings,
           ruleMap: await getCategoryRuleMap(),
-          redeemedAmountAed: loyaltyDiscountAmount,
+          redeemedAmountAed: loyaltyDiscountAmount + referralDiscountAmount,
         })
       : { totalPoints: 0 }
 
     const normalizedTotalPrice = Math.max(
       0,
-      normalizedBaseTotal - finalDiscountAmount - loyaltyDiscountAmount,
+      normalizedBaseTotal - finalDiscountAmount - referralDiscountAmount - loyaltyDiscountAmount,
     )
 
     const order = new Order({
@@ -560,6 +659,11 @@ router.post(
       appDiscountType: appDiscountMeta?.discountType || "",
       appDiscountValue: Number(appDiscountMeta?.discountValue || 0),
       appDiscountAmount: appliedAppDiscountAmount,
+      referralRewardId: referralReward?._id || null,
+      referralRewardRole: referralReward?.role || "",
+      referralDiscountType: referralReward?.discountType || "",
+      referralDiscountValue: Number(referralReward?.discountValue || 0),
+      referralDiscountAmount,
       loyaltyPointsRedeemed,
       loyaltyDiscountAmount,
       loyaltyPointsEarned,
@@ -576,6 +680,14 @@ router.post(
     try {
       createdOrder = await order.save()
     } catch (error) {
+      // The reward was already claimed, so give it back rather than burning it on an
+      // order that does not exist.
+      if (referralReward) {
+        await releaseClaimedReward(referralReward._id).catch((releaseError) =>
+          console.error("Failed to release referral reward after order save failed:", releaseError),
+        )
+      }
+
       // The points were already debited, so give them back rather than leaving the
       // customer short for an order that does not exist.
       if (loyaltyRedeemTransaction) {
@@ -600,6 +712,15 @@ router.post(
           },
         },
       ).catch((error) => console.error("Failed to link loyalty redemption to order:", error))
+    }
+
+    // Point the reward at the order it paid for, now that the order has an id. It is
+    // already marked spent, so this only completes the audit trail.
+    if (referralReward) {
+      await ReferralReward.updateOne(
+        { _id: referralReward._id },
+        { $set: { order: createdOrder._id } },
+      ).catch((error) => console.error("Failed to link referral reward to order:", error))
     }
 
     if (req.user && loyaltyPointsEarned > 0) {
@@ -684,6 +805,9 @@ router.put(
     // cancelled or returned order never pays out.
     if (oldStatus !== updatedOrder.status) {
       await syncOrderLoyaltyForStatus(updatedOrder._id, updatedOrder.status)
+      // A referral only pays the referrer once the friend's order is actually delivered,
+      // and is unwound if it is later cancelled or returned.
+      await syncOrderReferralForStatus(updatedOrder._id, updatedOrder.status)
     }
 
     // Send status update email only when status actually changes

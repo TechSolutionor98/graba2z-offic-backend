@@ -660,6 +660,7 @@ router.get(
       { key: "coupons", label: "Coupons", description: "Manage discount coupons" },
       { key: "appDiscounts", label: "App Discounts", description: "Manage app-only registration discounts" },
       { key: "loyalty", label: "Loyalty Points", description: "Manage the points programme, earning rules and customer balances" },
+      { key: "referrals", label: "Referrals", description: "Manage the refer-a-friend programme, invites and reward discounts" },
       { key: "deliveryCharges", label: "Delivery Charges", description: "Manage delivery charges" },
       { key: "settings", label: "Settings", description: "Manage site settings" },
       { key: "emailTemplates", label: "Email Templates", description: "Manage email templates" },
