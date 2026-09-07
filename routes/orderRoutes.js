@@ -12,6 +12,7 @@ import { sendOrderPlacedEmail, sendOrderStatusUpdateEmail } from "../utils/email
 import { resolveAppDiscountForOrder } from "../services/appDiscountService.js"
 import Country from "../models/countryModel.js"
 import { resolveCountryPaymentMethods } from "./countryPaymentMethodRoutes.js"
+import { selectDeliveryMethod, describeDeliveryBlock } from "../utils/deliveryCharge.js"
 import LoyaltyTransaction from "../models/loyaltyTransactionModel.js"
 import User from "../models/userModel.js"
 import {
@@ -202,28 +203,6 @@ router.post(
     const requestedShippingPrice = Number.isFinite(Number(shippingPrice)) ? Number(shippingPrice) : 0
     const normalizedItemsPrice = Number.isFinite(Number(itemsPrice)) ? Number(itemsPrice) : 0
 
-    let normalizedShippingPrice = 0
-    if (deliveryType === "home") {
-      let selectedAdminDeliveryCharge = null
-
-      if (typeof deliveryChargeId === "string" && /^[a-fA-F0-9]{24}$/.test(deliveryChargeId)) {
-        selectedAdminDeliveryCharge = await DeliveryCharge.findOne({
-          _id: deliveryChargeId,
-          isActive: true,
-        }).lean()
-      }
-
-      if (!selectedAdminDeliveryCharge) {
-        selectedAdminDeliveryCharge = await DeliveryCharge.findOne({ isActive: true })
-          .sort({ createdAt: -1 })
-          .lean()
-      }
-
-      if (selectedAdminDeliveryCharge) {
-        normalizedShippingPrice = Math.max(0, Number(selectedAdminDeliveryCharge.charge) || 0)
-      }
-    }
-
     const normalizedOrderSource = resolveOrderSource(orderSource, req.headers)
 
     // Server-side validation of the country payment method rules.
@@ -369,6 +348,50 @@ router.post(
         calculatedItemsPrice += dbPrice * quantity
         loyaltyEarnItems.push({ product, price: dbPrice, quantity })
       }
+    }
+
+    // ---- Delivery charge ----
+    //
+    // Resolved here rather than earlier because every band is measured against the goods
+    // subtotal, which is only known once the items have been priced from the database.
+    // Discounts deliberately play no part: a shipping band is about the size of the
+    // basket, not about what the shopper knocked off it.
+    let normalizedShippingPrice = 0
+    let selectedAdminDeliveryCharge = null
+
+    if (deliveryType === "home") {
+      const countryFilter = orderCountry?.code
+        ? {
+            isActive: true,
+            $or: [
+              { countryCode: { $regex: new RegExp(`^${orderCountry.code}$`, "i") } },
+              { isInternational: true },
+            ],
+          }
+        : { isActive: true }
+
+      let candidates = await DeliveryCharge.find(countryFilter).sort({ createdAt: -1 }).lean()
+      // Nothing set up for this country: fall back to every active method rather than
+      // refusing an order over a gap in the configuration.
+      if (candidates.length === 0) {
+        candidates = await DeliveryCharge.find({ isActive: true }).sort({ createdAt: -1 }).lean()
+      }
+
+      const preferredId =
+        typeof deliveryChargeId === "string" && /^[a-fA-F0-9]{24}$/.test(deliveryChargeId) ? deliveryChargeId : null
+
+      const resolved = selectDeliveryMethod(candidates, calculatedItemsPrice, preferredId)
+
+      // The basket is too small for every method that exists. The storefront blocks this
+      // too, but it is refused here as well so a direct API call cannot slip past a
+      // minimum the shop has set.
+      if (!resolved.available) {
+        res.status(400)
+        throw new Error(describeDeliveryBlock(resolved))
+      }
+
+      normalizedShippingPrice = resolved.charge
+      selectedAdminDeliveryCharge = resolved.method
     }
 
     const normalizedBaseTotal = calculatedItemsPrice + normalizedShippingPrice

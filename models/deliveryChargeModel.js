@@ -1,5 +1,31 @@
 import mongoose from "mongoose"
 
+// One band of a tiered delivery method: "baskets between this much and that much cost
+// this much to deliver". A method with no rules falls back to its own charge and
+// min/max as a single band -- see utils/deliveryCharge.js, which is the one place that
+// decides what a method costs.
+const deliveryRuleSchema = mongoose.Schema(
+  {
+    minOrderAmount: {
+      type: Number,
+      required: true,
+      default: 0,
+      min: 0,
+    },
+    // null means no ceiling. Past the highest ceiling on a method, delivery is free.
+    maxOrderAmount: {
+      type: Number,
+      default: null,
+    },
+    charge: {
+      type: Number,
+      required: true,
+      min: 0,
+    },
+  },
+  { _id: false },
+)
+
 const deliveryChargeSchema = mongoose.Schema(
   {
     name: {
@@ -24,6 +50,12 @@ const deliveryChargeSchema = mongoose.Schema(
     maxOrderAmount: {
       type: Number,
       default: null,
+    },
+    // Optional bands. When present they replace the single charge/min/max above, so one
+    // method can price several basket sizes differently.
+    rules: {
+      type: [deliveryRuleSchema],
+      default: [],
     },
     isActive: {
       type: Boolean,

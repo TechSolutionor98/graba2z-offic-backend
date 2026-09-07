@@ -5,6 +5,31 @@ import { protect, admin } from "../middleware/authMiddleware.js"
 
 const router = express.Router()
 
+/**
+ * Clean up the bands an admin submitted.
+ *
+ * Anything without a usable charge is dropped rather than stored, and a ceiling of 0 or
+ * blank is recorded as null ("no ceiling") -- a band capped at zero could never apply, so
+ * it is far more likely to mean the field was left empty.
+ */
+const sanitizeRules = (rules) => {
+  if (!Array.isArray(rules)) return []
+
+  return rules
+    .map((rule) => {
+      const min = Math.max(0, Number(rule?.minOrderAmount) || 0)
+      const rawMax = rule?.maxOrderAmount
+      const max =
+        rawMax === null || rawMax === undefined || rawMax === "" || Number(rawMax) <= 0 ? null : Number(rawMax)
+      const charge = Number(rule?.charge)
+
+      return { minOrderAmount: min, maxOrderAmount: max, charge: Number.isFinite(charge) ? Math.max(0, charge) : null }
+    })
+    .filter((rule) => rule.charge !== null)
+    .filter((rule) => rule.maxOrderAmount === null || rule.maxOrderAmount >= rule.minOrderAmount)
+    .sort((a, b) => a.minOrderAmount - b.minOrderAmount)
+}
+
 // @desc    Get all delivery charges (with optional country filtering)
 // @route   GET /api/delivery-charges
 // @access  Public
@@ -99,6 +124,7 @@ router.post(
       country,
       countryCode,
       isInternational,
+      rules,
     } = req.body
 
     const deliveryChargeData = {
@@ -112,6 +138,7 @@ router.post(
       country: country || "United Arab Emirates",
       countryCode: countryCode || "AE",
       isInternational: isInternational !== undefined ? Boolean(isInternational) : false,
+      rules: sanitizeRules(rules),
       createdBy: req.user._id,
     }
 
@@ -150,6 +177,7 @@ router.put(
       country,
       countryCode,
       isInternational,
+      rules,
     } = req.body
 
     const deliveryCharge = await DeliveryCharge.findById(req.params.id)
@@ -184,6 +212,11 @@ router.put(
       deliveryCharge.country = country !== undefined ? country : deliveryCharge.country
       deliveryCharge.countryCode = countryCode !== undefined ? countryCode : deliveryCharge.countryCode
       deliveryCharge.isInternational = isInternational !== undefined ? Boolean(isInternational) : deliveryCharge.isInternational
+      // An explicit empty array is how an admin removes the bands and goes back to the
+      // single charge, so it has to be distinguishable from the field being absent.
+      if (rules !== undefined) {
+        deliveryCharge.rules = sanitizeRules(rules)
+      }
 
       const updatedDeliveryCharge = await deliveryCharge.save()
       res.json(updatedDeliveryCharge)
