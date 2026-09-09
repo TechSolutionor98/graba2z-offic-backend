@@ -404,11 +404,16 @@ router.get(
         $or: [{ isActive: true }, { isActive: { $exists: false } }]
       }
 
-      const products = await Product.find(query)
+      const allProducts = await Product.find(query)
         .populate("brand", "name")
         .populate("category", "name slug")
         .populate("parentCategory", "name slug")
         .lean()
+
+      // This feed lists in-stock products only. Filtering through
+      // determineAvailability keeps it consistent with the XML feed's
+      // g:availability values rather than reading stockStatus separately.
+      const products = allProducts.filter((p) => determineAvailability(p) === "in stock")
 
       res.json({
         brand: "Acer",
