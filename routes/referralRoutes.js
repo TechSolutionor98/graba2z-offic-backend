@@ -5,6 +5,7 @@ import mongoose from "mongoose"
 import ReferralSettings from "../models/referralSettingsModel.js"
 import Referral from "../models/referralModel.js"
 import ReferralReward from "../models/referralRewardModel.js"
+import ReferralType from "../models/referralTypeModel.js"
 import User from "../models/userModel.js"
 import { protect, admin } from "../middleware/authMiddleware.js"
 import { checkPermission, logActivity } from "../middleware/permissionMiddleware.js"
@@ -75,16 +76,20 @@ router.get(
     // is genuine, without turning the code into a way to look up an email address.
     const firstName = String(referrer.name || "").trim().split(/\s+/)[0] || "a friend"
 
+    const tier = referrer.referralType && referrer.referralType.isActive ? referrer.referralType : null
+    const source = tier || settings
+
     res.json({
       valid: true,
       code,
       referrerName: firstName,
       reward: {
-        discountType: settings.refereeDiscountType,
-        discountValue: settings.refereeDiscountValue,
-        maxDiscountAed: settings.refereeMaxDiscountAed,
-        minOrderAed: settings.refereeMinOrderAed,
+        discountType: source.refereeDiscountType || settings.refereeDiscountType,
+        discountValue: source.refereeDiscountValue ?? settings.refereeDiscountValue,
+        maxDiscountAed: source.refereeMaxDiscountAed ?? settings.refereeMaxDiscountAed,
+        minOrderAed: source.refereeMinOrderAed ?? settings.refereeMinOrderAed,
       },
+      tier: tier ? { name: tier.name, color: tier.color } : null,
     })
   }),
 )
@@ -267,7 +272,11 @@ router.get(
 
     const [referrals, totalCount] = await Promise.all([
       Referral.find(query)
-        .populate("referrer", "name email referralCode")
+        .populate({
+          path: "referrer",
+          select: "name email referralCode referralType",
+          populate: { path: "referralType", select: "name color" },
+        })
         .populate("referee", "name email isEmailVerified createdAt")
         .populate("referrerReward", "status discountType discountValue discountAppliedAed")
         .populate("refereeReward", "status discountType discountValue discountAppliedAed")
@@ -382,6 +391,253 @@ router.post(
   }),
 )
 
+// ===========================================================================
+// Referral Types (Tiers: Silver, Gold, Platinum, etc.)
+// ===========================================================================
+
+// @desc    Get all referral types
+// @route   GET /api/referrals/admin/types
+// @access  Private/Admin
+router.get(
+  "/admin/types",
+  ...adminGuard,
+  asyncHandler(async (req, res) => {
+    const types = await ReferralType.find({}).sort({ isDefault: -1, createdAt: -1 })
+    res.json(types)
+  }),
+)
+
+// @desc    Create a new referral type
+// @route   POST /api/referrals/admin/types
+// @access  Private/Admin
+router.post(
+  "/admin/types",
+  ...adminGuard,
+  asyncHandler(async (req, res) => {
+    const {
+      name,
+      description,
+      color,
+      badgeText,
+      refereeDiscountType,
+      refereeDiscountValue,
+      refereeMaxDiscountAed,
+      refereeMinOrderAed,
+      refereeExpiryDays,
+      refereeFirstOrderOnly,
+      referrerDiscountType,
+      referrerDiscountValue,
+      referrerMaxDiscountAed,
+      referrerMinOrderAed,
+      referrerExpiryDays,
+      qualifyMinOrderAed,
+      maxQualifiedReferralsPerUser,
+      isDefault,
+      isActive,
+    } = req.body
+
+    const trimmedName = String(name || "").trim()
+    if (!trimmedName) {
+      res.status(400)
+      throw new Error("Referral type name is required")
+    }
+
+    const existing = await ReferralType.findOne({ name: { $regex: new RegExp(`^${trimmedName}$`, "i") } })
+    if (existing) {
+      res.status(400)
+      throw new Error(`A referral type with name "${trimmedName}" already exists`)
+    }
+
+    if (isDefault) {
+      // Unset previous defaults
+      await ReferralType.updateMany({}, { $set: { isDefault: false } })
+    }
+
+    const referralType = await ReferralType.create({
+      name: trimmedName,
+      description: description || "",
+      color: color || "#3b82f6",
+      badgeText: badgeText || "",
+      refereeDiscountType: refereeDiscountType || "percentage",
+      refereeDiscountValue: Math.max(0, toNumber(refereeDiscountValue, 20)),
+      refereeMaxDiscountAed: Math.max(0, toNumber(refereeMaxDiscountAed, 0)),
+      refereeMinOrderAed: Math.max(0, toNumber(refereeMinOrderAed, 0)),
+      refereeExpiryDays: Math.max(0, toNumber(refereeExpiryDays, 0)),
+      refereeFirstOrderOnly: refereeFirstOrderOnly !== undefined ? Boolean(refereeFirstOrderOnly) : true,
+      referrerDiscountType: referrerDiscountType || "percentage",
+      referrerDiscountValue: Math.max(0, toNumber(referrerDiscountValue, 10)),
+      referrerMaxDiscountAed: Math.max(0, toNumber(referrerMaxDiscountAed, 0)),
+      referrerMinOrderAed: Math.max(0, toNumber(referrerMinOrderAed, 0)),
+      referrerExpiryDays: Math.max(0, toNumber(referrerExpiryDays, 0)),
+      qualifyMinOrderAed: Math.max(0, toNumber(qualifyMinOrderAed, 0)),
+      maxQualifiedReferralsPerUser: Math.max(0, toNumber(maxQualifiedReferralsPerUser, 0)),
+      isDefault: Boolean(isDefault),
+      isActive: isActive !== undefined ? Boolean(isActive) : true,
+      createdBy: req.user._id,
+      updatedBy: req.user._id,
+    })
+
+    invalidateReferralCache()
+
+    await logActivity({
+      user: req.user,
+      action: "CREATE",
+      module: "REFERRALS",
+      description: `Created referral type: ${referralType.name}`,
+      targetId: String(referralType._id),
+      targetName: referralType.name,
+      req,
+    })
+
+    res.status(201).json(referralType)
+  }),
+)
+
+// @desc    Update a referral type
+// @route   PUT /api/referrals/admin/types/:id
+// @access  Private/Admin
+router.put(
+  "/admin/types/:id",
+  ...adminGuard,
+  asyncHandler(async (req, res) => {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      res.status(400)
+      throw new Error("Invalid referral type id")
+    }
+
+    const type = await ReferralType.findById(req.params.id)
+    if (!type) {
+      res.status(404)
+      throw new Error("Referral type not found")
+    }
+
+    const {
+      name,
+      description,
+      color,
+      badgeText,
+      refereeDiscountType,
+      refereeDiscountValue,
+      refereeMaxDiscountAed,
+      refereeMinOrderAed,
+      refereeExpiryDays,
+      refereeFirstOrderOnly,
+      referrerDiscountType,
+      referrerDiscountValue,
+      referrerMaxDiscountAed,
+      referrerMinOrderAed,
+      referrerExpiryDays,
+      qualifyMinOrderAed,
+      maxQualifiedReferralsPerUser,
+      isDefault,
+      isActive,
+    } = req.body
+
+    if (name !== undefined) {
+      const trimmedName = String(name).trim()
+      if (!trimmedName) {
+        res.status(400)
+        throw new Error("Referral type name cannot be empty")
+      }
+      const existing = await ReferralType.findOne({
+        _id: { $ne: type._id },
+        name: { $regex: new RegExp(`^${trimmedName}$`, "i") },
+      })
+      if (existing) {
+        res.status(400)
+        throw new Error(`A referral type with name "${trimmedName}" already exists`)
+      }
+      type.name = trimmedName
+    }
+
+    if (description !== undefined) type.description = description
+    if (color !== undefined) type.color = color
+    if (badgeText !== undefined) type.badgeText = badgeText
+    if (refereeDiscountType !== undefined) type.refereeDiscountType = refereeDiscountType
+    if (refereeDiscountValue !== undefined) type.refereeDiscountValue = Math.max(0, toNumber(refereeDiscountValue, 0))
+    if (refereeMaxDiscountAed !== undefined) type.refereeMaxDiscountAed = Math.max(0, toNumber(refereeMaxDiscountAed, 0))
+    if (refereeMinOrderAed !== undefined) type.refereeMinOrderAed = Math.max(0, toNumber(refereeMinOrderAed, 0))
+    if (refereeExpiryDays !== undefined) type.refereeExpiryDays = Math.max(0, toNumber(refereeExpiryDays, 0))
+    if (refereeFirstOrderOnly !== undefined) type.refereeFirstOrderOnly = Boolean(refereeFirstOrderOnly)
+    if (referrerDiscountType !== undefined) type.referrerDiscountType = referrerDiscountType
+    if (referrerDiscountValue !== undefined) type.referrerDiscountValue = Math.max(0, toNumber(referrerDiscountValue, 0))
+    if (referrerMaxDiscountAed !== undefined) type.referrerMaxDiscountAed = Math.max(0, toNumber(referrerMaxDiscountAed, 0))
+    if (referrerMinOrderAed !== undefined) type.referrerMinOrderAed = Math.max(0, toNumber(referrerMinOrderAed, 0))
+    if (referrerExpiryDays !== undefined) type.referrerExpiryDays = Math.max(0, toNumber(referrerExpiryDays, 0))
+    if (qualifyMinOrderAed !== undefined) type.qualifyMinOrderAed = Math.max(0, toNumber(qualifyMinOrderAed, 0))
+    if (maxQualifiedReferralsPerUser !== undefined)
+      type.maxQualifiedReferralsPerUser = Math.max(0, toNumber(maxQualifiedReferralsPerUser, 0))
+    if (isActive !== undefined) type.isActive = Boolean(isActive)
+
+    if (isDefault !== undefined) {
+      const boolDefault = Boolean(isDefault)
+      if (boolDefault) {
+        await ReferralType.updateMany({ _id: { $ne: type._id } }, { $set: { isDefault: false } })
+      }
+      type.isDefault = boolDefault
+    }
+
+    type.updatedBy = req.user._id
+    const saved = await type.save()
+
+    invalidateReferralCache()
+
+    await logActivity({
+      user: req.user,
+      action: "UPDATE",
+      module: "REFERRALS",
+      description: `Updated referral type: ${saved.name}`,
+      targetId: String(saved._id),
+      targetName: saved.name,
+      req,
+    })
+
+    res.json(saved)
+  }),
+)
+
+// @desc    Delete a referral type
+// @route   DELETE /api/referrals/admin/types/:id
+// @access  Private/Admin
+router.delete(
+  "/admin/types/:id",
+  ...adminGuard,
+  asyncHandler(async (req, res) => {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      res.status(400)
+      throw new Error("Invalid referral type id")
+    }
+
+    const type = await ReferralType.findById(req.params.id)
+    if (!type) {
+      res.status(404)
+      throw new Error("Referral type not found")
+    }
+
+    // Check if any users have this type assigned
+    const userCount = await User.countDocuments({ referralType: type._id })
+    if (userCount > 0) {
+      // Unlink from users so they don't have broken pointers
+      await User.updateMany({ referralType: type._id }, { $set: { referralType: null } })
+    }
+
+    await ReferralType.findByIdAndDelete(req.params.id)
+    invalidateReferralCache()
+
+    await logActivity({
+      user: req.user,
+      action: "DELETE",
+      module: "REFERRALS",
+      description: `Deleted referral type: ${type.name}`,
+      targetId: String(type._id),
+      targetName: type.name,
+      req,
+    })
+
+    res.json({ message: "Referral type removed", unlinkedUsers: userCount })
+  }),
+)
+
 // @desc    Retire rewards that have aged out
 // @route   POST /api/referrals/admin/expire
 // @access  Private/Admin
@@ -395,3 +651,5 @@ router.post(
 )
 
 export default router
+
+

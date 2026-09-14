@@ -92,6 +92,15 @@ const referralRewardSchema = mongoose.Schema(
       type: String,
       default: "",
     },
+    referralType: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "ReferralType",
+      default: null,
+    },
+    referralTypeName: {
+      type: String,
+      default: "",
+    },
   },
   { timestamps: true },
 )

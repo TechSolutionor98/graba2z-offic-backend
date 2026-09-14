@@ -333,6 +333,8 @@ router.get(
   protect,
   asyncHandler(async (req, res) => {
     const user = await User.findById(req.user._id)
+      .populate("referralType", "name color description refereeDiscountValue referrerDiscountValue isDefault")
+      .populate("loyaltyType", "name color description earnMultiplier customEarnPointsPerAed isDefault")
 
     if (user) {
       // Auto-migrate legacy address to addresses array if addresses array is empty
@@ -373,6 +375,8 @@ router.get(
         gender: user.gender,
         preferences: user.preferences,
         wishlist: user.wishlist,
+        referralType: user.referralType || null,
+        loyaltyType: user.loyaltyType || null,
       })
     } else {
       res.status(404)

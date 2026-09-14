@@ -144,6 +144,20 @@ const userSchema = mongoose.Schema(
       default: 0,
       min: 0,
     },
+    // Assigned Loyalty Tier / Point Type (e.g. Silver, Gold, Platinum)
+    loyaltyType: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "LoyaltyType",
+      default: null,
+      index: true,
+    },
+    // Assigned Referral Tier / Type (e.g. Silver, Gold, Platinum)
+    referralType: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "ReferralType",
+      default: null,
+      index: true,
+    },
     // ---- Referrals ----
     // This customer's own share code. Generated on demand the first time they open the
     // referral panel, so accounts that never use the programme never carry one. Sparse,

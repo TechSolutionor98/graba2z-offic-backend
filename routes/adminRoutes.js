@@ -1001,6 +1001,8 @@
 import express from "express"
 import asyncHandler from "express-async-handler"
 import User from "../models/userModel.js"
+import ReferralType from "../models/referralTypeModel.js"
+import LoyaltyType from "../models/loyaltyTypeModel.js"
 import Order from "../models/orderModel.js"
 import Product from "../models/productModel.js"
 import generateToken from "../utils/generateToken.js"
@@ -1110,6 +1112,44 @@ router.get(
   }),
 )
 
+// Helper to aggregate delivered orders total amount and count per user
+const attachDeliveredPurchases = async (userList) => {
+  if (!userList || userList.length === 0) return []
+  const userIds = userList.map((u) => u._id)
+  const deliveredStats = await Order.aggregate([
+    {
+      $match: {
+        ...ORDER_DOCUMENT_QUERY,
+        status: { $in: ["Delivered", "delivered"] },
+        user: { $in: userIds },
+      },
+    },
+    {
+      $group: {
+        _id: "$user",
+        totalDeliveredAmount: { $sum: "$totalPrice" },
+        deliveredOrdersCount: { $sum: 1 },
+      },
+    },
+  ])
+
+  const statsMap = new Map()
+  for (const stat of deliveredStats) {
+    statsMap.set(String(stat._id), {
+      totalDeliveredAmount: Math.round((Number(stat.totalDeliveredAmount) || 0) * 100) / 100,
+      deliveredOrdersCount: Number(stat.deliveredOrdersCount) || 0,
+    })
+  }
+
+  return userList.map((u) => {
+    const obj = u.toObject ? u.toObject() : { ...u }
+    const stat = statsMap.get(String(u._id)) || { totalDeliveredAmount: 0, deliveredOrdersCount: 0 }
+    obj.deliveredPurchasedAmount = stat.totalDeliveredAmount
+    obj.deliveredOrdersCount = stat.deliveredOrdersCount
+    return obj
+  })
+}
+
 // @desc    Get all users
 // @route   GET /api/admin/users
 // @access  Private/Admin
@@ -1118,34 +1158,139 @@ router.get(
   protect,
   admin,
   asyncHandler(async (req, res) => {
-    const { search } = req.query
+    const { search, referralType, loyaltyType, role, dateRange, purchased, sortBy } = req.query
     const page = req.query.page ? Number(req.query.page) : null
     const limit = req.query.limit ? Number(req.query.limit) : 20
 
-    const query = { isAdmin: false }
+    const conditions = []
+
+    // Role filter
+    if (role === "admin") {
+      conditions.push({ isAdmin: true })
+    } else if (role === "all") {
+      // no isAdmin filter
+    } else {
+      // default: customers
+      conditions.push({ isAdmin: false })
+    }
+
+    // Search by name or email
     if (search && String(search).trim()) {
       const regex = new RegExp(String(search).trim(), "i")
-      query.$or = [{ name: regex }, { email: regex }]
+      conditions.push({ $or: [{ name: regex }, { email: regex }] })
     }
+
+    // Referral Tier filter
+    if (referralType && referralType !== "all") {
+      if (referralType === "default" || referralType === "unassigned") {
+        conditions.push({ $or: [{ referralType: null }, { referralType: { $exists: false } }] })
+      } else {
+        conditions.push({ referralType })
+      }
+    }
+
+    // Loyalty Tier filter
+    if (loyaltyType && loyaltyType !== "all") {
+      if (loyaltyType === "default" || loyaltyType === "unassigned") {
+        conditions.push({ $or: [{ loyaltyType: null }, { loyaltyType: { $exists: false } }] })
+      } else {
+        conditions.push({ loyaltyType })
+      }
+    }
+
+    // Date range filter
+    if (dateRange && dateRange !== "all") {
+      const now = Date.now()
+      if (dateRange === "7d") {
+        conditions.push({ createdAt: { $gte: new Date(now - 7 * 86400000) } })
+      } else if (dateRange === "30d") {
+        conditions.push({ createdAt: { $gte: new Date(now - 30 * 86400000) } })
+      } else if (dateRange === "90d") {
+        conditions.push({ createdAt: { $gte: new Date(now - 90 * 86400000) } })
+      } else if (dateRange === "year") {
+        conditions.push({ createdAt: { $gte: new Date(new Date().getFullYear(), 0, 1) } })
+      }
+    }
+
+    // Purchase status filter (only count orders with status "Delivered")
+    if (purchased && purchased !== "all") {
+      const deliveredUserIds = await Order.distinct("user", {
+        ...ORDER_DOCUMENT_QUERY,
+        status: { $in: ["Delivered", "delivered"] },
+        user: { $ne: null },
+      })
+
+      if (purchased === "has_purchases") {
+        conditions.push({ _id: { $in: deliveredUserIds } })
+      } else if (purchased === "no_purchases") {
+        conditions.push({ _id: { $nin: deliveredUserIds } })
+      }
+    }
+
+    const query = conditions.length > 0 ? { $and: conditions } : {}
+
+    // Special sorting by delivered purchase amount
+    if (sortBy === "purchases_high" || sortBy === "purchases_low") {
+      const allMatching = await User.find(query)
+        .select("-password")
+        .populate("referralType", "name color description refereeDiscountValue referrerDiscountValue isDefault")
+        .populate("loyaltyType", "name color description earnMultiplier customEarnPointsPerAed isDefault")
+
+      const withStats = await attachDeliveredPurchases(allMatching)
+      withStats.sort((a, b) => {
+        const diff = (b.deliveredPurchasedAmount || 0) - (a.deliveredPurchasedAmount || 0)
+        return sortBy === "purchases_high" ? diff : -diff
+      })
+
+      const count = withStats.length
+      if (page) {
+        const skip = (page - 1) * limit
+        const paged = withStats.slice(skip, skip + limit)
+        return res.json({
+          users: paged,
+          page,
+          pages: Math.ceil(count / limit),
+          total: count,
+        })
+      }
+      return res.json(withStats.slice(0, 200))
+    }
+
+    // Standard sorting
+    let sortOption = { createdAt: -1 }
+    if (sortBy === "oldest") sortOption = { createdAt: 1 }
+    else if (sortBy === "name_asc") sortOption = { name: 1 }
+    else if (sortBy === "name_desc") sortOption = { name: -1 }
 
     if (page) {
       const skip = (page - 1) * limit
       const count = await User.countDocuments(query)
       const users = await User.find(query)
         .select("-password")
-        .sort({ createdAt: -1 })
+        .populate("referralType", "name color description refereeDiscountValue referrerDiscountValue isDefault")
+        .populate("loyaltyType", "name color description earnMultiplier customEarnPointsPerAed isDefault")
+        .sort(sortOption)
         .skip(skip)
         .limit(limit)
 
+      const usersWithStats = await attachDeliveredPurchases(users)
+
       res.json({
-        users,
+        users: usersWithStats,
         page,
         pages: Math.ceil(count / limit),
         total: count,
       })
     } else {
-      const users = await User.find(query).select("-password").sort({ createdAt: -1 }).limit(100)
-      res.json(users)
+      const users = await User.find(query)
+        .select("-password")
+        .populate("referralType", "name color description refereeDiscountValue referrerDiscountValue isDefault")
+        .populate("loyaltyType", "name color description earnMultiplier customEarnPointsPerAed isDefault")
+        .sort(sortOption)
+        .limit(200)
+
+      const usersWithStats = await attachDeliveredPurchases(users)
+      res.json(usersWithStats)
     }
   }),
 )
@@ -1564,10 +1709,14 @@ router.get(
   protect,
   admin,
   asyncHandler(async (req, res) => {
-    const user = await User.findById(req.params.id).select("-password")
+    const user = await User.findById(req.params.id)
+      .select("-password")
+      .populate("referralType", "name color description refereeDiscountValue referrerDiscountValue isDefault")
+      .populate("loyaltyType", "name color description earnMultiplier customEarnPointsPerAed isDefault")
 
     if (user) {
-      res.json(user)
+      const [userWithStats] = await attachDeliveredPurchases([user])
+      res.json(userWithStats)
     } else {
       res.status(404)
       throw new Error("User not found")
@@ -1588,9 +1737,19 @@ router.put(
     if (user) {
       user.name = req.body.name || user.name
       user.email = req.body.email || user.email
-      user.isAdmin = Boolean(req.body.isAdmin)
+      if (req.body.isAdmin !== undefined) {
+        user.isAdmin = Boolean(req.body.isAdmin)
+      }
+      if (req.body.referralType !== undefined) {
+        user.referralType = req.body.referralType || null
+      }
+      if (req.body.loyaltyType !== undefined) {
+        user.loyaltyType = req.body.loyaltyType || null
+      }
 
       const updatedUser = await user.save()
+      await updatedUser.populate("referralType", "name color description refereeDiscountValue referrerDiscountValue isDefault")
+      await updatedUser.populate("loyaltyType", "name color description earnMultiplier customEarnPointsPerAed isDefault")
 
       // Log activity
       await logActivity(req, "UPDATE", "USERS", `Updated user: ${updatedUser.name} (${updatedUser.email})`, updatedUser._id, updatedUser.name)
@@ -1600,11 +1759,57 @@ router.put(
         name: updatedUser.name,
         email: updatedUser.email,
         isAdmin: updatedUser.isAdmin,
+        referralType: updatedUser.referralType,
+        loyaltyType: updatedUser.loyaltyType,
       })
     } else {
       res.status(404)
       throw new Error("User not found")
     }
+  }),
+)
+
+// @desc    Assign referral and/or loyalty tier to user (Admin)
+// @route   PUT /api/admin/users/:id/tier
+// @access  Private/Admin
+router.put(
+  "/users/:id/tier",
+  protect,
+  admin,
+  asyncHandler(async (req, res) => {
+    const user = await User.findById(req.params.id)
+    if (!user) {
+      res.status(404)
+      throw new Error("User not found")
+    }
+
+    if (req.body.referralType !== undefined) {
+      user.referralType = req.body.referralType || null
+    }
+    if (req.body.loyaltyType !== undefined) {
+      user.loyaltyType = req.body.loyaltyType || null
+    }
+
+    const updatedUser = await user.save()
+    await updatedUser.populate("referralType", "name color description refereeDiscountValue referrerDiscountValue isDefault")
+    await updatedUser.populate("loyaltyType", "name color description earnMultiplier customEarnPointsPerAed isDefault")
+
+    await logActivity(
+      req,
+      "UPDATE",
+      "USERS",
+      `Assigned tiers to ${updatedUser.name}: Referral: ${updatedUser.referralType?.name || "None"}, Loyalty: ${updatedUser.loyaltyType?.name || "None"}`,
+      updatedUser._id,
+      updatedUser.name,
+    )
+
+    res.json({
+      _id: updatedUser._id,
+      name: updatedUser.name,
+      email: updatedUser.email,
+      referralType: updatedUser.referralType,
+      loyaltyType: updatedUser.loyaltyType,
+    })
   }),
 )
 

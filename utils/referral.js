@@ -4,6 +4,7 @@ import mongoose from "mongoose"
 import ReferralSettings from "../models/referralSettingsModel.js"
 import Referral from "../models/referralModel.js"
 import ReferralReward from "../models/referralRewardModel.js"
+import ReferralType from "../models/referralTypeModel.js"
 import User from "../models/userModel.js"
 import Order from "../models/orderModel.js"
 import { getSiteOrigin } from "./publicSiteUrl.js"
@@ -137,31 +138,49 @@ export function buildReferralLink(code, { country = "ae", lang = "en" } = {}) {
 export async function resolveReferralCode(code) {
   const safeCode = normalizeReferralCode(code)
   if (!safeCode) return null
-  return User.findOne({ referralCode: safeCode }).select("_id name email referralCode").lean()
+  return User.findOne({ referralCode: safeCode })
+    .select("_id name email referralCode referralType")
+    .populate("referralType")
+    .lean()
+}
+
+/** Resolve the active tier for a referrer (user assigned tier or default tier) */
+export async function resolveReferrerTier(referrerId) {
+  if (!referrerId) return null
+  const user = await User.findById(referrerId).populate("referralType").lean()
+  if (user?.referralType && user.referralType.isActive) {
+    return user.referralType
+  }
+  return ReferralType.findOne({ isDefault: true, isActive: true }).lean()
 }
 
 // ---------------------------------------------------------------------------
 // Minting rewards
 // ---------------------------------------------------------------------------
 
-const rewardTermsFor = (settings, role) =>
-  role === "referee"
+const rewardTermsFor = (settings, role, referralType = null) => {
+  const source = referralType && referralType.isActive !== false ? referralType : settings
+  return role === "referee"
     ? {
-        discountType: settings.refereeDiscountType || "percentage",
-        discountValue: Math.max(0, toNumber(settings.refereeDiscountValue, 0)),
-        maxDiscountAed: Math.max(0, toNumber(settings.refereeMaxDiscountAed, 0)),
-        minOrderAed: Math.max(0, toNumber(settings.refereeMinOrderAed, 0)),
-        expiryDays: Math.max(0, toNumber(settings.refereeExpiryDays, 0)),
-        firstOrderOnly: Boolean(settings.refereeFirstOrderOnly),
+        discountType: source.refereeDiscountType || settings.refereeDiscountType || "percentage",
+        discountValue: Math.max(0, toNumber(source.refereeDiscountValue ?? settings.refereeDiscountValue, 0)),
+        maxDiscountAed: Math.max(0, toNumber(source.refereeMaxDiscountAed ?? settings.refereeMaxDiscountAed, 0)),
+        minOrderAed: Math.max(0, toNumber(source.refereeMinOrderAed ?? settings.refereeMinOrderAed, 0)),
+        expiryDays: Math.max(0, toNumber(source.refereeExpiryDays ?? settings.refereeExpiryDays, 0)),
+        firstOrderOnly:
+          source.refereeFirstOrderOnly !== undefined
+            ? Boolean(source.refereeFirstOrderOnly)
+            : Boolean(settings.refereeFirstOrderOnly),
       }
     : {
-        discountType: settings.referrerDiscountType || "percentage",
-        discountValue: Math.max(0, toNumber(settings.referrerDiscountValue, 0)),
-        maxDiscountAed: Math.max(0, toNumber(settings.referrerMaxDiscountAed, 0)),
-        minOrderAed: Math.max(0, toNumber(settings.referrerMinOrderAed, 0)),
-        expiryDays: Math.max(0, toNumber(settings.referrerExpiryDays, 0)),
+        discountType: source.referrerDiscountType || settings.referrerDiscountType || "percentage",
+        discountValue: Math.max(0, toNumber(source.referrerDiscountValue ?? settings.referrerDiscountValue, 0)),
+        maxDiscountAed: Math.max(0, toNumber(source.referrerMaxDiscountAed ?? settings.referrerMaxDiscountAed, 0)),
+        minOrderAed: Math.max(0, toNumber(source.referrerMinOrderAed ?? settings.referrerMinOrderAed, 0)),
+        expiryDays: Math.max(0, toNumber(source.referrerExpiryDays ?? settings.referrerExpiryDays, 0)),
         firstOrderOnly: false,
       }
+}
 
 /**
  * Create one side's reward for a referral. Safe to call twice: the unique (referral,
@@ -170,8 +189,8 @@ const rewardTermsFor = (settings, role) =>
  * Returns null when the configured discount is zero -- an offer worth nothing is not
  * shown to the customer as if it were something.
  */
-export async function mintReward({ referral, role, settings, description }) {
-  const terms = rewardTermsFor(settings, role)
+export async function mintReward({ referral, role, settings, description, referralType = null }) {
+  const terms = rewardTermsFor(settings, role, referralType)
   if (terms.discountValue <= 0) return null
 
   const userId = role === "referee" ? referral.referee : referral.referrer
@@ -189,6 +208,8 @@ export async function mintReward({ referral, role, settings, description }) {
       status: "active",
       expiresAt: terms.expiryDays > 0 ? new Date(Date.now() + terms.expiryDays * 24 * 60 * 60 * 1000) : null,
       description: description || (role === "referee" ? "Welcome discount" : "Referral thank-you discount"),
+      referralType: referralType?._id || null,
+      referralTypeName: referralType?.name || "",
     })
   } catch (error) {
     if (isDuplicateKeyError(error)) {
@@ -247,11 +268,17 @@ export async function attachReferralOnSignup({ refereeUser, code, source = "web"
 
     // The friend's welcome discount is theirs from the moment they join -- it is what the
     // link promised. The referrer's is only earned once this account actually orders.
+    const referrerTier =
+      referrer.referralType && referrer.referralType.isActive
+        ? referrer.referralType
+        : (await ReferralType.findOne({ isDefault: true, isActive: true }).lean()) || null
+
     const reward = await mintReward({
       referral,
       role: "referee",
       settings,
-      description: `Welcome discount from ${referrer.name || "a friend"}`,
+      referralType: referrerTier,
+      description: `Welcome discount from ${referrer.name || "a friend"}${referrerTier ? ` (${referrerTier.name} tier)` : ""}`,
     })
 
     if (reward) {
@@ -382,8 +409,11 @@ export async function releaseClaimedReward(rewardId) {
  * Whether this referrer has already had as many rewards as the programme allows.
  * A limit of 0 means unlimited.
  */
-async function referrerLimitReached(referrerId, settings) {
-  const limit = Math.max(0, toNumber(settings.maxQualifiedReferralsPerUser, 0))
+async function referrerLimitReached(referrerId, settings, customLimit = null) {
+  const limit =
+    customLimit !== null
+      ? Math.max(0, toNumber(customLimit, 0))
+      : Math.max(0, toNumber(settings.maxQualifiedReferralsPerUser, 0))
   if (limit <= 0) return false
   const qualified = await Referral.countDocuments({ referrer: referrerId, status: "qualified" })
   return qualified >= limit
@@ -406,8 +436,14 @@ export async function qualifyReferralForOrder(orderId) {
   const pending = await Referral.findOne({ referee: order.user, status: "pending" })
   if (!pending) return { qualified: false, reason: "no_pending_referral" }
 
+  const referrerTier = await resolveReferrerTier(pending.referrer)
+  const minOrderAedConfig =
+    referrerTier?.qualifyMinOrderAed !== undefined && referrerTier?.qualifyMinOrderAed > 0
+      ? referrerTier.qualifyMinOrderAed
+      : settings.qualifyMinOrderAed
+
   const orderTotal = Math.max(0, toNumber(order.totalPrice, 0))
-  const minOrder = Math.max(0, toNumber(settings.qualifyMinOrderAed, 0))
+  const minOrder = Math.max(0, toNumber(minOrderAedConfig, 0))
   if (minOrder > 0 && orderTotal < minOrder) {
     // Left pending on purpose: a later, larger delivered order can still qualify it.
     return { qualified: false, reason: "below_minimum" }
@@ -436,7 +472,12 @@ export async function qualifyReferralForOrder(orderId) {
   // The referral counts either way -- the referrer can see it on their list -- but past
   // the configured limit it stops paying out, and the reason is recorded so support can
   // explain it.
-  if (await referrerLimitReached(claimed.referrer, settings)) {
+  const maxLimit =
+    referrerTier?.maxQualifiedReferralsPerUser !== undefined && referrerTier?.maxQualifiedReferralsPerUser > 0
+      ? referrerTier.maxQualifiedReferralsPerUser
+      : settings.maxQualifiedReferralsPerUser
+
+  if (await referrerLimitReached(claimed.referrer, settings, maxLimit)) {
     await Referral.updateOne({ _id: claimed._id }, { $set: { notRewardedReason: "limit_reached" } })
     return { qualified: true, rewarded: false, reason: "limit_reached", referralId: claimed._id }
   }
@@ -445,7 +486,8 @@ export async function qualifyReferralForOrder(orderId) {
     referral: claimed,
     role: "referrer",
     settings,
-    description: "Thank you for referring a friend",
+    referralType: referrerTier,
+    description: `Thank you for referring a friend${referrerTier ? ` (${referrerTier.name} tier)` : ""}`,
   })
 
   if (reward) {
@@ -617,11 +659,23 @@ export async function getReferralSummary(userId, { country = "ae", lang = "en" }
     .filter((reward) => reward.role === "referrer" && reward.status === "used")
     .reduce((sum, reward) => sum + toNumber(reward.discountAppliedAed, 0), 0)
 
+  const user = await User.findById(userId).populate("referralType").lean()
+  const userTier = user?.referralType && user.referralType.isActive ? user.referralType : null
+
   return {
     code,
     link: buildReferralLink(code, { country, lang }),
     invites,
     rewards: rewards.map(publicReward),
+    tier: userTier
+      ? {
+          _id: userTier._id,
+          name: userTier.name,
+          color: userTier.color,
+          refereeDiscountValue: userTier.refereeDiscountValue,
+          referrerDiscountValue: userTier.referrerDiscountValue,
+        }
+      : null,
     stats: {
       total: referrals.length,
       pending: byStatus.pending || 0,

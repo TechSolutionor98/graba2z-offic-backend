@@ -5,6 +5,7 @@ import mongoose from "mongoose"
 import LoyaltySettings from "../models/loyaltySettingsModel.js"
 import LoyaltyRule from "../models/loyaltyRuleModel.js"
 import LoyaltyTransaction from "../models/loyaltyTransactionModel.js"
+import LoyaltyType from "../models/loyaltyTypeModel.js"
 import User from "../models/userModel.js"
 import Category from "../models/categoryModel.js"
 import SubCategory from "../models/subCategoryModel.js"
@@ -366,7 +367,8 @@ router.get(
 
     const [customers, totalCount] = await Promise.all([
       User.find(query)
-        .select("name email phone loyaltyPoints loyaltyLifetimePoints createdAt")
+        .select("name email phone loyaltyPoints loyaltyLifetimePoints loyaltyType createdAt")
+        .populate("loyaltyType", "name color earnMultiplier")
         .sort({ loyaltyPoints: -1, createdAt: -1 })
         .skip((page - 1) * limit)
         .limit(limit)
@@ -518,4 +520,246 @@ router.post(
   }),
 )
 
+// ===========================================================================
+// Loyalty Point Types (Tiers: Silver, Gold, Platinum, etc.)
+// ===========================================================================
+
+// @desc    Get all loyalty point types
+// @route   GET /api/loyalty/admin/types
+// @access  Private/Admin
+router.get(
+  "/admin/types",
+  ...adminGuard,
+  asyncHandler(async (req, res) => {
+    const types = await LoyaltyType.find({}).sort({ isDefault: -1, createdAt: -1 })
+    res.json(types)
+  }),
+)
+
+// @desc    Create a new loyalty point type
+// @route   POST /api/loyalty/admin/types
+// @access  Private/Admin
+router.post(
+  "/admin/types",
+  ...adminGuard,
+  asyncHandler(async (req, res) => {
+    const {
+      name,
+      description,
+      color,
+      badgeText,
+      earnMultiplier,
+      customEarnPointsPerAed,
+      redeemPointsPerAed,
+      minPointsToRedeem,
+      maxRedeemPercentOfOrder,
+      isDefault,
+      isActive,
+    } = req.body
+
+    const trimmedName = String(name || "").trim()
+    if (!trimmedName) {
+      res.status(400)
+      throw new Error("Loyalty type name is required")
+    }
+
+    const existing = await LoyaltyType.findOne({ name: { $regex: new RegExp(`^${trimmedName}$`, "i") } })
+    if (existing) {
+      res.status(400)
+      throw new Error(`A loyalty point type with name "${trimmedName}" already exists`)
+    }
+
+    if (isDefault) {
+      await LoyaltyType.updateMany({}, { $set: { isDefault: false } })
+    }
+
+    const loyaltyType = await LoyaltyType.create({
+      name: trimmedName,
+      description: description || "",
+      color: color || "#10b981",
+      badgeText: badgeText || "",
+      earnMultiplier: Math.max(0, toNumber(earnMultiplier, 1)),
+      customEarnPointsPerAed:
+        customEarnPointsPerAed !== undefined && customEarnPointsPerAed !== null && customEarnPointsPerAed !== ""
+          ? Math.max(0, toNumber(customEarnPointsPerAed, 0))
+          : null,
+      redeemPointsPerAed:
+        redeemPointsPerAed !== undefined && redeemPointsPerAed !== null && redeemPointsPerAed !== ""
+          ? Math.max(1, toNumber(redeemPointsPerAed, 1000))
+          : null,
+      minPointsToRedeem:
+        minPointsToRedeem !== undefined && minPointsToRedeem !== null && minPointsToRedeem !== ""
+          ? Math.max(0, toNumber(minPointsToRedeem, 0))
+          : null,
+      maxRedeemPercentOfOrder:
+        maxRedeemPercentOfOrder !== undefined && maxRedeemPercentOfOrder !== null && maxRedeemPercentOfOrder !== ""
+          ? Math.max(0, Math.min(100, toNumber(maxRedeemPercentOfOrder, 50)))
+          : null,
+      isDefault: Boolean(isDefault),
+      isActive: isActive !== undefined ? Boolean(isActive) : true,
+      createdBy: req.user._id,
+      updatedBy: req.user._id,
+    })
+
+    invalidateLoyaltyCache()
+
+    await logActivity({
+      user: req.user,
+      action: "CREATE",
+      module: "SETTINGS",
+      description: `Created loyalty point type: ${loyaltyType.name}`,
+      targetId: String(loyaltyType._id),
+      targetName: loyaltyType.name,
+      req,
+    })
+
+    res.status(201).json(loyaltyType)
+  }),
+)
+
+// @desc    Update a loyalty point type
+// @route   PUT /api/loyalty/admin/types/:id
+// @access  Private/Admin
+router.put(
+  "/admin/types/:id",
+  ...adminGuard,
+  asyncHandler(async (req, res) => {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      res.status(400)
+      throw new Error("Invalid loyalty point type id")
+    }
+
+    const type = await LoyaltyType.findById(req.params.id)
+    if (!type) {
+      res.status(404)
+      throw new Error("Loyalty point type not found")
+    }
+
+    const {
+      name,
+      description,
+      color,
+      badgeText,
+      earnMultiplier,
+      customEarnPointsPerAed,
+      redeemPointsPerAed,
+      minPointsToRedeem,
+      maxRedeemPercentOfOrder,
+      isDefault,
+      isActive,
+    } = req.body
+
+    if (name !== undefined) {
+      const trimmedName = String(name).trim()
+      if (!trimmedName) {
+        res.status(400)
+        throw new Error("Loyalty type name cannot be empty")
+      }
+      const existing = await LoyaltyType.findOne({
+        _id: { $ne: type._id },
+        name: { $regex: new RegExp(`^${trimmedName}$`, "i") },
+      })
+      if (existing) {
+        res.status(400)
+        throw new Error(`A loyalty point type with name "${trimmedName}" already exists`)
+      }
+      type.name = trimmedName
+    }
+
+    if (description !== undefined) type.description = description
+    if (color !== undefined) type.color = color
+    if (badgeText !== undefined) type.badgeText = badgeText
+    if (earnMultiplier !== undefined) type.earnMultiplier = Math.max(0, toNumber(earnMultiplier, 1))
+    if (customEarnPointsPerAed !== undefined) {
+      type.customEarnPointsPerAed =
+        customEarnPointsPerAed !== null && customEarnPointsPerAed !== ""
+          ? Math.max(0, toNumber(customEarnPointsPerAed, 0))
+          : null
+    }
+    if (redeemPointsPerAed !== undefined) {
+      type.redeemPointsPerAed =
+        redeemPointsPerAed !== null && redeemPointsPerAed !== ""
+          ? Math.max(1, toNumber(redeemPointsPerAed, 1000))
+          : null
+    }
+    if (minPointsToRedeem !== undefined) {
+      type.minPointsToRedeem =
+        minPointsToRedeem !== null && minPointsToRedeem !== "" ? Math.max(0, toNumber(minPointsToRedeem, 0)) : null
+    }
+    if (maxRedeemPercentOfOrder !== undefined) {
+      type.maxRedeemPercentOfOrder =
+        maxRedeemPercentOfOrder !== null && maxRedeemPercentOfOrder !== ""
+          ? Math.max(0, Math.min(100, toNumber(maxRedeemPercentOfOrder, 50)))
+          : null
+    }
+    if (isActive !== undefined) type.isActive = Boolean(isActive)
+
+    if (isDefault !== undefined) {
+      const boolDefault = Boolean(isDefault)
+      if (boolDefault) {
+        await LoyaltyType.updateMany({ _id: { $ne: type._id } }, { $set: { isDefault: false } })
+      }
+      type.isDefault = boolDefault
+    }
+
+    type.updatedBy = req.user._id
+    const saved = await type.save()
+
+    invalidateLoyaltyCache()
+
+    await logActivity({
+      user: req.user,
+      action: "UPDATE",
+      module: "SETTINGS",
+      description: `Updated loyalty point type: ${saved.name}`,
+      targetId: String(saved._id),
+      targetName: saved.name,
+      req,
+    })
+
+    res.json(saved)
+  }),
+)
+
+// @desc    Delete a loyalty point type
+// @route   DELETE /api/loyalty/admin/types/:id
+// @access  Private/Admin
+router.delete(
+  "/admin/types/:id",
+  ...adminGuard,
+  asyncHandler(async (req, res) => {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      res.status(400)
+      throw new Error("Invalid loyalty point type id")
+    }
+
+    const type = await LoyaltyType.findById(req.params.id)
+    if (!type) {
+      res.status(404)
+      throw new Error("Loyalty point type not found")
+    }
+
+    const userCount = await User.countDocuments({ loyaltyType: type._id })
+    if (userCount > 0) {
+      await User.updateMany({ loyaltyType: type._id }, { $set: { loyaltyType: null } })
+    }
+
+    await LoyaltyType.findByIdAndDelete(req.params.id)
+    invalidateLoyaltyCache()
+
+    await logActivity({
+      user: req.user,
+      action: "DELETE",
+      module: "SETTINGS",
+      description: `Deleted loyalty point type: ${type.name}`,
+      targetId: String(type._id),
+      targetName: type.name,
+      req,
+    })
+
+    res.json({ message: "Loyalty point type removed", unlinkedUsers: userCount })
+  }),
+)
+
 export default router
+

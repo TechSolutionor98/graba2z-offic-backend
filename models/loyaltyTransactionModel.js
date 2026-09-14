@@ -65,6 +65,16 @@ const loyaltyTransactionSchema = mongoose.Schema(
     rateSnapshot: {
       earnPointsPerAed: { type: Number, default: null },
       redeemPointsPerAed: { type: Number, default: null },
+      tierMultiplier: { type: Number, default: 1 },
+    },
+    loyaltyType: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "LoyaltyType",
+      default: null,
+    },
+    loyaltyTypeName: {
+      type: String,
+      default: "",
     },
 
     description: {

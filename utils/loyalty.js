@@ -3,6 +3,7 @@ import mongoose from "mongoose"
 import LoyaltySettings from "../models/loyaltySettingsModel.js"
 import LoyaltyRule from "../models/loyaltyRuleModel.js"
 import LoyaltyTransaction from "../models/loyaltyTransactionModel.js"
+import LoyaltyType from "../models/loyaltyTypeModel.js"
 import User from "../models/userModel.js"
 import Order from "../models/orderModel.js"
 
@@ -203,9 +204,14 @@ export function calculateUnitPoints({ product, unitPriceAed, settings, ruleMap }
 // `items` entries need { product, price, quantity }, where product is a document (or the
 // populated ref) and price is the unit price in AED actually charged. Buyer-protection
 // lines carry no product and never earn.
-export function calculateEarnedPoints({ items, settings, ruleMap, redeemedAmountAed = 0 }) {
+export function calculateEarnedPoints({ items, settings, ruleMap, redeemedAmountAed = 0, loyaltyType = null }) {
   if (!settings?.isEnabled || !Array.isArray(items) || items.length === 0) {
-    return { totalPoints: 0, perItem: [] }
+    return { totalPoints: 0, perItem: [], tierMultiplier: 1, loyaltyTypeName: null }
+  }
+
+  const effectiveSettings = { ...settings }
+  if (loyaltyType && loyaltyType.isActive !== false && loyaltyType.customEarnPointsPerAed > 0) {
+    effectiveSettings.earnPointsPerAed = loyaltyType.customEarnPointsPerAed
   }
 
   const perItem = []
@@ -222,7 +228,7 @@ export function calculateEarnedPoints({ items, settings, ruleMap, redeemedAmount
       continue
     }
 
-    const unitPoints = calculateUnitPoints({ product, unitPriceAed: unitPrice, settings, ruleMap })
+    const unitPoints = calculateUnitPoints({ product, unitPriceAed: unitPrice, settings: effectiveSettings, ruleMap })
     const linePoints = unitPoints * quantity
 
     perItem.push({ points: linePoints, unitPoints })
@@ -238,7 +244,22 @@ export function calculateEarnedPoints({ items, settings, ruleMap, redeemedAmount
     totalPoints = Math.floor(totalPoints * payingRatio)
   }
 
-  return { totalPoints: Math.max(0, totalPoints), perItem }
+  // Apply tier multiplier if active
+  const multiplier =
+    loyaltyType && loyaltyType.isActive !== false && loyaltyType.earnMultiplier > 0
+      ? loyaltyType.earnMultiplier
+      : 1
+
+  if (multiplier !== 1) {
+    totalPoints = Math.round(totalPoints * multiplier)
+  }
+
+  return {
+    totalPoints: Math.max(0, totalPoints),
+    perItem,
+    tierMultiplier: multiplier,
+    loyaltyTypeName: loyaltyType?.name || null,
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -366,11 +387,15 @@ export async function redeemPointsForOrder({ userId, points, order, settings, de
  * Record the points an order will pay out, held pending until the order reaches the award
  * status. Safe to call twice: the unique (order, type) index makes the second call a no-op.
  */
-export async function recordPendingEarn({ userId, points, order, settings, description }) {
+export async function recordPendingEarn({ userId, points, order, settings, description, loyaltyType = null }) {
   const amount = Math.max(0, Math.floor(toNumber(points, 0)))
   if (!userId || amount <= 0) return null
 
   const expiryDays = Math.max(0, toNumber(settings?.pointsExpiryDays, 0))
+  const rateSnapshot = rateSnapshotOf(settings)
+  if (loyaltyType && loyaltyType.earnMultiplier > 0) {
+    rateSnapshot.tierMultiplier = loyaltyType.earnMultiplier
+  }
 
   try {
     return await LoyaltyTransaction.create({
@@ -381,7 +406,9 @@ export async function recordPendingEarn({ userId, points, order, settings, descr
       points: amount,
       balanceAfter: null,
       amountAed: 0,
-      rateSnapshot: rateSnapshotOf(settings),
+      rateSnapshot,
+      loyaltyType: loyaltyType?._id || null,
+      loyaltyTypeName: loyaltyType?.name || "",
       description: description || "Earned on order",
       expiresAt: expiryDays > 0 ? new Date(Date.now() + expiryDays * 24 * 60 * 60 * 1000) : null,
     })
@@ -708,7 +735,7 @@ export async function getUserLoyaltySummary(userId) {
   const settings = await getLoyaltySettings()
 
   const [user, pendingAgg] = await Promise.all([
-    User.findById(userId).select("loyaltyPoints loyaltyLifetimePoints").lean(),
+    User.findById(userId).select("loyaltyPoints loyaltyLifetimePoints loyaltyType").populate("loyaltyType").lean(),
     LoyaltyTransaction.aggregate([
       { $match: { user: userId, type: "earn", status: "pending" } },
       { $group: { _id: null, points: { $sum: "$points" } } },
@@ -717,6 +744,7 @@ export async function getUserLoyaltySummary(userId) {
 
   const balance = Math.max(0, toNumber(user?.loyaltyPoints, 0))
   const pending = Math.max(0, toNumber(pendingAgg?.[0]?.points, 0))
+  const userTier = user?.loyaltyType && user.loyaltyType.isActive ? user.loyaltyType : null
 
   return {
     balance,
@@ -724,6 +752,15 @@ export async function getUserLoyaltySummary(userId) {
     lifetime: Math.max(0, toNumber(user?.loyaltyLifetimePoints, 0)),
     balanceValueAed: pointsToAed(balance, settings),
     canRedeem: settings.isEnabled && balance >= toNumber(settings.minPointsToRedeem, 0),
+    tier: userTier
+      ? {
+          _id: userTier._id,
+          name: userTier.name,
+          color: userTier.color,
+          earnMultiplier: userTier.earnMultiplier,
+          badgeText: userTier.badgeText,
+        }
+      : null,
   }
 }
 

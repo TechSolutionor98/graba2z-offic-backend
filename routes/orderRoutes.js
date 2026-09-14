@@ -646,6 +646,14 @@ router.post(
       throw error
     }
 
+    let userLoyaltyType = null
+    if (req.user) {
+      const userDoc = await User.findById(req.user._id).populate("loyaltyType").lean()
+      if (userDoc?.loyaltyType && userDoc.loyaltyType.isActive) {
+        userLoyaltyType = userDoc.loyaltyType
+      }
+    }
+
     // What this order will pay out, held pending until it is delivered.
     const { totalPoints: loyaltyPointsEarned } = req.user
       ? calculateEarnedPoints({
@@ -653,6 +661,7 @@ router.post(
           settings: loyaltySettings,
           ruleMap: await getCategoryRuleMap(),
           redeemedAmountAed: loyaltyDiscountAmount + referralDiscountAmount,
+          loyaltyType: userLoyaltyType,
         })
       : { totalPoints: 0 }
 
@@ -753,6 +762,7 @@ router.post(
         order: createdOrder,
         settings: loyaltySettings,
         description: `Pending on order #${createdOrder._id.toString().slice(-6)}`,
+        loyaltyType: userLoyaltyType,
       }).catch((error) => console.error("Failed to record pending loyalty points:", error))
     }
 
