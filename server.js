@@ -60,6 +60,7 @@ import blogBrandRoutes from "./routes/blogBrandRoutes.js"
 import blogCommentRoutes from "./routes/blogCommentRoutes.js"
 import blogDashboardRoutes from "./routes/blogDashboardRoutes.js"
 import settingsRoutes from "./routes/settingsRoutes.js"
+import themeRoutes from "./routes/themeRoutes.js"
 import wishlistRoutes from "./routes/wishlistRoutes.js"
 import requestCallbackRoutes from "./routes/requestCallbackRoutes.js"
 import paymentRoutes from "./routes/paymentRoutes.js"
@@ -259,6 +260,7 @@ app.use("/api/blog-brands", blogBrandRoutes)
 app.use("/api/blog-comments", blogCommentRoutes)
 app.use("/api/blog-dashboard", blogDashboardRoutes)
 app.use("/api/settings", settingsRoutes)
+app.use("/api/theme", themeRoutes)
 app.use("/api/wishlist", wishlistRoutes)
 app.use("/api/request-callback", requestCallbackRoutes)
 app.use("/api/bulk-purchase", bulkPurchaseRoutes)

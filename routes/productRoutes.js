@@ -247,6 +247,8 @@ const excelToBackendKey = {
   subcategory4: "subCategory4",
   barcode: "barcode",
   buying_price: "buyingPrice",
+  wholesale_price: "wholesalePrice",
+  wholesaleprice: "wholesalePrice",
   selling_price: "price",
   offer_price: "offerPrice",
   price: "price",
@@ -497,6 +499,22 @@ const normalizeFieldKey = (key) =>
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "")
+
+/**
+ * An optional money column from an import row.
+ *
+ * Blank, missing or unparseable becomes null -- "no wholesale price set" --
+ * rather than 0, so importing a sheet that has no wholesale column cannot
+ * silently stamp every product with a zero wholesale price. A real 0 typed in
+ * the sheet is kept as 0.
+ */
+const parseOptionalPrice = (value) => {
+  if (value === undefined || value === null) return null
+  const text = String(value).trim()
+  if (text === "") return null
+  const parsed = Number.parseFloat(text)
+  return Number.isFinite(parsed) ? parsed : null
+}
 
 const getBulkField = (row, keys) => {
   if (!row || typeof row !== "object") return undefined
@@ -2554,6 +2572,7 @@ router.post(
       description: product.description,
       shortDescription: product.shortDescription,
       buyingPrice: product.buyingPrice,
+      wholesalePrice: product.wholesalePrice,
       price: product.price,
       offerPrice: product.offerPrice,
       discount: product.discount,
@@ -3189,6 +3208,7 @@ router.post(
           },
           brand: brandId || rawBrand || undefined,
           buyingPrice: Number.parseFloat(row.buyingPrice) || 0,
+          wholesalePrice: parseOptionalPrice(row.wholesalePrice),
           price: Number.parseFloat(row.price) || 0,
           offerPrice: Number.parseFloat(row.offerPrice) || 0,
           discount: Number.parseFloat(row.discount) || 0,
@@ -3600,6 +3620,7 @@ router.post(
         },
         brand: brandId || rawBrand || undefined,
         buyingPrice: Number.parseFloat(row.buyingPrice) || 0,
+        wholesalePrice: parseOptionalPrice(row.wholesalePrice),
         price,
         offerPrice,
         discount,
@@ -3860,6 +3881,7 @@ router.post(
           subCategory4: subCategory4Id,
           brand: brandId,
           buyingPrice: prod.buyingPrice || 0,
+          wholesalePrice: parseOptionalPrice(prod.wholesalePrice),
           price,
           offerPrice,
           discount,
@@ -4273,6 +4295,9 @@ router.post(
             subCategory4: level4Id,
             brand: brandId,
             buyingPrice: parseFloat(getBulkField(row, ["buyingPrice", "buying_price"]) || row.buyingPrice) || 0,
+            wholesalePrice: parseOptionalPrice(
+              getBulkField(row, ["wholesalePrice", "wholesale_price"]) ?? row.wholesalePrice,
+            ),
             price: parseFloat(getBulkField(row, ["price", "selling_price"]) || row.price) || 0,
             offerPrice: parseFloat(getBulkField(row, ["offerPrice", "offer_price"]) || row.offerPrice) || 0,
             discount: parseFloat(getBulkField(row, ["discount"]) || row.discount) || 0,
@@ -4691,6 +4716,7 @@ router.post(
           tax: tax?._id, // Use ObjectId reference
           unit: unit?._id, // Use ObjectId reference
           buyingPrice: Number(productData.buyingPrice) || 0,
+          wholesalePrice: parseOptionalPrice(productData.wholesalePrice),
           price: Number(productData.price) || 0,
           offerPrice: Number(productData.offerPrice) || 0,
           stockStatus: String(productData.stockStatus || "In Stock").trim(),

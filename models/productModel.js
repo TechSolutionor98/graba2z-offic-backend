@@ -172,6 +172,13 @@ const productSchema = mongoose.Schema(
       required: true,
       default: 0,
     },
+    // Optional. Defaults to null rather than 0 so "no wholesale price set" stays
+    // distinguishable from "the wholesale price is zero" -- whatever this ends up
+    // driving, that difference is the one you cannot recover later.
+    wholesalePrice: {
+      type: Number,
+      default: null,
+    },
     price: {
       type: Number,
       required: true,
@@ -388,6 +395,12 @@ const productSchema = mongoose.Schema(
           type: Number,
           default: 0,
         },
+        // Optional, same as on the parent product: null means "not set", which
+        // stays distinct from a wholesale price of zero.
+        wholesalePrice: {
+          type: Number,
+          default: null,
+        },
         price: {
           type: Number,
           default: 0,
@@ -428,6 +441,12 @@ const productSchema = mongoose.Schema(
         buyingPrice: {
           type: Number,
           default: 0,
+        },
+        // Optional, same as on the parent product: null means "not set", which
+        // stays distinct from a wholesale price of zero.
+        wholesalePrice: {
+          type: Number,
+          default: null,
         },
         price: {
           type: Number,
