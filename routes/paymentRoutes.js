@@ -955,13 +955,14 @@ const normalizeTamaraWebhookUrl = (url) => {
   return normalized.replace(/\/api\/webhooks\/tamara\/?$/i, "/api/payment/tamara/webhook")
 }
 
-const getVerifiedOrderTotal = (order) => {
-  const basePrice = Number(order.totalPrice) || 0
-  const paymentChargesTotal = Array.isArray(order.paymentCharges)
-    ? order.paymentCharges.reduce((sum, charge) => sum + (Number(charge.amount) || 0), 0)
-    : 0
-  return Number((basePrice + paymentChargesTotal).toFixed(2))
-}
+// The amount actually sent to the gateway, so it has to be the figure the order
+// was saved at -- nothing may be added on the way past.
+//
+// This used to add the payment charges on top, because the order total was
+// written without them. The order route now resolves those charges and includes
+// them in totalPrice, so adding them again here would charge the customer the
+// handling fee twice.
+const getVerifiedOrderTotal = (order) => Number((Number(order.totalPrice) || 0).toFixed(2))
 
 const NGENIUS_PAID_STATES = new Set(["PURCHASED", "CAPTURED", "AUTHORIZED", "AUTHORISED", "PAID"])
 const NGENIUS_FAILED_STATES = new Set(["FAILED", "DECLINED", "CANCELED", "CANCELLED", "EXPIRED"])

@@ -13,6 +13,7 @@ import { resolveAppDiscountForOrder } from "../services/appDiscountService.js"
 import Country from "../models/countryModel.js"
 import { resolveCountryPaymentMethods } from "./countryPaymentMethodRoutes.js"
 import { selectDeliveryMethod, describeDeliveryBlock } from "../utils/deliveryCharge.js"
+import { resolvePaymentCharges } from "../utils/paymentCharges.js"
 import LoyaltyTransaction from "../models/loyaltyTransactionModel.js"
 import User from "../models/userModel.js"
 import {
@@ -394,6 +395,16 @@ router.post(
       selectedAdminDeliveryCharge = resolved.method
     }
 
+    // Read from the database like the item prices and delivery band above, not
+    // taken from the request -- a browser could otherwise skip the COD handling
+    // fee by posting an empty list. Percentage fees are settled into money here,
+    // against the goods before any discount, the same base the storefront shows.
+    const { charges: resolvedPaymentCharges, total: paymentChargesTotal } = await resolvePaymentCharges({
+      paymentMethod: actualPaymentMethod || paymentMethod,
+      countryCode: orderCountry?.code,
+      goodsAmount: calculatedItemsPrice,
+    })
+
     const normalizedBaseTotal = calculatedItemsPrice + normalizedShippingPrice
 
     // Server-side App Discount validation
@@ -665,10 +676,14 @@ router.post(
         })
       : { totalPoints: 0 }
 
-    const normalizedTotalPrice = Math.max(
+    const discountedTotal = Math.max(
       0,
       normalizedBaseTotal - finalDiscountAmount - referralDiscountAmount - loyaltyDiscountAmount,
     )
+
+    // Payment fees sit outside the discountable part of an order: a coupon
+    // reduces the goods, never the cost of paying on delivery or by instalment.
+    const normalizedTotalPrice = Number((discountedTotal + paymentChargesTotal).toFixed(2))
 
     const order = new Order({
       orderItems: verifiedOrderItems,
@@ -704,7 +719,9 @@ router.post(
       customerNotes,
       paymentMethod: paymentMethod || "cod",
       actualPaymentMethod: actualPaymentMethod || paymentMethod || "cod",
-      paymentCharges: req.body.paymentCharges || [],
+      // The resolved charges, not the client's -- these are the figures the
+      // total above was built from, so the invoice always reconciles.
+      paymentCharges: resolvedPaymentCharges,
       status: "New",
     })
 
