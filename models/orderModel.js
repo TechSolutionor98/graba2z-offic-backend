@@ -14,7 +14,26 @@ const orderSchema = mongoose.Schema(
     },
     quotationStatus: {
       type: String,
-      enum: ["Draft", "Converted"],
+      // "Hold" parks a document that is agreed but not ready to go to the
+      // warehouse. It stays on the Recent Quotation page until an admin
+      // releases it back to Draft or moves it into Orders.
+      enum: ["Draft", "Hold", "Converted"],
+      default: undefined,
+    },
+    // The VAT rate this document was priced at, as a percentage. Stored so the
+    // invoice can split every line at the same rate the admin set, instead of
+    // assuming the store default forever.
+    taxRate: {
+      type: Number,
+      default: undefined,
+    },
+    // What the admin chose on the Create Order/Quotation screen. Everything
+    // raised there is staged as a quotation first; this records whether it was
+    // meant to become an order, so the list can label it and the admin knows
+    // which rows are waiting to be moved across.
+    stagedAs: {
+      type: String,
+      enum: ["order", "quotation"],
       default: undefined,
     },
     convertedOrderId: {

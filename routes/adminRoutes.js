@@ -1434,8 +1434,11 @@ router.put(
         await syncOrderReferralForStatus(updatedOrder._id, normalized)
       }
 
-      // Send notification email only if status has changed
-      if (previousStatus !== normalized) {
+      // The customer is only written to when an admin ticks the box. Staff move
+      // orders through these statuses for their own bookkeeping far more often
+      // than the customer needs telling, so silence is the default and the
+      // caller has to opt in.
+      if (previousStatus !== normalized && req.body.sendCustomerEmail === true) {
         try {
           await sendOrderNotification(updatedOrder)
           console.log(`Order status update email sent for order ${updatedOrder._id}`)
@@ -1472,8 +1475,13 @@ router.put(
       order.trackingId = req.body.trackingId
       const updatedOrder = await order.save()
 
-      // Send tracking update email only if tracking ID has changed
-      if (previousTrackingId !== req.body.trackingId && req.body.trackingId) {
+      // Opt-in, like the status email above -- a corrected typo in a tracking
+      // number should not mail the customer again.
+      if (
+        previousTrackingId !== req.body.trackingId &&
+        req.body.trackingId &&
+        req.body.sendCustomerEmail === true
+      ) {
         try {
           await sendTrackingUpdateEmail(updatedOrder)
           console.log(`Tracking update email sent for order ${updatedOrder._id}`)
@@ -2076,6 +2084,7 @@ router.post(
       itemsPrice,
       shippingPrice = 0,
       taxPrice = 0,
+      taxRate,
       discountAmount = 0,
       totalPrice, // optional from client, will recompute below
       customerNotes = "",
@@ -2125,8 +2134,13 @@ router.post(
     ) || "New"
 
     const order = new Order({
-      documentType: normalizedDocumentType,
-      quotationStatus: normalizedDocumentType === "quotation" ? "Draft" : undefined,
+      // Everything raised on the Create Order/Quotation screen is staged on the
+      // Recent Quotation page first -- including documents the admin started as
+      // an order. Nothing reaches the Orders queues until someone moves it
+      // across, so the warehouse never picks a document still being negotiated.
+      documentType: "quotation",
+      stagedAs: normalizedDocumentType,
+      quotationStatus: "Draft",
       orderItems: normalizedOrderItems,
       user: userId || null,
       deliveryType,
@@ -2141,6 +2155,7 @@ router.post(
       itemsPrice: Number(computedItemsPrice.toFixed(2)),
       shippingPrice: Number(Number(shippingPrice || 0).toFixed(2)),
       taxPrice: Number(Number(taxPrice || 0).toFixed(2)),
+      taxRate: Number.isFinite(Number(taxRate)) ? Number(taxRate) : undefined,
       discountAmount: Number(Number(discountAmount || 0).toFixed(2)), // special discount stored
       totalPrice: Number((typeof totalPrice === "number" ? totalPrice : computedTotal).toFixed(2)),
       customerNotes,
@@ -2153,11 +2168,10 @@ router.post(
 
     if (sendCustomerEmail) {
       try {
-        if (normalizedDocumentType === "quotation") {
-          await sendQuotationCreatedEmail(createdOrder)
-        } else {
-          await sendOrderPlacedEmail(createdOrder)
-        }
+        // Staged documents are not orders yet, whichever mode raised them, so
+        // the customer gets the quotation mail. The order-placed mail is sent
+        // by the convert route, at the point it really becomes an order.
+        await sendQuotationCreatedEmail(createdOrder)
       } catch (emailError) {
         console.error("Failed to send create-document email:", emailError)
       }
@@ -2211,6 +2225,57 @@ router.get(
       .sort({ createdAt: -1 })
 
     res.json(quotations)
+  }),
+)
+
+// @desc    Put a quotation on hold, or release it back to draft
+// @route   PUT /api/admin/quotations/:id/status
+// @access  Private/Admin
+router.put(
+  "/quotations/:id/status",
+  protect,
+  admin,
+  asyncHandler(async (req, res) => {
+    const { quotationStatus } = req.body || {}
+
+    // Converted is set by the convert route alone -- it is the record of a real
+    // order having been created, not a label an admin can apply by hand.
+    if (!["Draft", "Hold"].includes(quotationStatus)) {
+      res.status(400)
+      throw new Error("Invalid status. Allowed values: Draft, Hold")
+    }
+
+    const quotation = await Order.findById(req.params.id)
+    if (!quotation) {
+      res.status(404)
+      throw new Error("Quotation not found")
+    }
+    if (quotation.documentType !== "quotation") {
+      res.status(400)
+      throw new Error("Provided record is not a quotation")
+    }
+    if (quotation.quotationStatus === "Converted" || quotation.convertedOrderId) {
+      res.status(400)
+      throw new Error("This quotation has already been moved to Orders")
+    }
+
+    const previousStatus = quotation.quotationStatus || "Draft"
+    quotation.quotationStatus = quotationStatus
+    await quotation.save()
+    await quotation.populate("user", "name email")
+
+    await logActivity({
+      user: req.user,
+      action: "UPDATE",
+      module: "ORDERS",
+      description: `Quotation ${quotation._id} ${quotationStatus === "Hold" ? "put on hold" : "released to draft"}`,
+      targetId: quotation._id,
+      targetName: quotation._id.toString(),
+      previousData: { quotationStatus: previousStatus },
+      req,
+    })
+
+    res.json(quotation)
   }),
 )
 
