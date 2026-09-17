@@ -2090,6 +2090,7 @@ router.post(
       customerNotes = "",
       status = "New",
       documentType = "order",
+      quotationStatus,
       sendCustomerEmail = false,
     } = req.body
 
@@ -2097,6 +2098,12 @@ router.post(
       res.status(400)
       throw new Error("No order items")
     }
+
+    // A document can be parked the moment it is raised, so an admin taking a
+    // price over the phone does not have to create it and then go and hold it.
+    // Converted is never a starting point -- it only ever means a real order was
+    // made from this document.
+    const normalizedQuotationStatus = quotationStatus === "Hold" ? "Hold" : "Draft"
 
     const normalizedDocumentType = String(documentType || "order").trim().toLowerCase()
     if (!["order", "quotation"].includes(normalizedDocumentType)) {
@@ -2140,7 +2147,7 @@ router.post(
       // across, so the warehouse never picks a document still being negotiated.
       documentType: "quotation",
       stagedAs: normalizedDocumentType,
-      quotationStatus: "Draft",
+      quotationStatus: normalizedQuotationStatus,
       orderItems: normalizedOrderItems,
       user: userId || null,
       deliveryType,
@@ -2225,6 +2232,131 @@ router.get(
       .sort({ createdAt: -1 })
 
     res.json(quotations)
+  }),
+)
+
+// @desc    Get one staged document, to reopen it on the create screen
+// @route   GET /api/admin/quotations/:id
+// @access  Private/Admin
+router.get(
+  "/quotations/:id",
+  protect,
+  admin,
+  asyncHandler(async (req, res) => {
+    const quotation = await Order.findById(req.params.id)
+      .populate("user", "name email phone")
+      .populate("orderItems.product", "name image sku")
+
+    if (!quotation || quotation.documentType !== "quotation") {
+      res.status(404)
+      throw new Error("Quotation not found")
+    }
+
+    res.json(quotation)
+  }),
+)
+
+// @desc    Save changes to a staged document recalled onto the create screen
+// @route   PUT /api/admin/quotations/:id
+// @access  Private/Admin
+router.put(
+  "/quotations/:id",
+  protect,
+  admin,
+  asyncHandler(async (req, res) => {
+    const quotation = await Order.findById(req.params.id)
+
+    if (!quotation || quotation.documentType !== "quotation") {
+      res.status(404)
+      throw new Error("Quotation not found")
+    }
+
+    // Once a real order exists from this document, editing it here would put the
+    // paperwork out of step with what the warehouse is picking.
+    if (quotation.quotationStatus === "Converted" || quotation.convertedOrderId) {
+      res.status(400)
+      throw new Error("This document has already been moved to Orders and can no longer be edited")
+    }
+
+    const {
+      userId,
+      orderItems,
+      shippingAddress,
+      itemsPrice,
+      shippingPrice = 0,
+      taxPrice = 0,
+      taxRate,
+      discountAmount = 0,
+      totalPrice,
+      paymentMethod,
+      actualPaymentMethod,
+      documentType,
+      quotationStatus,
+      customerNotes,
+    } = req.body
+
+    if (!orderItems || !Array.isArray(orderItems) || orderItems.length === 0) {
+      res.status(400)
+      throw new Error("No order items")
+    }
+
+    const normalizedOrderItems = orderItems.map((it) => ({
+      ...it,
+      name: it?.name || "Custom Item",
+      quantity: Number(it?.quantity) || 1,
+      price: Number(it?.price) || 0,
+      image: it?.image || "/placeholder.svg",
+      product: it?.product || undefined,
+    }))
+
+    const computedItemsPrice =
+      typeof itemsPrice === "number"
+        ? itemsPrice
+        : normalizedOrderItems.reduce((sum, it) => sum + (Number(it.price) || 0) * (Number(it.quantity) || 1), 0)
+
+    const computedTotal = Math.max(
+      0,
+      Number(computedItemsPrice || 0) +
+        Number(shippingPrice || 0) +
+        Number(taxPrice || 0) -
+        Number(discountAmount || 0),
+    )
+
+    quotation.user = userId || null
+    quotation.orderItems = normalizedOrderItems
+    if (shippingAddress) quotation.shippingAddress = shippingAddress
+    quotation.itemsPrice = Number(Number(computedItemsPrice).toFixed(2))
+    quotation.shippingPrice = Number(Number(shippingPrice || 0).toFixed(2))
+    quotation.taxPrice = Number(Number(taxPrice || 0).toFixed(2))
+    if (Number.isFinite(Number(taxRate))) quotation.taxRate = Number(taxRate)
+    quotation.discountAmount = Number(Number(discountAmount || 0).toFixed(2))
+    quotation.totalPrice = Number((typeof totalPrice === "number" ? totalPrice : computedTotal).toFixed(2))
+    if (paymentMethod) quotation.paymentMethod = paymentMethod
+    if (actualPaymentMethod) quotation.actualPaymentMethod = actualPaymentMethod
+    if (customerNotes !== undefined) quotation.customerNotes = customerNotes
+
+    // The admin may switch what the document is meant to become while editing it.
+    const nextDocumentType = String(documentType || "").trim().toLowerCase()
+    if (["order", "quotation"].includes(nextDocumentType)) quotation.stagedAs = nextDocumentType
+
+    // Saving normally releases a held document; "Save on Hold" parks it again.
+    if (["Draft", "Hold"].includes(quotationStatus)) quotation.quotationStatus = quotationStatus
+
+    const updated = await quotation.save()
+    await updated.populate("user", "name email")
+    await updated.populate("orderItems.product", "name image sku")
+
+    await logActivity({
+      user: req.user,
+      action: "UPDATE",
+      module: "ORDERS",
+      description: `Updated staged ${updated.stagedAs || "quotation"}: ${updated._id}`,
+      targetId: updated._id,
+      targetName: updated._id.toString(),
+      req,
+    })
+
+    res.json(updated)
   }),
 )
 
