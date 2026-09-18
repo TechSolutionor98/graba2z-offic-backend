@@ -144,6 +144,9 @@ const orderSchema = mongoose.Schema(
       // dropped them silently -- the storefront had been sending them all along.
       storeAddress: { type: String },
       storePhone: { type: String },
+      // The customer themselves. A collection has no shippingAddress, so without
+      // these the order has no record of who it is for.
+      name: { type: String },
       email: { type: String },
     },
     paymentMethod: {
