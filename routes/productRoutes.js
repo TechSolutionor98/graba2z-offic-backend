@@ -3867,12 +3867,37 @@ router.post(
           }
         }
 
+        // Barcode and GTIN are unique across the catalogue. A sheet that repeats
+        // one -- a supplier placeholder, or the same code pasted down a column --
+        // used to abort the entire row on a duplicate key error, throwing away
+        // every other edit in it. The clashing code is dropped instead and
+        // reported, so the rest of the update still lands.
+        const rowNotices = []
+
+        const claimUniqueCode = async (field, rawValue) => {
+          const value = normalizeOptionalUniqueField(rawValue)
+          if (!value) return undefined
+
+          const owner = await Product.findOne({ [field]: value }).select("_id name").lean()
+          if (!owner || (existing && String(owner._id) === String(existing._id))) return value
+
+          rowNotices.push(
+            `${field === "gtin" ? "GTIN" : "Barcode"} ${value} already belongs to "${owner.name}" — ` +
+              (existing?.[field] ? `kept the existing ${field}.` : `saved without a ${field}.`),
+          )
+          return existing?.[field] || undefined
+        }
+
+        const resolvedBarcode = await claimUniqueCode("barcode", prod.barcode)
+        const resolvedGtin = await claimUniqueCode("gtin", prod.gtin)
+
         const productData = {
           name: prod.name || "",
           nameAr,
           slug: prod.slug || generateSlug(prod.name || ""),
           sku: (prod.sku && prod.sku.trim() !== "") ? prod.sku.trim() : undefined,
-          barcode: (prod.barcode && prod.barcode.trim() !== "") ? prod.barcode.trim() : undefined,
+          barcode: resolvedBarcode,
+          ...(prod.gtin !== undefined ? { gtin: resolvedGtin } : {}),
           parentCategory: parentCategoryId, // Main category
           category: categoryId, // Level 1
           subCategory: categoryId, // Backward compatibility
@@ -3914,7 +3939,13 @@ router.post(
           Object.assign(existing, productData)
           product = await existing.save()
           console.log(`Product ${i} (${prod.name}): UPDATED`)
-          results.push({ index: i, status: "success", action: "updated", product: product })
+          results.push({
+            index: i,
+            status: "success",
+            action: "updated",
+            product: product,
+            ...(rowNotices.length ? { notices: rowNotices } : {}),
+          })
           updated++
           success++
         } else {
@@ -3923,7 +3954,13 @@ router.post(
           product = new Product(productData)
           await product.save()
           console.log(`Product ${i} (${prod.name}): CREATED`)
-          results.push({ index: i, status: "success", action: "created", product: product })
+          results.push({
+            index: i,
+            status: "success",
+            action: "created",
+            product: product,
+            ...(rowNotices.length ? { notices: rowNotices } : {}),
+          })
           created++
           success++
         }
