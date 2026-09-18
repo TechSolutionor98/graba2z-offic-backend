@@ -2282,6 +2282,8 @@ router.put(
       userId,
       orderItems,
       shippingAddress,
+      deliveryType,
+      pickupDetails,
       itemsPrice,
       shippingPrice = 0,
       taxPrice = 0,
@@ -2324,7 +2326,22 @@ router.put(
 
     quotation.user = userId || null
     quotation.orderItems = normalizedOrderItems
-    if (shippingAddress) quotation.shippingAddress = shippingAddress
+
+    // Only one half applies, and the other is cleared -- a document switched
+    // from delivery to collection must not keep a stale address, or the invoice
+    // would show both.
+    if (["home", "pickup"].includes(deliveryType)) {
+      quotation.deliveryType = deliveryType
+      if (deliveryType === "pickup") {
+        quotation.pickupDetails = pickupDetails || quotation.pickupDetails
+        quotation.shippingAddress = undefined
+      } else {
+        if (shippingAddress) quotation.shippingAddress = shippingAddress
+        quotation.pickupDetails = undefined
+      }
+    } else if (shippingAddress) {
+      quotation.shippingAddress = shippingAddress
+    }
     quotation.itemsPrice = Number(Number(computedItemsPrice).toFixed(2))
     quotation.shippingPrice = Number(Number(shippingPrice || 0).toFixed(2))
     quotation.taxPrice = Number(Number(taxPrice || 0).toFixed(2))

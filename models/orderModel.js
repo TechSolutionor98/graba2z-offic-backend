@@ -138,6 +138,13 @@ const orderSchema = mongoose.Schema(
       phone: { type: String },
       location: { type: String },
       storeId: { type: String },
+      // The branch address and number are copied onto the order rather than
+      // looked up later, so a collection order still reads correctly if the
+      // branch is renamed or closed. Without these on the schema Mongoose
+      // dropped them silently -- the storefront had been sending them all along.
+      storeAddress: { type: String },
+      storePhone: { type: String },
+      email: { type: String },
     },
     paymentMethod: {
       type: String,
