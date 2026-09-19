@@ -928,11 +928,26 @@ import axios from "axios"
 import jwt from "jsonwebtoken"
 import asyncHandler from "express-async-handler"
 import Order from "../models/orderModel.js"
+import { sendMetaPurchase } from "../utils/metaConversions.js"
 import User from "../models/userModel.js"
 import { protect } from "../middleware/authMiddleware.js"
 import TamaraService from "../services/tamaraService.js"
 
 const router = express.Router()
+
+// Report a gateway-confirmed sale to Meta.
+//
+// Each gateway confirms twice -- once when the customer returns and once by
+// webhook -- and a webhook can be retried, so this runs on every path and
+// sendMetaPurchase keeps it to one event per order. Meta is never allowed to
+// affect the payment response.
+const reportPurchase = async (order) => {
+  try {
+    await sendMetaPurchase(order, { Order })
+  } catch (error) {
+    console.error("Failed to report purchase to Meta:", error)
+  }
+}
 
 const appendQueryParams = (url, params = {}) => {
   if (!url) return url
@@ -1338,6 +1353,7 @@ router.post("/tamara/webhook", async (req, res) => {
         order.paidAt = new Date()
       }
       await order.save()
+      await reportPurchase(order)
 
       // Automatically authorize the order
       try {
@@ -1602,6 +1618,7 @@ router.post("/tamara/authorize/:orderId", protect, async (req, res) => {
         order.paidAt = new Date()
       }
       await order.save()
+      await reportPurchase(order)
     }
 
     console.log("✅ Tamara order authorized successfully:", orderId)
@@ -1692,6 +1709,7 @@ router.post("/tabby/webhook", async (req, res) => {
       dbOrder.isPaid = isPaid
       dbOrder.paidAt = isPaid ? dbOrder.paidAt || new Date() : null
       await dbOrder.save()
+      if (isPaid) await reportPurchase(dbOrder)
     }
 
     res.status(200).json({ received: true })
@@ -1860,6 +1878,7 @@ router.post("/ngenius/verify/:orderId", async (req, res) => {
     }
 
     await order.save()
+    if (order.isPaid) await reportPurchase(order)
 
     res.status(200).json({
       success: true,
@@ -1919,6 +1938,7 @@ router.post("/ngenius/webhook", async (req, res) => {
       }
 
       await order.save()
+      if (order.isPaid) await reportPurchase(order)
     }
 
     res.status(200).json({ received: true })

@@ -368,6 +368,21 @@ const orderSchema = mongoose.Schema(
       type: String,
       default: "",
     },
+    // What the browser knew about this visitor at checkout, kept so the server
+    // can report the sale to Meta later -- a card order is only confirmed when
+    // the gateway calls back, long after the browser has gone.
+    metaAttribution: {
+      fbp: { type: String },
+      fbc: { type: String },
+      sourceUrl: { type: String },
+      userAgent: { type: String },
+      ip: { type: String },
+    },
+    // Set once the Conversions API has accepted the Purchase, so a retried
+    // webhook cannot report the same sale a second time.
+    metaPurchaseSentAt: {
+      type: Date,
+    },
   },
   {
     timestamps: true,

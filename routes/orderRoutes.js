@@ -27,6 +27,7 @@ import {
   getUserLoyaltySummary,
 } from "../utils/loyalty.js"
 import ReferralReward from "../models/referralRewardModel.js"
+import { sendMetaPurchase, readMetaAttribution } from "../utils/metaConversions.js"
 import {
   getReferralSettings,
   computeRewardDiscount,
@@ -722,6 +723,9 @@ router.post(
       // The resolved charges, not the client's -- these are the figures the
       // total above was built from, so the invoice always reconciles.
       paymentCharges: resolvedPaymentCharges,
+      // Kept for the Meta Conversions API, which reports the sale from here
+      // rather than from the customer's browser.
+      metaAttribution: readMetaAttribution(req, req.body),
       status: "New",
     })
 
@@ -797,6 +801,19 @@ router.post(
     } catch (emailError) {
       console.error("Failed to send order confirmation email:", emailError)
       // Don't fail the order creation if email fails
+    }
+
+    // A cash order is a confirmed sale the moment it is placed; a card, Tabby or
+    // Tamara order is not, and is reported by the gateway's own route once the
+    // charge clears. The browser pixel reports the same sale under the same id,
+    // and Meta counts the pair once.
+    const isConfirmedSale =
+      createdOrder.isPaid || String(createdOrder.paymentMethod || "").toLowerCase() === "cod"
+
+    if (isConfirmedSale) {
+      await sendMetaPurchase(createdOrder, { Order }).catch((error) =>
+        console.error("Failed to report purchase to Meta:", error),
+      )
     }
 
     res.status(201).json(createdOrder)
