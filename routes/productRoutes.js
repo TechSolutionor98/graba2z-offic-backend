@@ -948,6 +948,15 @@ const sellingPriceExpr = {
   $cond: [{ $gt: [{ $ifNull: ["$offerPrice", 0] }, 0] }, "$offerPrice", { $ifNull: ["$price", 0] }],
 }
 
+// An id filter has to be a real ObjectId here, not the string the browser sent.
+// `find` casts a string against the schema and matches; `$match` inside an
+// aggregation does not, and compares a string to an ObjectId that can never
+// equal it. Casting once up front keeps the count, the page and the totals
+// describing the same set -- otherwise picking a category fills the table and
+// zeroes every figure above it.
+const asObjectId = (value) =>
+  mongoose.Types.ObjectId.isValid(value) ? new mongoose.Types.ObjectId(String(value)) : null
+
 const buildInventoryStockCondition = (stock) => {
   if (stock === "in") return { countInStock: { $gt: 0 } }
   if (stock === "out") return { countInStock: { $lte: 0 } }
@@ -1004,9 +1013,18 @@ router.get("/admin/inventory", protect, admin, async (req, res) => {
     const query = {}
     const andConditions = []
 
-    if (parentCategory) query.parentCategory = parentCategory
-    if (category) query.category = category
-    if (brand) query.brand = brand
+    // A malformed id is a bug in the caller, not a request to show everything,
+    // so it narrows to nothing rather than being quietly dropped.
+    for (const [field, value] of [
+      ["parentCategory", parentCategory],
+      ["category", category],
+      ["brand", brand],
+    ]) {
+      if (!value) continue
+      const id = asObjectId(value)
+      if (id) query[field] = id
+      else andConditions.push({ _id: null })
+    }
 
     const stockCondition = buildInventoryStockCondition(String(stock))
     if (stockCondition) andConditions.push(stockCondition)
