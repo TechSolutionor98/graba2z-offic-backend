@@ -1000,6 +1000,9 @@ router.get("/admin/inventory", protect, admin, async (req, res) => {
       search,
       parentCategory,
       category,
+      subCategory2,
+      subCategory3,
+      subCategory4,
       brand,
       stock = "all",
       pricing = "all",
@@ -1018,6 +1021,9 @@ router.get("/admin/inventory", protect, admin, async (req, res) => {
     for (const [field, value] of [
       ["parentCategory", parentCategory],
       ["category", category],
+      ["subCategory2", subCategory2],
+      ["subCategory3", subCategory3],
+      ["subCategory4", subCategory4],
       ["brand", brand],
     ]) {
       if (!value) continue
