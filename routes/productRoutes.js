@@ -934,6 +934,165 @@ router.get("/admin/count", protect, admin, async (req, res) => {
   }
 })
 
+// The stock figure an inventory line is judged by. Shared between the filter
+// and the summary so a product cannot be counted as low stock in the totals
+// while the "Low stock" filter refuses to show it.
+const LOW_STOCK_FALLBACK = 5
+const stockOf = "$countInStock"
+const lowStockLimit = { $ifNull: ["$lowStockWarning", LOW_STOCK_FALLBACK] }
+
+// The price a unit would actually sell for today: the offer when one is set,
+// otherwise the list price. Stock value has to use this or the figure is not
+// the money on the shelf.
+const sellingPriceExpr = {
+  $cond: [{ $gt: [{ $ifNull: ["$offerPrice", 0] }, 0] }, "$offerPrice", { $ifNull: ["$price", 0] }],
+}
+
+const buildInventoryStockCondition = (stock) => {
+  if (stock === "in") return { countInStock: { $gt: 0 } }
+  if (stock === "out") return { countInStock: { $lte: 0 } }
+  if (stock === "low") {
+    return { $expr: { $and: [{ $gt: [stockOf, 0] }, { $lte: [stockOf, lowStockLimit] }] } }
+  }
+  return null
+}
+
+const buildInventoryPricingCondition = (pricing) => {
+  if (pricing === "offer") return { offerPrice: { $gt: 0 } }
+  if (pricing === "no-offer") return { $or: [{ offerPrice: { $lte: 0 } }, { offerPrice: null }, { offerPrice: { $exists: false } }] }
+  if (pricing === "wholesale") return { wholesalePrice: { $gt: 0 } }
+  // A wholesale price of null means "never set", which is the gap worth finding.
+  if (pricing === "no-wholesale") return { $or: [{ wholesalePrice: null }, { wholesalePrice: { $exists: false } }, { wholesalePrice: { $lte: 0 } }] }
+  return null
+}
+
+const INVENTORY_SORTS = {
+  newest: { createdAt: -1 },
+  name: { name: 1 },
+  "stock-asc": { countInStock: 1 },
+  "stock-desc": { countInStock: -1 },
+  "price-asc": { price: 1 },
+  "price-desc": { price: -1 },
+}
+
+// @desc    Stock and pricing for every product, with the totals for the filter
+// @route   GET /api/products/admin/inventory
+// @access  Private/Admin
+//
+// Separate from GET /admin because the two want different things. That route
+// populates a dozen references including nested variation products, which is
+// wasted work for a stock list; this one reads a lean projection and, more
+// importantly, returns the summary across the *whole* filtered set rather than
+// the page on screen -- a stock value that only counted the visible twenty
+// would be worse than showing none at all.
+router.get("/admin/inventory", protect, admin, async (req, res) => {
+  try {
+    const {
+      search,
+      parentCategory,
+      category,
+      brand,
+      stock = "all",
+      pricing = "all",
+      minPrice,
+      maxPrice,
+      sort = "newest",
+      limit = 25,
+      page = 1,
+    } = req.query
+
+    const query = {}
+    const andConditions = []
+
+    if (parentCategory) query.parentCategory = parentCategory
+    if (category) query.category = category
+    if (brand) query.brand = brand
+
+    const stockCondition = buildInventoryStockCondition(String(stock))
+    if (stockCondition) andConditions.push(stockCondition)
+
+    const pricingCondition = buildInventoryPricingCondition(String(pricing))
+    if (pricingCondition) andConditions.push(pricingCondition)
+
+    const min = Number.parseFloat(minPrice)
+    const max = Number.parseFloat(maxPrice)
+    if (Number.isFinite(min) || Number.isFinite(max)) {
+      const range = {}
+      if (Number.isFinite(min)) range.$gte = min
+      if (Number.isFinite(max)) range.$lte = max
+      andConditions.push({ price: range })
+    }
+
+    if (typeof search === "string" && search.trim() !== "") {
+      // Narrower than the product list on purpose: stock is looked up by name or
+      // code, and matching description text here only buries the row wanted.
+      const term = search.trim()
+      const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+      const pattern = new RegExp(escaped, "i")
+      andConditions.push({ $or: [{ name: pattern }, { sku: pattern }, { barcode: pattern }, { gtin: pattern }] })
+    }
+
+    const finalQuery = andConditions.length > 0 ? { ...query, $and: andConditions } : query
+
+    const perPage = Math.min(Math.max(Number.parseInt(limit, 10) || 25, 1), 200)
+    const currentPage = Math.max(Number.parseInt(page, 10) || 1, 1)
+
+    const [totalCount, products, summaryRows] = await Promise.all([
+      Product.countDocuments(finalQuery),
+      Product.find(finalQuery)
+        .select(
+          "name sku barcode gtin image price offerPrice wholesalePrice oldPrice discount countInStock lowStockWarning stockStatus isActive onHold updatedAt",
+        )
+        .populate("brand", "name")
+        .populate("parentCategory", "name")
+        .populate("category", "name")
+        .sort(INVENTORY_SORTS[sort] || INVENTORY_SORTS.newest)
+        .skip((currentPage - 1) * perPage)
+        .limit(perPage)
+        .lean(),
+      Product.aggregate([
+        { $match: finalQuery },
+        {
+          $group: {
+            _id: null,
+            skus: { $sum: 1 },
+            units: { $sum: { $ifNull: [stockOf, 0] } },
+            retailValue: { $sum: { $multiply: [{ $ifNull: [stockOf, 0] }, { $ifNull: ["$price", 0] }] } },
+            sellingValue: { $sum: { $multiply: [{ $ifNull: [stockOf, 0] }, sellingPriceExpr] } },
+            wholesaleValue: {
+              $sum: { $multiply: [{ $ifNull: [stockOf, 0] }, { $ifNull: ["$wholesalePrice", 0] }] },
+            },
+            outOfStock: { $sum: { $cond: [{ $lte: [{ $ifNull: [stockOf, 0] }, 0] }, 1, 0] } },
+            lowStock: {
+              $sum: {
+                $cond: [
+                  { $and: [{ $gt: [{ $ifNull: [stockOf, 0] }, 0] }, { $lte: [{ $ifNull: [stockOf, 0] }, lowStockLimit] }] },
+                  1,
+                  0,
+                ],
+              },
+            },
+          },
+        },
+      ]),
+    ])
+
+    const empty = { skus: 0, units: 0, retailValue: 0, sellingValue: 0, wholesaleValue: 0, outOfStock: 0, lowStock: 0 }
+    const { _id, ...summary } = summaryRows[0] || empty
+
+    res.json({
+      products,
+      totalCount,
+      page: currentPage,
+      pages: Math.max(1, Math.ceil(totalCount / perPage)),
+      summary,
+    })
+  } catch (error) {
+    console.error("Inventory query failed:", error)
+    res.status(500).json({ message: "Server error" })
+  }
+})
+
 // @desc    Get products by specific IDs (for exporting selected products)
 // @route   POST /api/products/by-ids
 // @access  Private/Admin
