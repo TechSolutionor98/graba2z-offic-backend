@@ -73,6 +73,13 @@ const userSchema = mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    // Set when an account is opened for a customer by an admin rather than by
+    // the customer themselves -- they never chose the password they have, so
+    // they are asked to replace it the first time they sign in.
+    mustChangePassword: {
+      type: Boolean,
+      default: false,
+    },
     emailVerificationCode: {
       type: String,
     },

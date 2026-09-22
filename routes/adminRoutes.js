@@ -1018,6 +1018,7 @@ import { logActivity } from "../middleware/permissionMiddleware.js"
 import { issueSeoUnlockToken, verifySeoUnlockPassword } from "../middleware/seoUnlockMiddleware.js"
 import { syncOrderLoyaltyForStatus } from "../utils/loyalty.js"
 import { syncOrderReferralForStatus } from "../utils/referral.js"
+import { ensureCustomerAccount } from "../utils/customerAccounts.js"
 
 const router = express.Router()
 const ORDER_DOCUMENT_QUERY = {
@@ -2134,6 +2135,28 @@ router.post(
         Number(discountAmount || 0),
     )
 
+    // A customer typed straight into the document has no account yet, which is
+    // why the user search on that screen could never find them again. Opening
+    // one here links the document to a real person, keeps their address for
+    // next time, and makes them searchable from the moment the first quotation
+    // is raised.
+    let customerAccount = null
+    if (!userId) {
+      const contact = deliveryType === "pickup" ? pickupDetails : shippingAddress
+      try {
+        customerAccount = await ensureCustomerAccount({
+          shipping: contact || {},
+          createdBy: req.user?._id,
+        })
+      } catch (accountError) {
+        // A document the admin has already priced must not be lost over the
+        // account, so this is reported and the document saved without one.
+        console.error("Failed to open a customer account for this document:", accountError)
+      }
+    }
+
+    const resolvedUserId = userId || customerAccount?.user?._id || null
+
     // Normalize provided status to schema enum values
     const allowedStatuses = Order.schema.path("status").enumValues || []
     const normalizedStatus = allowedStatuses.find(
@@ -2149,7 +2172,7 @@ router.post(
       stagedAs: normalizedDocumentType,
       quotationStatus: normalizedQuotationStatus,
       orderItems: normalizedOrderItems,
-      user: userId || null,
+      user: resolvedUserId,
       deliveryType,
       shippingAddress: deliveryType === "home" ? shippingAddress : undefined,
       pickupDetails: deliveryType === "pickup" ? pickupDetails : undefined,
@@ -2195,7 +2218,21 @@ router.post(
       req,
     })
 
-    res.status(201).json(createdOrder)
+    // The temp password is returned once, here, and never stored in readable
+    // form. If the admin does not pass it on the customer resets it like anyone
+    // else -- the account still exists and is still searchable.
+    res.status(201).json(
+      customerAccount?.created
+        ? {
+            ...createdOrder.toObject(),
+            customerAccount: {
+              created: true,
+              email: customerAccount.user.email,
+              tempPassword: customerAccount.tempPassword,
+            },
+          }
+        : createdOrder,
+    )
   }),
 )
 
@@ -2247,9 +2284,12 @@ router.get(
       .populate("user", "name email phone")
       .populate("orderItems.product", "name image sku")
 
-    if (!quotation || quotation.documentType !== "quotation") {
+    // Orders open here too. Everything the office raises is editable for its
+    // whole life, so the create screen has to be able to reopen a real order,
+    // not only a document still waiting in the staging list.
+    if (!quotation) {
       res.status(404)
-      throw new Error("Quotation not found")
+      throw new Error("Document not found")
     }
 
     res.json(quotation)
@@ -2266,17 +2306,18 @@ router.put(
   asyncHandler(async (req, res) => {
     const quotation = await Order.findById(req.params.id)
 
-    if (!quotation || quotation.documentType !== "quotation") {
+    if (!quotation) {
       res.status(404)
-      throw new Error("Quotation not found")
+      throw new Error("Document not found")
     }
 
-    // Once a real order exists from this document, editing it here would put the
-    // paperwork out of step with what the warehouse is picking.
-    if (quotation.quotationStatus === "Converted" || quotation.convertedOrderId) {
-      res.status(400)
-      throw new Error("This document has already been moved to Orders and can no longer be edited")
-    }
+    // A document stays editable for its whole life -- before it is moved to
+    // Orders, after it is moved, and once it is a live order. Editing a
+    // document that has already been converted used to be refused, because the
+    // paperwork would drift from what the warehouse is picking. It is allowed
+    // now, and the drift is prevented instead: the linked order is updated with
+    // the same changes further down, so the pair can never disagree.
+    const isLiveOrder = quotation.documentType === "order"
 
     const {
       userId,
@@ -2324,7 +2365,23 @@ router.put(
         Number(discountAmount || 0),
     )
 
-    quotation.user = userId || null
+    // Same as on create: a document edited into having a customer gets that
+    // customer an account, so they are searchable next time. An account already
+    // linked is left alone.
+    let customerAccount = null
+    if (!userId && !quotation.user) {
+      const contact = deliveryType === "pickup" ? pickupDetails : shippingAddress
+      try {
+        customerAccount = await ensureCustomerAccount({
+          shipping: contact || {},
+          createdBy: req.user?._id,
+        })
+      } catch (accountError) {
+        console.error("Failed to open a customer account for this document:", accountError)
+      }
+    }
+
+    quotation.user = userId || quotation.user || customerAccount?.user?._id || null
     quotation.orderItems = normalizedOrderItems
 
     // Only one half applies, and the other is cleared -- a document switched
@@ -2352,14 +2409,53 @@ router.put(
     if (actualPaymentMethod) quotation.actualPaymentMethod = actualPaymentMethod
     if (customerNotes !== undefined) quotation.customerNotes = customerNotes
 
-    // The admin may switch what the document is meant to become while editing it.
-    const nextDocumentType = String(documentType || "").trim().toLowerCase()
-    if (["order", "quotation"].includes(nextDocumentType)) quotation.stagedAs = nextDocumentType
+    // Staging only. A live order has a real status in the Orders queues and is
+    // not a draft of anything, so neither field applies to it.
+    if (!isLiveOrder) {
+      // The admin may switch what the document is meant to become while editing it.
+      const nextDocumentType = String(documentType || "").trim().toLowerCase()
+      if (["order", "quotation"].includes(nextDocumentType)) quotation.stagedAs = nextDocumentType
 
-    // Saving normally releases a held document; "Save on Hold" parks it again.
-    if (["Draft", "Hold"].includes(quotationStatus)) quotation.quotationStatus = quotationStatus
+      // Saving normally releases a held document; "Save on Hold" parks it again.
+      // A document already moved to Orders stays Converted -- it is being
+      // corrected, not pushed back into the queue.
+      if (["Draft", "Hold"].includes(quotationStatus) && quotation.quotationStatus !== "Converted") {
+        quotation.quotationStatus = quotationStatus
+      }
+    }
 
     const updated = await quotation.save()
+
+    // Editing a document that was already moved to Orders has to carry through
+    // to the order itself, or the warehouse picks the old contents while the
+    // paperwork shows the new ones. Everything the create screen can change is
+    // copied; the order keeps its own status, payment state and history.
+    if (!isLiveOrder && quotation.convertedOrderId) {
+      try {
+        const linkedOrder = await Order.findById(quotation.convertedOrderId)
+        if (linkedOrder) {
+          linkedOrder.user = quotation.user || null
+          linkedOrder.orderItems = normalizedOrderItems
+          linkedOrder.deliveryType = quotation.deliveryType
+          linkedOrder.shippingAddress = quotation.shippingAddress
+          linkedOrder.pickupDetails = quotation.pickupDetails
+          linkedOrder.itemsPrice = quotation.itemsPrice
+          linkedOrder.shippingPrice = quotation.shippingPrice
+          linkedOrder.taxPrice = quotation.taxPrice
+          linkedOrder.taxRate = quotation.taxRate
+          linkedOrder.discountAmount = quotation.discountAmount
+          linkedOrder.totalPrice = quotation.totalPrice
+          linkedOrder.paymentMethod = quotation.paymentMethod
+          linkedOrder.actualPaymentMethod = quotation.actualPaymentMethod
+          linkedOrder.customerNotes = quotation.customerNotes
+          await linkedOrder.save()
+        }
+      } catch (syncError) {
+        // The edit is saved either way; a silent divergence is the one outcome
+        // worth shouting about.
+        console.error("Failed to apply the edit to the linked order:", syncError)
+      }
+    }
     await updated.populate("user", "name email")
     await updated.populate("orderItems.product", "name image sku")
 
@@ -2373,7 +2469,18 @@ router.put(
       req,
     })
 
-    res.json(updated)
+    res.json(
+      customerAccount?.created
+        ? {
+            ...updated.toObject(),
+            customerAccount: {
+              created: true,
+              email: customerAccount.user.email,
+              tempPassword: customerAccount.tempPassword,
+            },
+          }
+        : updated,
+    )
   }),
 )
 

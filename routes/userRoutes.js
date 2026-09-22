@@ -127,6 +127,9 @@ router.post(
         email: user.email,
         isAdmin: user.isAdmin,
         isEmailVerified: user.isEmailVerified,
+        // Drives the "choose your own password" prompt for an account an admin
+        // opened on the customer's behalf.
+        mustChangePassword: Boolean(user.mustChangePassword),
         registrationSource: user.registrationSource,
         registrationPlatform: user.registrationPlatform,
         token: generateToken(user._id),
@@ -266,6 +269,9 @@ router.post(
         email: user.email,
         isAdmin: user.isAdmin,
         isEmailVerified: user.isEmailVerified,
+        // Drives the "choose your own password" prompt for an account an admin
+        // opened on the customer's behalf.
+        mustChangePassword: Boolean(user.mustChangePassword),
         registrationSource: user.registrationSource,
         registrationPlatform: user.registrationPlatform,
         token: generateToken(user._id),
@@ -318,6 +324,8 @@ router.post(
       throw new Error("Invalid or expired reset token");
     }
     user.password = password;
+    // Their own password now, so the change prompt is done with.
+    user.mustChangePassword = false;
     user.resetPasswordToken = undefined;
     user.resetPasswordExpires = undefined;
     await user.save();
@@ -368,6 +376,7 @@ router.get(
         email: user.email,
         isAdmin: user.isAdmin,
         isEmailVerified: user.isEmailVerified,
+        mustChangePassword: Boolean(user.mustChangePassword),
         phone: user.phone,
         address: user.address,
         addresses: user.addresses || [],
@@ -382,6 +391,45 @@ router.get(
       res.status(404)
       throw new Error("User not found")
     }
+  }),
+)
+
+// @desc    Replace a temporary password with one the customer chose
+// @route   PUT /api/users/set-password
+// @access  Private
+//
+// Separate from the profile update, which asks for the current password. Here
+// the customer has just signed in with the temporary one, so demanding it
+// again only puts a wall in front of the thing we are asking them to do. It is
+// accepted once, on an account still flagged for it, and never again.
+router.put(
+  "/set-password",
+  protect,
+  asyncHandler(async (req, res) => {
+    const { password } = req.body || {}
+
+    if (!password || String(password).length < 6) {
+      res.status(400)
+      throw new Error("Password must be at least 6 characters")
+    }
+
+    const user = await User.findById(req.user._id)
+
+    if (!user) {
+      res.status(404)
+      throw new Error("User not found")
+    }
+
+    if (!user.mustChangePassword) {
+      res.status(400)
+      throw new Error("Use Change Password in your profile to update your password")
+    }
+
+    user.password = password
+    user.mustChangePassword = false
+    await user.save()
+
+    res.json({ message: "Password updated", mustChangePassword: false })
   }),
 )
 
@@ -414,6 +462,7 @@ router.put(
           throw new Error("Incorrect current password")
         }
         user.password = req.body.password
+        user.mustChangePassword = false
       }
 
       const updatedUser = await user.save()
