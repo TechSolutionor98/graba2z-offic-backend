@@ -10,6 +10,7 @@ import config from "./config/config.js"
 import { notFound, errorHandler } from "./middleware/errorMiddleware.js"
 import cacheService from "./services/cacheService.js"
 import { attachCacheService, autoInvalidateAllCacheOnMutation } from "./middleware/cacheMiddleware.js"
+import publicCache from "./middleware/publicCacheMiddleware.js"
 
 // Get __dirname equivalent in ES modules
 const __filename = fileURLToPath(import.meta.url)
@@ -220,6 +221,11 @@ app.use(attachCacheService)
 
 // Keep server cache in sync automatically after any successful data mutation.
 app.use(autoInvalidateAllCacheOnMutation())
+
+// Catalogue reads are the same for everyone, so let Cloudflare and the browser
+// hold on to them. Without this every visitor re-downloads the whole category
+// tree on every page.
+app.use(["/api/categories", "/api/subcategories", "/api/brands", "/api/banners", "/api/home-sections"], publicCache)
 
 // Routes
 app.use("/api/users", userRoutes)

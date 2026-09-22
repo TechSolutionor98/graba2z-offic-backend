@@ -7,6 +7,7 @@ import { protect, admin } from "../middleware/authMiddleware.js"
 import { logActivity } from "../middleware/permissionMiddleware.js"
 import { deleteLocalFile, isCloudinaryUrl } from "../config/multer.js"
 import { cacheMiddleware, invalidateCache } from "../middleware/cacheMiddleware.js"
+import mongoose from "mongoose"
 import { translateEnToAr } from "../utils/translateWithFallback.js"
 import { requireSeoUnlockIfBodyHas } from "../middleware/seoUnlockMiddleware.js"
 import { submitCategory } from "../services/indexNowService.js"
@@ -345,17 +346,62 @@ router.get(
 // @desc    Fetch categories with nested subcategories up to 4 levels
 // @route   GET /api/categories/tree
 // @access  Public
+// The long-form fields. Nothing that draws a menu or a filter tree needs them,
+// and they are 1.8 MB of the 2.3 MB this route returns -- the same SEO copy the
+// flat subcategory list also carries, so a shop page was downloading it twice.
+// Only the page's own category renders its copy, and that is fetched by id from
+// /api/categories/seo.
+const HEAVY_CATEGORY_FIELDS = [
+  "seoContent",
+  "seoContentAr",
+  "customSchema",
+  "description",
+  "descriptionAr",
+  "translationState",
+]
+
+const heavyCategoryProjection = HEAVY_CATEGORY_FIELDS.map((field) => `-${field}`).join(" ")
+
+// @desc    SEO copy for a handful of categories, by id
+// @route   GET /api/categories/seo?ids=a,b,c
+// @access  Public
+router.get(
+  "/seo",
+  cacheMiddleware('categories', { keyPrefix: 'seo' }),
+  asyncHandler(async (req, res) => {
+    const ids = String(req.query.ids || "")
+      .split(",")
+      .map((id) => id.trim())
+      .filter((id) => mongoose.Types.ObjectId.isValid(id))
+      .slice(0, 10)
+
+    if (ids.length === 0) return res.json([])
+
+    const rows = await Category.find({ _id: { $in: ids } })
+      .select("_id name slug seoContent seoContentAr customSchema description descriptionAr metaTitle metaDescription")
+      .lean()
+
+    res.json(rows)
+  }),
+)
+
 router.get(
   "/tree",
   cacheMiddleware('categories', { keyPrefix: 'tree' }),
   asyncHandler(async (req, res) => {
     try {
+      // Opt-in, so anything already relying on the full documents is unchanged.
+      const lite = String(req.query.lite || "") === "1" || String(req.query.lite || "") === "true"
+      const projection = lite ? heavyCategoryProjection : ""
+
       // Load active, non-deleted categories and subcategories with all fields
       const [cats, subs] = await Promise.all([
         Category.find({ isActive: true, isDeleted: { $ne: true } })
+          .select(projection)
           .sort({ sortOrder: 1, name: 1 })
           .lean(),
         SubCategory.find({ isActive: true, isDeleted: { $ne: true } })
+          .select(projection)
           .sort({ sortOrder: 1, name: 1 })
           .lean(),
       ])

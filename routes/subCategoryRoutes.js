@@ -482,6 +482,7 @@ import Product from "../models/productModel.js"
 import { protect, admin } from "../middleware/authMiddleware.js"
 import { deleteLocalFile, isCloudinaryUrl } from "../config/multer.js"
 import { logActivity } from "../middleware/permissionMiddleware.js"
+import mongoose from "mongoose"
 import { translateEnToAr } from "../utils/translateWithFallback.js"
 import { cacheMiddleware, invalidateCache } from "../middleware/cacheMiddleware.js"
 import { requireSeoUnlockIfBodyHas } from "../middleware/seoUnlockMiddleware.js"
@@ -814,11 +815,53 @@ router.get(
 // @desc    Fetch all subcategories
 // @route   GET /api/subcategories
 // @access  Public
+// The long-form fields. Together they are about 2 MB of the 2.9 MB this route
+// returns, and a filter sidebar needs none of them -- only the page's own
+// subcategory ever renders its SEO copy, and that is fetched by id below.
+const HEAVY_SUBCATEGORY_FIELDS = [
+  "seoContent",
+  "seoContentAr",
+  "customSchema",
+  "description",
+  "descriptionAr",
+  "translationState",
+]
+
+const heavyFieldProjection = HEAVY_SUBCATEGORY_FIELDS.map((field) => `-${field}`).join(" ")
+
+// @desc    SEO copy for a handful of subcategories, by id
+// @route   GET /api/subcategories/seo?ids=a,b,c
+// @access  Public
+//
+// The companion to `lite` above: the list is fetched without the long fields,
+// and the two or three the page actually renders are fetched here.
+router.get(
+  "/seo",
+  cacheMiddleware("subCategories", { keyPrefix: "seo" }),
+  asyncHandler(async (req, res) => {
+    const ids = String(req.query.ids || "")
+      .split(",")
+      .map((id) => id.trim())
+      .filter((id) => mongoose.Types.ObjectId.isValid(id))
+      .slice(0, 10)
+
+    if (ids.length === 0) return res.json([])
+
+    const rows = await SubCategory.find({ _id: { $in: ids } })
+      .select("_id name slug seoContent seoContentAr customSchema description descriptionAr metaTitle metaDescription")
+      .lean()
+
+    res.json(rows)
+  }),
+)
+
 router.get(
   "/",
   cacheMiddleware("subCategories", { keyPrefix: "list" }),
   asyncHandler(async (req, res) => {
     const { category, parentSubCategory, level } = req.query;
+    // Opt-in, so nothing that already relies on the full document changes.
+    const lite = String(req.query.lite || "") === "1" || String(req.query.lite || "") === "true";
     let filter = { isActive: true, isDeleted: { $ne: true } };
     
     if (category) {
@@ -832,6 +875,7 @@ router.get(
     }
     
     const subCategories = await SubCategory.find(filter)
+      .select(lite ? heavyFieldProjection : "")
       .populate("category", "name slug _id")
       .populate("parentSubCategory", "name slug _id")
       .sort({ sortOrder: 1, name: 1 });
