@@ -158,7 +158,7 @@ export async function resolveReferrerTier(referrerId) {
 // Minting rewards
 // ---------------------------------------------------------------------------
 
-const rewardTermsFor = (settings, role, referralType = null) => {
+export const rewardTermsFor = (settings, role, referralType = null) => {
   const source = referralType && referralType.isActive !== false ? referralType : settings
   return role === "referee"
     ? {
@@ -180,6 +180,29 @@ const rewardTermsFor = (settings, role, referralType = null) => {
         expiryDays: Math.max(0, toNumber(source.referrerExpiryDays ?? settings.referrerExpiryDays, 0)),
         firstOrderOnly: false,
       }
+}
+
+/**
+ * What a referrer's tier promises each side, resolved the same way a reward is minted:
+ * the assigned tier, else the default tier, else the base settings. The storefront shows
+ * these figures, so they must be the ones the reward will actually carry.
+ */
+export function tierTerms(settings, referralType = null) {
+  const tier = referralType && referralType.isActive !== false ? referralType : null
+  return {
+    tier: tier
+      ? {
+          _id: tier._id,
+          name: tier.name,
+          color: tier.color,
+          badgeText: tier.badgeText || "",
+          description: tier.description || "",
+          isDefault: Boolean(tier.isDefault),
+        }
+      : null,
+    referee: rewardTermsFor(settings, "referee", tier),
+    referrer: rewardTermsFor(settings, "referrer", tier),
+  }
 }
 
 /**
@@ -359,6 +382,7 @@ export async function getSpendableRewards(userId) {
     status: "active",
     $or: [{ expiresAt: null }, { expiresAt: { $gt: now } }],
   })
+    .populate("referral", "code")
     .sort({ createdAt: -1 })
     .lean()
 }
@@ -632,7 +656,7 @@ export async function getReferralSummary(userId, { country = "ae", lang = "en" }
       .sort({ createdAt: -1 })
       .limit(200)
       .lean(),
-    ReferralReward.find({ user: userId }).sort({ createdAt: -1 }).limit(100).lean(),
+    ReferralReward.find({ user: userId }).populate("referral", "code").sort({ createdAt: -1 }).limit(100).lean(),
     Referral.aggregate([
       { $match: { referrer: new mongoose.Types.ObjectId(String(userId)) } },
       { $group: { _id: "$status", count: { $sum: 1 } } },
@@ -659,23 +683,26 @@ export async function getReferralSummary(userId, { country = "ae", lang = "en" }
     .filter((reward) => reward.role === "referrer" && reward.status === "used")
     .reduce((sum, reward) => sum + toNumber(reward.discountAppliedAed, 0), 0)
 
-  const user = await User.findById(userId).populate("referralType").lean()
-  const userTier = user?.referralType && user.referralType.isActive ? user.referralType : null
+  // The tier that will actually price this customer's invites: assigned, else the
+  // programme default. The panel's "your friend gets X, you get Y" reads from this.
+  const [settings, effectiveTier] = await Promise.all([getReferralSettings(), resolveReferrerTier(userId)])
+  const terms = tierTerms(settings, effectiveTier)
 
   return {
     code,
     link: buildReferralLink(code, { country, lang }),
     invites,
     rewards: rewards.map(publicReward),
-    tier: userTier
+    tier: terms.tier
       ? {
-          _id: userTier._id,
-          name: userTier.name,
-          color: userTier.color,
-          refereeDiscountValue: userTier.refereeDiscountValue,
-          referrerDiscountValue: userTier.referrerDiscountValue,
+          ...terms.tier,
+          // Kept for older clients that read the flat numbers.
+          refereeDiscountValue: terms.referee.discountValue,
+          referrerDiscountValue: terms.referrer.discountValue,
         }
       : null,
+    // What each side is promised right now, whether it comes from a tier or the base settings.
+    offer: { referee: terms.referee, referrer: terms.referrer },
     stats: {
       total: referrals.length,
       pending: byStatus.pending || 0,
@@ -710,6 +737,10 @@ const maskEmail = (email) => {
 export const publicReward = (reward) => ({
   id: String(reward._id),
   role: reward.role,
+  // The code the referral was made with -- the inviter's code -- so a discount can be
+  // shown by name in the cart.
+  code: reward.referral && typeof reward.referral === "object" ? reward.referral.code || "" : "",
+  referralTypeName: reward.referralTypeName || "",
   discountType: reward.discountType,
   discountValue: reward.discountValue,
   maxDiscountAed: reward.maxDiscountAed,

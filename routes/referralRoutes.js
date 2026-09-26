@@ -21,6 +21,8 @@ import {
   resolveReferralCode,
   normalizeReferralCode,
   expireDueRewards,
+  resolveReferrerTier,
+  tierTerms,
 } from "../utils/referral.js"
 
 const router = express.Router()
@@ -76,20 +78,22 @@ router.get(
     // is genuine, without turning the code into a way to look up an email address.
     const firstName = String(referrer.name || "").trim().split(/\s+/)[0] || "a friend"
 
-    const tier = referrer.referralType && referrer.referralType.isActive ? referrer.referralType : null
-    const source = tier || settings
+    // Same resolution signup uses to mint the welcome reward (assigned tier, else the
+    // default tier, else base settings), so the form promises what the account will get.
+    const terms = tierTerms(settings, await resolveReferrerTier(referrer._id))
 
     res.json({
       valid: true,
       code,
       referrerName: firstName,
       reward: {
-        discountType: source.refereeDiscountType || settings.refereeDiscountType,
-        discountValue: source.refereeDiscountValue ?? settings.refereeDiscountValue,
-        maxDiscountAed: source.refereeMaxDiscountAed ?? settings.refereeMaxDiscountAed,
-        minOrderAed: source.refereeMinOrderAed ?? settings.refereeMinOrderAed,
+        discountType: terms.referee.discountType,
+        discountValue: terms.referee.discountValue,
+        maxDiscountAed: terms.referee.maxDiscountAed,
+        minOrderAed: terms.referee.minOrderAed,
+        firstOrderOnly: terms.referee.firstOrderOnly,
       },
-      tier: tier ? { name: tier.name, color: tier.color } : null,
+      tier: terms.tier ? { name: terms.tier.name, color: terms.tier.color } : null,
     })
   }),
 )
