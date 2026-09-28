@@ -64,6 +64,7 @@ const userSchema = mongoose.Schema(
       appDiscounts: { type: Boolean, default: false },
       loyalty: { type: Boolean, default: false },
       referrals: { type: Boolean, default: false },
+      pushNotifications: { type: Boolean, default: false },
     },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,

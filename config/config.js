@@ -9,6 +9,9 @@ const config = {
 
   // Database Configuration
   MONGO_URI: process.env.MONGO_URI,
+
+  // Push notifications: Firebase service account JSON (raw or base64) for Cloud Messaging.
+  FIREBASE_SERVICE_ACCOUNT: process.env.FIREBASE_SERVICE_ACCOUNT,
   MONGODB_URI_2: process.env.MONGODB_URI_2, // Separate MongoDB for blogs
 
   // Redis Cache Configuration

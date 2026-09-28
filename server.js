@@ -42,6 +42,8 @@ import couponRoutes from "./routes/couponRoutes.js"
 import appDiscountRoutes from "./routes/appDiscountRoutes.js"
 import loyaltyRoutes from "./routes/loyaltyRoutes.js"
 import referralRoutes from "./routes/referralRoutes.js"
+import notificationRoutes from "./routes/notificationRoutes.js"
+import { startPushScheduler } from "./utils/push.js"
 import popupSettingsRoutes from "./routes/popupSettingsRoutes.js"
 import bannerRoutes from "./routes/bannerRoutes.js"
 import bannerCardRoutes from "./routes/bannerCardRoutes.js"
@@ -96,6 +98,8 @@ dotenv.config()
 
 // Connect to databases - await both
 await connectDB()
+// Sends admin-scheduled push notifications when their time comes.
+startPushScheduler()
 await ensureSubCategorySlugIndexes()
 await ensurePaymentChargeIndexes()
 await connectBlogDB()
@@ -247,6 +251,7 @@ app.use("/api/coupons", couponRoutes)
 app.use("/api/app-discounts", appDiscountRoutes)
 app.use("/api/loyalty", loyaltyRoutes)
 app.use("/api/referrals", referralRoutes)
+app.use("/api/notifications", notificationRoutes)
 app.use("/api/popup-settings", popupSettingsRoutes)
 app.use("/api/banners", bannerRoutes)
 app.use("/api/banner-cards", bannerCardRoutes)
