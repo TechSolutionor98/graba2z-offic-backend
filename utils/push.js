@@ -1,4 +1,4 @@
-import admin from "firebase-admin"
+import { createRequire } from "node:module"
 
 import DeviceToken from "../models/deviceTokenModel.js"
 import PushNotification from "../models/pushNotificationModel.js"
@@ -15,6 +15,19 @@ import config from "../config/config.js"
 
 let app = null
 let initError = ""
+
+// firebase-admin is loaded on demand rather than imported at the top of this file. It
+// serves one optional feature, and a static import means a server where the package was
+// never installed dies on boot with ERR_MODULE_NOT_FOUND -- taking the whole API down --
+// instead of simply having push switched off. require (not import()) keeps getFirebase
+// synchronous, which pushStatus and its callers rely on.
+const require = createRequire(import.meta.url)
+let admin = null
+
+function loadAdmin() {
+  if (!admin) admin = require("firebase-admin")
+  return admin
+}
 
 function loadServiceAccount() {
   const raw = String(config.FIREBASE_SERVICE_ACCOUNT || "").trim()
@@ -37,10 +50,14 @@ export function getFirebase() {
       initError = "FIREBASE_SERVICE_ACCOUNT is not set"
       return null
     }
-    app = admin.apps.length ? admin.app() : admin.initializeApp({ credential: admin.credential.cert(serviceAccount) })
+    const sdk = loadAdmin()
+    app = sdk.apps.length ? sdk.app() : sdk.initializeApp({ credential: sdk.credential.cert(serviceAccount) })
     return app
   } catch (error) {
-    initError = `Firebase credentials could not be loaded: ${error.message}`
+    initError =
+      error.code === "MODULE_NOT_FOUND"
+        ? "firebase-admin is not installed on this server (run: npm install)"
+        : `Firebase credentials could not be loaded: ${error.message}`
     console.error("[PUSH]", initError)
     return null
   }

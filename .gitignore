@@ -76,8 +76,13 @@ typings/
 .yarn-integrity
 
 # dotenv environment variables file
+# The wildcard matters: a copy such as .env.backup or .env.local holds the same secrets
+# as .env and must never be committable either.
 .env
-.env.test
+.env.*
+# Firebase service account keys grant full admin access to the project.
+*firebase-adminsdk*.json
+serviceAccount*.json
 
 # parcel-bundler cache (https://parceljs.org/)
 .cache
