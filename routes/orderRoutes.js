@@ -11,6 +11,7 @@ import { logActivity } from "../middleware/permissionMiddleware.js"
 import { sendOrderPlacedEmail, sendOrderStatusUpdateEmail } from "../utils/emailService.js"
 import { resolveAppDiscountForOrder } from "../services/appDiscountService.js"
 import Country from "../models/countryModel.js"
+import Settings from "../models/settingsModel.js"
 import { resolveCountryPaymentMethods } from "./countryPaymentMethodRoutes.js"
 import { selectDeliveryMethod, describeDeliveryBlock } from "../utils/deliveryCharge.js"
 import { resolvePaymentCharges } from "../utils/paymentCharges.js"
@@ -27,6 +28,10 @@ import {
   getUserLoyaltySummary,
 } from "../utils/loyalty.js"
 import ReferralReward from "../models/referralRewardModel.js"
+
+// Mirrors DEFAULT_VAT_RATE in client/src/utils/vat.js: the rate an invoice falls back to
+// when a document records none of its own. Used here only if Settings has no rate set.
+const DEFAULT_VAT_RATE = 5
 import { sendMetaPurchase, readMetaAttribution } from "../utils/metaConversions.js"
 import {
   getReferralSettings,
@@ -682,9 +687,20 @@ router.post(
       normalizedBaseTotal - finalDiscountAmount - referralDiscountAmount - loyaltyDiscountAmount,
     )
 
+    // Product prices already carry their VAT, but delivery and handling fees are held
+    // exclusive of it, so VAT on those two is worked out here and charged on top.
+    // The rate is read from Settings so the storefront (which reads the same public
+    // settings) and this calculation can never drift apart; DEFAULT_VAT_RATE stands in
+    // only when no rate has been configured, matching what the invoice assumes.
+    const storeSettings = await Settings.findOne({}).lean()
+    const configuredVatRate = Number(storeSettings?.taxRate)
+    const vatRate = Number.isFinite(configuredVatRate) && configuredVatRate > 0 ? configuredVatRate : DEFAULT_VAT_RATE
+    const feesExcludingVat = normalizedShippingPrice + paymentChargesTotal
+    const feesVat = Number(((feesExcludingVat * vatRate) / 100).toFixed(2))
+
     // Payment fees sit outside the discountable part of an order: a coupon
     // reduces the goods, never the cost of paying on delivery or by instalment.
-    const normalizedTotalPrice = Number((discountedTotal + paymentChargesTotal).toFixed(2))
+    const normalizedTotalPrice = Number((discountedTotal + paymentChargesTotal + feesVat).toFixed(2))
 
     const order = new Order({
       orderItems: verifiedOrderItems,
@@ -700,6 +716,9 @@ router.post(
       currencySymbol: currencySymbol || currency || orderCountry?.currencySymbol || orderCountry?.currencyCode || "AED",
       itemsPrice: calculatedItemsPrice,
       shippingPrice: normalizedShippingPrice,
+      // Recorded so the invoice splits every line at the rate this order was priced at,
+      // rather than assuming the store default forever.
+      taxRate: vatRate,
       discountAmount: finalDiscountAmount,
       appDiscountApplied: Boolean(appDiscountMeta && appliedAppDiscountAmount > 0),
       appDiscountId: appDiscountMeta?._id || null,
