@@ -402,14 +402,33 @@ const ENTITY_CONFIG = {
 
 const sanitizeText = (value = "") => String(value || "").trim()
 
+// Every storefront URL is prefixed with "<country>-<lang>", e.g. /ae-en, /sa-ar. The
+// prefix is stripped so one page definition serves every country and language; which
+// country it was is kept separately so the right SEO record can be picked.
+const COUNTRY_LANG_PREFIX = /^\/([a-z]{2})-(en|ar)(?=\/|$)/i
+
 const normalizePath = (path = "") => {
   const normalized = String(path || "").trim().toLowerCase().split("?")[0].split("#")[0]
   if (!normalized) return "/"
 
   const withLeadingSlash = normalized.startsWith("/") ? normalized : `/${normalized}`
-  const withoutLangPrefix = withLeadingSlash.replace(/^\/(ae-en|ae-ar)(?=\/|$)/i, "") || "/"
+  const withoutLangPrefix = withLeadingSlash.replace(COUNTRY_LANG_PREFIX, "") || "/"
   const withoutTrailingSlash = withoutLangPrefix.length > 1 ? withoutLangPrefix.replace(/\/+$/, "") : withoutLangPrefix
   return withoutTrailingSlash || "/"
+}
+
+/** "AE" from "/ae-en/about", or "" when the path carries no country prefix. */
+const countryFromPath = (path = "") => {
+  const normalized = String(path || "").trim().split("?")[0].split("#")[0]
+  const withLeadingSlash = normalized.startsWith("/") ? normalized : `/${normalized}`
+  const match = withLeadingSlash.match(COUNTRY_LANG_PREFIX)
+  return match ? match[1].toUpperCase() : ""
+}
+
+/** Only a two-letter code survives; anything else means "the default record". */
+const normalizeCountryCode = (value = "") => {
+  const clean = String(value || "").trim().toUpperCase()
+  return /^[A-Z]{2}$/.test(clean) ? clean : ""
 }
 
 const getStaticDefaultsByKey = () => {
@@ -419,12 +438,48 @@ const getStaticDefaultsByKey = () => {
   }, {})
 }
 
+// Per-country SEO needs several rows per pageKey, so the old unique index on pageKey
+// alone has to go. Mongoose creates the new compound index but never drops the old one,
+// so it is removed here, once per process, before anything tries to insert.
+let legacyIndexChecked = false
+
+const dropLegacyPageKeyIndex = async () => {
+  if (legacyIndexChecked) return
+  try {
+    // Rows written before this change have no countryCode; they are the default record.
+    // Backfilled first so the compound index can never see two nulls for one pageKey.
+    await SeoPage.updateMany(
+      { $or: [{ countryCode: { $exists: false } }, { countryCode: null }] },
+      { $set: { countryCode: "" } },
+    )
+
+    const indexes = await SeoPage.collection.indexes()
+    if (indexes.some((index) => index.name === "pageKey_1")) {
+      await SeoPage.collection.dropIndex("pageKey_1")
+      console.log("seo-pages: dropped legacy unique index pageKey_1 (replaced by pageKey+countryCode)")
+    }
+    // Created explicitly rather than relying on autoIndex, which is often off in production.
+    await SeoPage.collection.createIndex({ pageKey: 1, countryCode: 1 }, { unique: true })
+
+    legacyIndexChecked = true
+  } catch (error) {
+    // A replica without the privilege must not take the API down. Left unflagged so a
+    // transient failure is retried rather than leaving the old index in place for good.
+    console.warn(`seo-pages: index migration skipped (${error.message})`)
+  }
+}
+
 const ensureStaticPages = async () => {
-  const existing = await SeoPage.find({}, { pageKey: 1 }).lean()
+  await dropLegacyPageKeyIndex()
+
+  // Only the default (countryCode: "") rows are seeded. A country row is created the
+  // first time somebody saves SEO for that country.
+  const existing = await SeoPage.find({ countryCode: "" }, { pageKey: 1 }).lean()
   const existingKeys = new Set(existing.map((item) => item.pageKey))
 
   const inserts = STATIC_PAGE_DEFINITIONS.filter((page) => !existingKeys.has(page.pageKey)).map((page) => ({
     pageKey: page.pageKey,
+    countryCode: "",
     pageName: page.pageName,
     routePath: page.routePath,
     seoTitle: "",
@@ -501,6 +556,34 @@ const normalizeSeoPayload = (body = {}) => {
   return payload
 }
 
+/** The default row plus, when a country is asked for, that country's own row. */
+const loadSeoRecords = async (pageKey, countryCode) => {
+  const codes = countryCode ? ["", countryCode] : [""]
+  const rows = await SeoPage.find({ pageKey, countryCode: { $in: codes } }).lean()
+  return {
+    base: rows.find((row) => !row.countryCode) || null,
+    override: countryCode ? rows.find((row) => row.countryCode === countryCode) || null : null,
+  }
+}
+
+// The country's value wins field by field; whatever it leaves blank falls back to the
+// default record. So a country can override just its title and inherit everything else.
+const buildSeo = (base, override, definition) => {
+  const pick = (field) => override?.[field] || base?.[field] || ""
+  return {
+    title: pick("seoTitle"),
+    description: pick("seoDescription"),
+    keywords: pick("seoKeywords"),
+    canonicalUrl: pick("seoCanonicalUrl") || definition.routePath,
+    robots: pick("seoRobots") || "index, follow",
+    customSchema: pick("customSchema"),
+    ogTitle: pick("ogTitle"),
+    ogDescription: pick("ogDescription"),
+    ogImage: pick("ogImage"),
+    seoContent: pick("seoContent"),
+  }
+}
+
 // @desc    Public static SEO lookup by page key
 // @route   GET /api/seo-pages/public/:pageKey
 // @access  Public
@@ -517,25 +600,16 @@ router.get(
       throw new Error("Static page key not found")
     }
 
-    const record = await SeoPage.findOne({ pageKey }).lean()
     const fallback = defaults[pageKey]
+    const countryCode = normalizeCountryCode(req.query.country)
+    const { base, override } = await loadSeoRecords(pageKey, countryCode)
 
     res.json({
       pageKey,
-      pageName: record?.pageName || fallback.pageName,
-      routePath: record?.routePath || fallback.routePath,
-      seo: {
-        title: record?.seoTitle || "",
-        description: record?.seoDescription || "",
-        keywords: record?.seoKeywords || "",
-        canonicalUrl: record?.seoCanonicalUrl || fallback.routePath,
-        robots: record?.seoRobots || "index, follow",
-        customSchema: record?.customSchema || "",
-        ogTitle: record?.ogTitle || "",
-        ogDescription: record?.ogDescription || "",
-        ogImage: record?.ogImage || "",
-        seoContent: record?.seoContent || "",
-      },
+      countryCode,
+      pageName: override?.pageName || base?.pageName || fallback.pageName,
+      routePath: base?.routePath || fallback.routePath,
+      seo: buildSeo(base, override, fallback),
     })
   }),
 )
@@ -557,25 +631,18 @@ router.get(
       })
     }
 
-    const record = await SeoPage.findOne({ pageKey: defaultMatch.pageKey }).lean()
+    // An explicit ?country wins; otherwise the country prefix on the path itself is used,
+    // so /sa-en/about resolves Saudi SEO even when the caller sends no country.
+    const countryCode = normalizeCountryCode(req.query.country) || countryFromPath(req.query.path)
+    const { base, override } = await loadSeoRecords(defaultMatch.pageKey, countryCode)
 
     return res.json({
       found: true,
       pageKey: defaultMatch.pageKey,
-      pageName: record?.pageName || defaultMatch.pageName,
+      countryCode,
+      pageName: override?.pageName || base?.pageName || defaultMatch.pageName,
       routePath: defaultMatch.routePath,
-      seo: {
-        title: record?.seoTitle || "",
-        description: record?.seoDescription || "",
-        keywords: record?.seoKeywords || "",
-        canonicalUrl: record?.seoCanonicalUrl || defaultMatch.routePath,
-        robots: record?.seoRobots || "index, follow",
-        customSchema: record?.customSchema || "",
-        ogTitle: record?.ogTitle || "",
-        ogDescription: record?.ogDescription || "",
-        ogImage: record?.ogImage || "",
-        seoContent: record?.seoContent || "",
-      },
+      seo: buildSeo(base, override, defaultMatch),
     })
   }),
 )
@@ -591,18 +658,30 @@ router.get(
   asyncHandler(async (req, res) => {
     await ensureStaticPages()
 
-    const records = await SeoPage.find({}).sort({ pageName: 1 }).lean()
+    // Editing is always per country: with no ?country the default rows are edited, with
+    // one the rows for that country. Values are shown raw (blank means "inherits"), and
+    // the default row travels alongside so the UI can show what a blank would fall back to.
+    const countryCode = normalizeCountryCode(req.query.country)
+    const codes = countryCode ? ["", countryCode] : [""]
+    const records = await SeoPage.find({ countryCode: { $in: codes } }).lean()
+
     const byKey = records.reduce((acc, item) => {
-      acc[item.pageKey] = item
+      const key = item.pageKey
+      if (!acc[key]) acc[key] = {}
+      if (item.countryCode === countryCode) acc[key].record = item
+      if (!item.countryCode) acc[key].base = item
       return acc
     }, {})
 
     const data = STATIC_PAGE_DEFINITIONS.map((page) => {
-      const record = byKey[page.pageKey]
+      const entry = byKey[page.pageKey] || {}
+      const record = entry.record
+      const base = entry.base
       return {
         pageKey: page.pageKey,
-        pageName: record?.pageName || page.pageName,
-        routePath: record?.routePath || page.routePath,
+        countryCode,
+        pageName: record?.pageName || base?.pageName || page.pageName,
+        routePath: base?.routePath || page.routePath,
         supports: {
           title: true,
           description: true,
@@ -619,7 +698,7 @@ router.get(
           title: record?.seoTitle || "",
           description: record?.seoDescription || "",
           keywords: record?.seoKeywords || "",
-          canonicalUrl: record?.seoCanonicalUrl || page.routePath,
+          canonicalUrl: record?.seoCanonicalUrl || (countryCode ? "" : page.routePath),
           robots: record?.seoRobots || "index, follow",
           customSchema: record?.customSchema || "",
           ogTitle: record?.ogTitle || "",
@@ -627,6 +706,8 @@ router.get(
           ogImage: record?.ogImage || "",
           seoContent: record?.seoContent || "",
         },
+        // What a blank field falls back to when editing a country.
+        inheritedSeo: countryCode ? buildSeo(base, null, page) : null,
         updatedAt: record?.updatedAt || null,
       }
     })
@@ -658,11 +739,13 @@ router.put(
     }
 
     const payload = normalizeSeoPayload(req.body)
+    const countryCode = normalizeCountryCode(req.query.country ?? req.body.countryCode)
 
-    let page = await SeoPage.findOne({ pageKey })
+    let page = await SeoPage.findOne({ pageKey, countryCode })
     if (!page) {
       page = new SeoPage({
         pageKey,
+        countryCode,
         pageName: defaults[pageKey].pageName,
         routePath: defaults[pageKey].routePath,
       })
@@ -686,7 +769,7 @@ router.put(
       user: req.user,
       action: "UPDATE",
       module: "SEO_SETTINGS",
-      description: `Updated static SEO settings: ${updated.pageName}`,
+      description: `Updated static SEO settings: ${updated.pageName}${countryCode ? ` (${countryCode})` : " (all countries)"}`,
       targetId: updated._id,
       targetName: updated.pageKey,
       newData: req.body,
@@ -695,6 +778,7 @@ router.put(
 
     res.json({
       pageKey: updated.pageKey,
+      countryCode: updated.countryCode || "",
       pageName: updated.pageName,
       routePath: updated.routePath,
       seo: {

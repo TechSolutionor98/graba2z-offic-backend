@@ -5,10 +5,17 @@ const seoPageSchema = new mongoose.Schema(
     pageKey: {
       type: String,
       required: true,
-      unique: true,
       trim: true,
       lowercase: true,
-      index: true,
+    },
+    // Which country this SEO record is for, e.g. "AE", "SA". An empty string is the
+    // default record used by every country that has no record of its own. Uniqueness is
+    // therefore on the pair (pageKey + countryCode), not on pageKey alone.
+    countryCode: {
+      type: String,
+      default: "",
+      trim: true,
+      uppercase: true,
     },
     pageName: {
       type: String,
@@ -81,6 +88,11 @@ const seoPageSchema = new mongoose.Schema(
     timestamps: true,
   },
 )
+
+// One record per page per country. The legacy single-field unique index on pageKey is
+// dropped at startup (see ensureStaticPages in routes/seoPageRoutes.js), otherwise it
+// would reject the second country for a page.
+seoPageSchema.index({ pageKey: 1, countryCode: 1 }, { unique: true })
 
 const SeoPage = mongoose.model("SeoPage", seoPageSchema)
 
