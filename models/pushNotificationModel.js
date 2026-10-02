@@ -37,6 +37,13 @@ const pushNotificationSchema = mongoose.Schema(
       default: "",
       trim: true,
     },
+    // Which tone the device plays. Only the name travels; the audio file must be
+    // bundled in the app (see utils/pushSounds.js).
+    sound: {
+      type: String,
+      default: "default",
+      trim: true,
+    },
     // Where a tap takes the customer. The app reads `screen` and `targetId`; `url` is
     // the web fallback and what the inbox link opens.
     action: {

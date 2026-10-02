@@ -50,7 +50,19 @@ router.get(
       return res.json({ settings: { isEnabled: false } })
     }
 
-    res.json({ settings: publicReferralSettings(settings) })
+    // A signed-out visitor has no tier of their own, so the card would otherwise fall
+    // back to the raw base settings -- which can differ from what a new referrer is
+    // actually offered. Sending the default tier's terms keeps the promise on the
+    // signed-out card identical to the one a signed-in member sees.
+    const defaultTier = await ReferralType.findOne({ isDefault: true, isActive: true }).lean()
+    const terms = tierTerms(settings, defaultTier)
+
+    res.json({
+      settings: {
+        ...publicReferralSettings(settings),
+        offer: { referee: terms.referee, referrer: terms.referrer },
+      },
+    })
   }),
 )
 

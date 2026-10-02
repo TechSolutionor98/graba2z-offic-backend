@@ -3,6 +3,7 @@ import { createRequire } from "node:module"
 import DeviceToken from "../models/deviceTokenModel.js"
 import PushNotification from "../models/pushNotificationModel.js"
 import config from "../config/config.js"
+import { getPushSound } from "./pushSounds.js"
 
 // Sends admin-written notifications to the mobile app through Firebase Cloud Messaging.
 //
@@ -164,16 +165,31 @@ export async function sendPushNotification(notificationId) {
       const body = lang === "ar" ? claimed.bodyAr || claimed.body : claimed.body
       for (let i = 0; i < tokens.length; i += FCM_BATCH) {
         const batch = tokens.slice(i, i + FCM_BATCH)
+        // Android 8+ takes the tone from the notification *channel*, not the message,
+        // so channelId is sent alongside sound -- sound alone covers Android 7 and
+        // below, channelId covers everything newer. iOS wants the bundled filename.
+        const tone = getPushSound(claimed.sound)
+        const silent = tone.id === "silent"
+
         const message = {
           tokens: batch,
           notification: { title, body, ...(claimed.imageUrl ? { imageUrl: claimed.imageUrl } : {}) },
           data,
           android: {
             priority: "high",
-            notification: { sound: "default", ...(claimed.imageUrl ? { imageUrl: claimed.imageUrl } : {}) },
+            notification: {
+              ...(silent ? {} : { sound: tone.id }),
+              channelId: tone.channelId,
+              ...(claimed.imageUrl ? { imageUrl: claimed.imageUrl } : {}),
+            },
           },
           apns: {
-            payload: { aps: { sound: "default", "mutable-content": 1 } },
+            payload: {
+              aps: {
+                ...(silent ? {} : { sound: tone.iosFile || "default" }),
+                "mutable-content": 1,
+              },
+            },
             ...(claimed.imageUrl ? { fcm_options: { image: claimed.imageUrl } } : {}),
           },
         }
@@ -210,9 +226,12 @@ export async function sendPushNotification(notificationId) {
 }
 
 /** Send a one-off test to a single token without creating a campaign row. */
-export async function sendTestPush({ token, title, body, imageUrl = "", action = {} }) {
+export async function sendTestPush({ token, title, body, imageUrl = "", action = {}, sound = "default" }) {
   const firebase = getFirebase()
   if (!firebase) throw new Error(pushStatus().error)
+  // Same tone resolution as a real send, so a test actually proves the sound works.
+  const tone = getPushSound(sound)
+  const silent = tone.id === "silent"
   return firebase.messaging().send({
     token,
     notification: { title, body, ...(imageUrl ? { imageUrl } : {}) },
@@ -223,8 +242,13 @@ export async function sendTestPush({ token, title, body, imageUrl = "", action =
       url: action.url || "",
       imageUrl: imageUrl || "",
     },
-    android: { priority: "high", notification: { sound: "default" } },
-    apns: { payload: { aps: { sound: "default", "mutable-content": 1 } } },
+    android: {
+      priority: "high",
+      notification: { ...(silent ? {} : { sound: tone.id }), channelId: tone.channelId },
+    },
+    apns: {
+      payload: { aps: { ...(silent ? {} : { sound: tone.iosFile || "default" }), "mutable-content": 1 } },
+    },
   })
 }
 

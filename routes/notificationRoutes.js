@@ -9,6 +9,7 @@ import User from "../models/userModel.js"
 import { protect, admin } from "../middleware/authMiddleware.js"
 import { checkPermission, logActivity } from "../middleware/permissionMiddleware.js"
 import { countAudience, sendPushNotification, sendTestPush, pushStatus } from "../utils/push.js"
+import { PUSH_SOUNDS, normalizePushSound } from "../utils/pushSounds.js"
 import config from "../config/config.js"
 
 const router = express.Router()
@@ -182,6 +183,7 @@ const readNotificationBody = (body, res) => {
     titleAr: String(body.titleAr || "").trim().slice(0, 120),
     bodyAr: String(body.bodyAr || "").trim().slice(0, 500),
     imageUrl: String(body.imageUrl || "").trim(),
+    sound: normalizePushSound(body.sound),
     action: {
       screen,
       targetId: String(body.action?.targetId || "").trim(),
@@ -218,6 +220,8 @@ router.get(
     ])
     res.json({
       ...pushStatus(),
+      // The sounds the admin screen may offer, so the list lives in one place.
+      sounds: PUSH_SOUNDS.map(({ id, label }) => ({ id, label })),
       devices: {
         total,
         android,
@@ -379,7 +383,7 @@ router.post(
   "/admin/test",
   ...adminGuard,
   asyncHandler(async (req, res) => {
-    const { title, body, imageUrl, action, token, userId } = req.body
+    const { title, body, imageUrl, action, token, userId, sound } = req.body
     if (!title || !body) {
       res.status(400)
       throw new Error("Title and message are required")
@@ -397,7 +401,7 @@ router.post(
     const errors = []
     for (const t of tokens) {
       try {
-        await sendTestPush({ token: t, title, body, imageUrl, action })
+        await sendTestPush({ token: t, title, body, imageUrl, action, sound: normalizePushSound(sound) })
         sent += 1
       } catch (error) {
         errors.push(error.message)
