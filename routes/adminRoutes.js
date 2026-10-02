@@ -1024,7 +1024,7 @@ const router = express.Router()
 const ORDER_DOCUMENT_QUERY = {
   $or: [{ documentType: "order" }, { documentType: { $exists: false } }],
 }
-const QUOTATION_DOCUMENT_QUERY = { documentType: "quotation" }
+const QUOTATION_DOCUMENT_QUERY = { documentType: "quotation", status: { $ne: "Deleted" } }
 
 // @desc    Auth admin & get token
 // @route   POST /api/admin/login
@@ -2503,6 +2503,41 @@ router.put(
 // @desc    Put a quotation on hold, or release it back to draft
 // @route   PUT /api/admin/quotations/:id/status
 // @access  Private/Admin
+// @desc    Delete a quotation
+// @route   DELETE /api/admin/quotations/:id
+// @access  Private/Admin
+//
+// Soft delete, the same as an order: the row is marked "Deleted" and drops out of the
+// list rather than being destroyed, so a quotation removed by mistake can still be
+// recovered and nothing that references it is left dangling.
+router.delete(
+  "/quotations/:id",
+  protect,
+  admin,
+  asyncHandler(async (req, res) => {
+    const quotation = await Order.findOne({ _id: req.params.id, ...QUOTATION_DOCUMENT_QUERY })
+
+    if (!quotation) {
+      res.status(404)
+      throw new Error("Quotation not found")
+    }
+
+    quotation.status = "Deleted"
+    await quotation.save()
+
+    await logActivity(
+      req,
+      "DELETE",
+      "ORDERS",
+      `Deleted quotation #${String(quotation._id).slice(-6)}`,
+      quotation._id,
+      quotation.shippingAddress?.fullName || quotation.pickupDetails?.name || "Quotation",
+    )
+
+    res.json({ success: true, _id: quotation._id })
+  }),
+)
+
 router.put(
   "/quotations/:id/status",
   protect,
