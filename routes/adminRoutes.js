@@ -2087,6 +2087,7 @@ router.post(
       taxPrice = 0,
       taxRate,
       discountAmount = 0,
+      paymentCharges = [],
       totalPrice, // optional from client, will recompute below
       customerNotes = "",
       status = "New",
@@ -2127,10 +2128,24 @@ router.post(
         ? itemsPrice
         : normalizedOrderItems.reduce((sum, it) => sum + (Number(it.price) || 0) * (Number(it.quantity) || 1), 0)
 
+    // Any extra lines the admin added (handling, packing, surcharge...). Stored in the
+    // same shape as a storefront order's payment charges so the invoice renders them
+    // without a special case, and counted into the total here -- recomputing without
+    // them would quietly drop whatever the admin charged.
+    const normalizedPaymentCharges = (Array.isArray(paymentCharges) ? paymentCharges : [])
+      .map((charge) => ({
+        name: String(charge?.name || "").trim() || "Additional charges",
+        amount: Number(charge?.amount) || 0,
+      }))
+      .filter((charge) => charge.amount > 0)
+
+    const additionalChargesTotal = normalizedPaymentCharges.reduce((sum, c) => sum + c.amount, 0)
+
     const computedTotal = Math.max(
       0,
       Number(computedItemsPrice || 0) +
         Number(shippingPrice || 0) +
+        additionalChargesTotal +
         Number(taxPrice || 0) -
         Number(discountAmount || 0),
     )
@@ -2186,6 +2201,7 @@ router.post(
       shippingPrice: Number(Number(shippingPrice || 0).toFixed(2)),
       taxPrice: Number(Number(taxPrice || 0).toFixed(2)),
       taxRate: Number.isFinite(Number(taxRate)) ? Number(taxRate) : undefined,
+      paymentCharges: normalizedPaymentCharges,
       discountAmount: Number(Number(discountAmount || 0).toFixed(2)), // special discount stored
       totalPrice: Number((typeof totalPrice === "number" ? totalPrice : computedTotal).toFixed(2)),
       customerNotes,
