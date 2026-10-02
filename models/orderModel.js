@@ -65,6 +65,11 @@ const orderSchema = mongoose.Schema(
         quantity: { type: Number, required: true },
         image: { type: String, default: "/placeholder.svg" },
         price: { type: Number, required: true },
+        // The price this line is measured against when showing a saving. Set only
+        // where the document has its own agreed price (admin-created orders and
+        // quotations), so the invoice does not fall back to the product's catalogue
+        // price and invent a discount that was never given.
+        basePrice: { type: Number },
         product: {
           type: mongoose.Schema.Types.ObjectId,
           required: false, // Optional for protection items
