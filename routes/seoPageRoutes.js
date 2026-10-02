@@ -43,6 +43,8 @@ const STATIC_PAGE_DEFINITIONS = [
   { pageKey: "bulk-purchase", pageName: "Bulk Purchase", routePath: "/bulk-purchase", defaultSeoTitle: "", defaultSeoDescription: "", defaultSeoKeywords: "" },
   { pageKey: "voucher-terms", pageName: "Voucher Terms", routePath: "/voucher-terms", defaultSeoTitle: "", defaultSeoDescription: "", defaultSeoKeywords: "" },
   { pageKey: "delivery-terms", pageName: "Delivery Terms", routePath: "/delivery-terms", defaultSeoTitle: "", defaultSeoDescription: "", defaultSeoKeywords: "" },
+  { pageKey: "referral-program-terms", pageName: "Referral Programme Terms", routePath: "/referral-program-terms", defaultSeoTitle: "", defaultSeoDescription: "", defaultSeoKeywords: "" },
+  { pageKey: "grabian-points-terms", pageName: "Grabian Points Terms", routePath: "/grabian-points-terms", defaultSeoTitle: "", defaultSeoDescription: "", defaultSeoKeywords: "" },
   { pageKey: "guest", pageName: "Guest", routePath: "/guest", defaultSeoTitle: "", defaultSeoDescription: "", defaultSeoKeywords: "" },
   { pageKey: "guest-order", pageName: "Guest Order", routePath: "/guest-order", defaultSeoTitle: "", defaultSeoDescription: "", defaultSeoKeywords: "" },
   { pageKey: "cart", pageName: "Cart", routePath: "/cart", defaultSeoTitle: "", defaultSeoDescription: "", defaultSeoKeywords: "" },
