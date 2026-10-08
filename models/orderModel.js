@@ -27,6 +27,13 @@ const orderSchema = mongoose.Schema(
       type: Number,
       default: undefined,
     },
+    // Whether the printed document carries our bank details. Chosen per document on
+    // the Create Order/Quotation screen, because a cash sale should not advertise a
+    // transfer account.
+    showBankDetails: {
+      type: Boolean,
+      default: false,
+    },
     // What the admin chose on the Create Order/Quotation screen. Everything
     // raised there is staged as a quotation first; this records whether it was
     // meant to become an order, so the list can label it and the admin knows

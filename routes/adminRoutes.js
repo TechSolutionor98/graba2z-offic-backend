@@ -1026,6 +1026,15 @@ const ORDER_DOCUMENT_QUERY = {
 }
 const QUOTATION_DOCUMENT_QUERY = { documentType: "quotation", status: { $ne: "Deleted" } }
 
+// An order raised from a quotation carries the quotation it came from. That is what
+// separates wholesale from retail, so the two lists never show each other's rows.
+// Deliberately NOT folded into ORDER_DOCUMENT_QUERY: the dashboard counts and revenue
+// totals use that, and wholesale orders are real revenue that must still be counted.
+// In MongoDB `{ field: null }` matches both null and missing, so a storefront order
+// written before this field existed is still treated as retail.
+const RETAIL_ONLY_FILTER = { sourceQuotationId: null }
+const WHOLESALE_ONLY_FILTER = { sourceQuotationId: { $ne: null } }
+
 // @desc    Auth admin & get token
 // @route   POST /api/admin/login
 // @access  Public
@@ -1313,7 +1322,9 @@ router.get(
     const normalizedStatus = typeof status === "string" ? status.trim() : ""
     const wantsDeletedOnly = normalizedStatus.toLowerCase() === "deleted"
 
-    const whereConditions = [ORDER_DOCUMENT_QUERY]
+    // One list route serves both screens; ?wholesale=true flips which half it shows.
+    const wantsWholesale = String(req.query.wholesale).toLowerCase() === "true"
+    const whereConditions = [ORDER_DOCUMENT_QUERY, wantsWholesale ? WHOLESALE_ONLY_FILTER : RETAIL_ONLY_FILTER]
     if (!includeDeleted && !wantsDeletedOnly) {
       whereConditions.push({ status: { $ne: "Deleted" } })
     }
@@ -2088,6 +2099,7 @@ router.post(
       taxRate,
       discountAmount = 0,
       paymentCharges = [],
+      showBankDetails = false,
       totalPrice, // optional from client, will recompute below
       customerNotes = "",
       status = "New",
@@ -2202,6 +2214,7 @@ router.post(
       taxPrice: Number(Number(taxPrice || 0).toFixed(2)),
       taxRate: Number.isFinite(Number(taxRate)) ? Number(taxRate) : undefined,
       paymentCharges: normalizedPaymentCharges,
+      showBankDetails: Boolean(showBankDetails),
       discountAmount: Number(Number(discountAmount || 0).toFixed(2)), // special discount stored
       totalPrice: Number((typeof totalPrice === "number" ? totalPrice : computedTotal).toFixed(2)),
       customerNotes,
@@ -2629,6 +2642,15 @@ router.post(
       itemsPrice: quotation.itemsPrice || 0,
       shippingPrice: quotation.shippingPrice || 0,
       taxPrice: quotation.taxPrice || 0,
+      // Carried across so the order prints the same figures as the quotation it came
+      // from. Without the rate the invoice falls back to the store default, and
+      // without the charges the extra lines vanish while still being inside the total.
+      taxRate: quotation.taxRate,
+      showBankDetails: Boolean(quotation.showBankDetails),
+      paymentCharges: (quotation.paymentCharges || []).map((c) => ({
+        name: c?.name || "Additional charges",
+        amount: Number(c?.amount) || 0,
+      })),
       discountAmount: quotation.discountAmount || 0,
       totalPrice: quotation.totalPrice || 0,
       customerNotes: quotation.customerNotes || "",
