@@ -1035,6 +1035,10 @@ const QUOTATION_DOCUMENT_QUERY = { documentType: "quotation", status: { $ne: "De
 const RETAIL_ONLY_FILTER = { sourceQuotationId: null }
 const WHOLESALE_ONLY_FILTER = { sourceQuotationId: { $ne: null } }
 
+// Neutralises the characters that would otherwise be read as regex syntax, so a value
+// taken from a form is compared as the literal text it is.
+const escapeRegex = (value = "") => String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+
 // @desc    Auth admin & get token
 // @route   POST /api/admin/login
 // @access  Public
@@ -1043,7 +1047,14 @@ router.post(
   asyncHandler(async (req, res) => {
     const { email, password } = req.body
 
-    const user = await User.findOne({ email })
+    // Email is matched without case. Signup never forced a case, so a stored address
+    // can be mixed case just as easily as a typed one -- lowercasing either side alone
+    // would still miss. Anchored and escaped so the address is compared whole and a
+    // regex character typed into the field cannot widen the match.
+    const normalizedEmail = String(email || "").trim()
+    const user = normalizedEmail
+      ? await User.findOne({ email: { $regex: `^${escapeRegex(normalizedEmail)}$`, $options: "i" } })
+      : null
 
     if (user && (await user.matchPassword(password)) && (user.isAdmin || user.isSuperAdmin)) {
       // Log the login activity
