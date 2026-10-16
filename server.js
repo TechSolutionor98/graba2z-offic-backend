@@ -43,6 +43,7 @@ import appDiscountRoutes from "./routes/appDiscountRoutes.js"
 import loyaltyRoutes from "./routes/loyaltyRoutes.js"
 import referralRoutes from "./routes/referralRoutes.js"
 import notificationRoutes from "./routes/notificationRoutes.js"
+import whatsappRoutes from "./routes/whatsappRoutes.js"
 import { startPushScheduler } from "./utils/push.js"
 import popupSettingsRoutes from "./routes/popupSettingsRoutes.js"
 import bannerRoutes from "./routes/bannerRoutes.js"
@@ -216,6 +217,18 @@ console.log('📂 Serving static files from:', uploadsPath);
 // Apply webhook middleware before body parser for webhook routes
 app.use("/api/payment/tamara/webhook", captureRawBody, webhookRateLimit, authenticateWebhook)
 
+// WhatsApp signs each webhook over the exact bytes it sent, so the raw text has
+// to be kept before anything parses it. Meta authenticates itself with that
+// signature, which is why this route carries no bearer token of its own.
+app.use(
+  "/api/whatsapp/webhook",
+  express.json({
+    verify: (req, res, buf) => {
+      req.rawBody = buf.toString("utf8")
+    },
+  }),
+)
+
 // Body parser middleware
 app.use(express.json({ limit: "50mb" }))
 app.use(express.urlencoded({ extended: true, limit: "50mb" }))
@@ -252,6 +265,7 @@ app.use("/api/app-discounts", appDiscountRoutes)
 app.use("/api/loyalty", loyaltyRoutes)
 app.use("/api/referrals", referralRoutes)
 app.use("/api/notifications", notificationRoutes)
+app.use("/api/whatsapp", whatsappRoutes)
 app.use("/api/popup-settings", popupSettingsRoutes)
 app.use("/api/banners", bannerRoutes)
 app.use("/api/banner-cards", bannerCardRoutes)

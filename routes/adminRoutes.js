@@ -1019,6 +1019,8 @@ import { issueSeoUnlockToken, verifySeoUnlockPassword } from "../middleware/seoU
 import { syncOrderLoyaltyForStatus } from "../utils/loyalty.js"
 import { syncOrderReferralForStatus } from "../utils/referral.js"
 import { ensureCustomerAccount } from "../utils/customerAccounts.js"
+import { eventForStatus, notifyOrderEventInBackground } from "../services/whatsappService.js"
+import { recordOrderCancelled } from "../utils/stockLedger.js"
 
 const router = express.Router()
 const ORDER_DOCUMENT_QUERY = {
@@ -1457,6 +1459,22 @@ router.put(
         await syncOrderReferralForStatus(updatedOrder._id, normalized)
       }
 
+      // Put a cancelled order's goods back on the shelf. The guard inside
+      // recordOrderCancelled means a second cancellation of the same order --
+      // another click, a status set back and forth -- posts nothing.
+      if (previousStatus !== normalized && normalized === "Cancelled") {
+        await recordOrderCancelled(updatedOrder)
+      }
+
+      // WhatsApp is governed by its own switches in Admin -> WhatsApp -> Connection
+      // rather than by the email tick-box, and only shipped, delivered and
+      // cancelled reach the customer. The send is fire-and-forget: a WhatsApp
+      // failure must not fail the status change the warehouse is relying on.
+      if (previousStatus !== normalized) {
+        const whatsappEvent = eventForStatus(normalized)
+        if (whatsappEvent) notifyOrderEventInBackground(updatedOrder, whatsappEvent)
+      }
+
       // The customer is only written to when an admin ticks the box. Staff move
       // orders through these statuses for their own bookkeeping far more often
       // than the customer needs telling, so silence is the default and the
@@ -1497,6 +1515,14 @@ router.put(
       const previousTrackingId = order.trackingId
       order.trackingId = req.body.trackingId
       const updatedOrder = await order.save()
+
+      // A tracking number is usually recorded in its own step, after the order is
+      // already marked Shipped. Firing here too means the shipped message carries
+      // the number; the service only ever sends one per order, so an order that
+      // was marked Shipped first does not get told twice.
+      if (previousTrackingId !== req.body.trackingId && req.body.trackingId && updatedOrder.status === "Shipped") {
+        notifyOrderEventInBackground(updatedOrder, "shipped")
+      }
 
       // Opt-in, like the status email above -- a corrected typo in a tracking
       // number should not mail the customer again.

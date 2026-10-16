@@ -33,6 +33,8 @@ import ReferralReward from "../models/referralRewardModel.js"
 // when a document records none of its own. Used here only if Settings has no rate set.
 const DEFAULT_VAT_RATE = 5
 import { sendMetaPurchase, readMetaAttribution } from "../utils/metaConversions.js"
+import { eventForStatus, notifyOrderEventInBackground } from "../services/whatsappService.js"
+import { recordOrderCancelled, recordOrderPlaced } from "../utils/stockLedger.js"
 import {
   getReferralSettings,
   computeRewardDiscount,
@@ -772,6 +774,13 @@ router.post(
 
     console.log(`[ORDER CREATED] Order ID: ${createdOrder._id}, User: ${req.user ? req.user._id : 'GUEST'}, Email: ${deliveryType === 'home' ? shippingAddress?.email : pickupDetails?.email}`)
 
+    // Take the goods off the shelf. Unlike the emails and notifications below
+    // this one is awaited: an order that does not move stock leaves the shop
+    // overselling the next customer. It cannot fail the order either -- every
+    // movement is posted through a function that logs problems rather than
+    // throwing -- so awaiting it costs nothing but correctness.
+    await recordOrderPlaced(createdOrder)
+
     // Attach the redemption to the order now that it has an id, and register the pending
     // award. Neither is allowed to fail the order the customer has already paid for.
     if (loyaltyRedeemTransaction) {
@@ -835,6 +844,11 @@ router.post(
       )
     }
 
+    // The WhatsApp confirmation, with its Confirm/Cancel buttons. Deliberately not
+    // awaited: it is off unless the owner turned it on, and WhatsApp being down,
+    // misconfigured or simply slow must never hold up or fail a placed order.
+    notifyOrderEventInBackground(createdOrder, "orderPlaced")
+
     res.status(201).json(createdOrder)
   }),
 )
@@ -887,6 +901,13 @@ router.put(
 
     const updatedOrder = await order.save()
 
+    // Put a cancelled order's goods back on the shelf. recordOrderCancelled
+    // refuses to post a second return for the same order, so a status set back
+    // and forth cannot quietly inflate the figure.
+    if (oldStatus !== updatedOrder.status && updatedOrder.status === "Cancelled") {
+      await recordOrderCancelled(updatedOrder)
+    }
+
     // Points earned on an order stay pending until it reaches the award status, so a
     // cancelled or returned order never pays out.
     if (oldStatus !== updatedOrder.status) {
@@ -894,6 +915,14 @@ router.put(
       // A referral only pays the referrer once the friend's order is actually delivered,
       // and is unwound if it is later cancelled or returned.
       await syncOrderReferralForStatus(updatedOrder._id, updatedOrder.status)
+    }
+
+    // Shipped, delivered and cancelled are the three changes the customer is told
+    // about on WhatsApp. Everything else on the list is internal bookkeeping and
+    // stays silent.
+    if (oldStatus !== updatedOrder.status) {
+      const whatsappEvent = eventForStatus(updatedOrder.status)
+      if (whatsappEvent) notifyOrderEventInBackground(updatedOrder, whatsappEvent)
     }
 
     // Send status update email only when status actually changes

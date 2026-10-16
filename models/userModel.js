@@ -65,6 +65,7 @@ const userSchema = mongoose.Schema(
       loyalty: { type: Boolean, default: false },
       referrals: { type: Boolean, default: false },
       pushNotifications: { type: Boolean, default: false },
+      whatsapp: { type: Boolean, default: false },
     },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,

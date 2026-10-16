@@ -28,6 +28,7 @@ import {
   buildSearchConditions,
   buildRelevanceExpression,
 } from "../utils/productSearch.js"
+import { movementTotalsFor } from "../utils/stockLedger.js"
 
 const router = express.Router()
 const __filename = fileURLToPath(import.meta.url)
@@ -1104,8 +1105,24 @@ router.get("/admin/inventory", protect, admin, async (req, res) => {
     const empty = { skus: 0, units: 0, retailValue: 0, sellingValue: 0, wholesaleValue: 0, outOfStock: 0, lowStock: 0 }
     const { _id, ...summary } = summaryRows[0] || empty
 
+    // What has moved in, out and to damage for each product on this page.
+    //
+    // Asked for the page rather than the catalogue on purpose: the columns are
+    // read a row at a time, and grouping the whole ledger to fill twenty-five
+    // cells would get slower every month the shop trades.
+    //
+    // These three come from the stock ledger, which is the only thing that moves
+    // countInStock, so for any row: in - out - damage = Stock. A row that does
+    // not add up means something wrote to the stock figure behind the ledger's
+    // back, and the columns should be believed over the figure.
+    const movements = await movementTotalsFor(products.map((product) => product._id))
+    const productsWithMovements = products.map((product) => ({
+      ...product,
+      movements: movements[String(product._id)] || { in: 0, out: 0, damage: 0 },
+    }))
+
     res.json({
-      products,
+      products: productsWithMovements,
       totalCount,
       page: currentPage,
       pages: Math.max(1, Math.ceil(totalCount / perPage)),

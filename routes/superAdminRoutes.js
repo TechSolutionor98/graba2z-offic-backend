@@ -662,6 +662,7 @@ router.get(
       { key: "loyalty", label: "Loyalty Points", description: "Manage the points programme, earning rules and customer balances" },
       { key: "referrals", label: "Referrals", description: "Manage the refer-a-friend programme, invites and reward discounts" },
       { key: "pushNotifications", label: "Push Notifications", description: "Write and send push notifications to the mobile app" },
+      { key: "whatsapp", label: "WhatsApp", description: "Connect WhatsApp, choose which order notifications go out, and answer the inbox" },
       { key: "deliveryCharges", label: "Delivery Charges", description: "Manage delivery charges" },
       { key: "settings", label: "Settings", description: "Manage site settings" },
       { key: "emailTemplates", label: "Email Templates", description: "Manage email templates" },
