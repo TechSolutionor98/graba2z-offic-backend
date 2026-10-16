@@ -184,28 +184,52 @@ router.post(
       throw new Error("Invalid or missing delivery type")
     }
 
+    // Which fields are genuinely required, and what to call them when one is
+    // absent. A rejection has to name the field: "missing shipping address
+    // details" sends the customer back to a filled-in form with nothing marked,
+    // and they have no way to find what we objected to.
+    const namedMissing = (source, fields) =>
+      fields.filter(([key]) => !String(source?.[key] ?? "").trim()).map(([, label]) => label)
+
     if (deliveryType === "home") {
-      // Validate shipping address fields
-      if (
-        !shippingAddress ||
-        !shippingAddress.name ||
-        !shippingAddress.email ||
-        !shippingAddress.phone ||
-        !shippingAddress.address ||
-        !shippingAddress.city ||
-        !shippingAddress.state ||
-        !shippingAddress.zipCode
-      ) {
+      // The post code is deliberately NOT required. The UAE does not use postal
+      // codes, the address form marks the field optional, and requiring it here
+      // rejected orders the customer had filled in correctly -- the card and
+      // instalment paths skip the client's own check for exactly that reason,
+      // so the first the customer heard of it was a 400 at checkout.
+      const missing = namedMissing(shippingAddress, [
+        ["name", "full name"],
+        ["email", "email address"],
+        ["phone", "phone number"],
+        ["address", "street address"],
+        ["city", "city"],
+        ["state", "state or emirate"],
+      ])
+
+      if (!shippingAddress || missing.length > 0) {
         res.status(400)
-        throw new Error("Missing shipping address details for home delivery")
+        throw new Error(
+          shippingAddress
+            ? `Please add your ${missing.join(", ")} to the delivery address.`
+            : "A delivery address is required for home delivery.",
+        )
       }
     }
 
     if (deliveryType === "pickup") {
-      // Validate pickup details fields
-      if (!pickupDetails || !pickupDetails.phone || !pickupDetails.location || !pickupDetails.storeId) {
+      const missing = namedMissing(pickupDetails, [
+        ["phone", "phone number"],
+        ["location", "collection branch"],
+        ["storeId", "collection branch"],
+      ])
+
+      if (!pickupDetails || missing.length > 0) {
         res.status(400)
-        throw new Error("Missing pickup details for store pickup")
+        throw new Error(
+          pickupDetails
+            ? `Please add your ${[...new Set(missing)].join(" and ")} for collection.`
+            : "Collection details are required for store pickup.",
+        )
       }
     }
 
