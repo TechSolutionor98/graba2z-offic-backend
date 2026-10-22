@@ -17,6 +17,7 @@ import {
   normalizeEmail,
   isValidEmail,
   isRunning,
+  listsContaining,
   SOURCE_LABELS,
 } from "../services/campaignService.js";
 import { sendEmail, availableMailboxes } from "../utils/emailService.js";
@@ -465,8 +466,36 @@ router.post("/:id/resume", ...adminOnly, asyncHandler(async (req, res) => {
 // ---------------------------------------------------------------------------
 
 router.get("/suppression/list", ...adminOnly, asyncHandler(async (req, res) => {
-  const rows = await EmailSuppression.find().sort({ createdAt: -1 }).limit(500).lean();
-  res.json(rows);
+  const { search = "", page = 1, limit = 50 } = req.query;
+
+  const query = {};
+  if (String(search).trim()) {
+    // Escaped: an address is a search term, not a pattern.
+    const safe = String(search).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    query.email = new RegExp(safe, "i");
+  }
+
+  const perPage = Math.min(200, Math.max(1, Number(limit) || 50));
+  const skip = (Math.max(1, Number(page) || 1) - 1) * perPage;
+
+  const [rows, total] = await Promise.all([
+    EmailSuppression.find(query).sort({ createdAt: -1 }).skip(skip).limit(perPage).lean(),
+    EmailSuppression.countDocuments(query),
+  ]);
+
+  // Which of the four lists each person is on, so the report says where they
+  // came from rather than only that they left. Looked up for the addresses on
+  // this page only -- doing it for the whole suppression list would mean
+  // reading four collections in full to render fifty rows.
+  const addresses = rows.map((r) => r.email);
+  const sources = await listsContaining(addresses);
+
+  res.json({
+    rows: rows.map((r) => ({ ...r, sources: sources[r.email] || [] })),
+    total,
+    page: Number(page) || 1,
+    pages: Math.ceil(total / perPage) || 1,
+  });
 }));
 
 /** Adding by hand, for somebody who asked to be removed by phone or in person. */

@@ -214,6 +214,51 @@ export const collectAudience = async (sources = [], options = {}) => {
   };
 };
 
+/**
+ * Which of the four lists each of these addresses appears on.
+ *
+ * Asked only about the addresses on one page of the report: checking the whole
+ * suppression list would mean reading four collections end to end to render
+ * fifty rows.
+ *
+ * @param {string[]} addresses
+ * @returns {Promise<Record<string, string[]>>} address -> source keys
+ */
+export const listsContaining = async (addresses = []) => {
+  const wanted = [...new Set(addresses.map(normalizeEmail).filter(Boolean))];
+  const found = {};
+  if (!wanted.length) return found;
+
+  const collections = {
+    users: User,
+    newsletter: NewsletterSubscriber,
+    callbacks: RequestCallback,
+    bulk: BulkPurchase,
+  };
+
+  for (const [key, Model] of Object.entries(collections)) {
+    try {
+      // Case-insensitive, because these collections store whatever was typed.
+      const rows = await Model.find({
+        email: { $in: wanted.map((e) => new RegExp(`^${e.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i")) },
+      })
+        .select("email")
+        .lean();
+
+      for (const row of rows) {
+        const email = normalizeEmail(row.email);
+        if (!found[email]) found[email] = [];
+        if (!found[email].includes(key)) found[email].push(key);
+      }
+    } catch (err) {
+      // One unreadable list must not cost the report the other three.
+      console.error(`[campaign] could not check ${key} for the report:`, err.message);
+    }
+  }
+
+  return found;
+};
+
 /** Per-source totals and the real combined figure, for the audience screen. */
 export const audienceSummary = async (sources, options) => {
   const { seen, counts, invalid, blocked } = await gather(sources, options);
@@ -503,6 +548,7 @@ export const recoverInterrupted = async () => {
 };
 
 export default {
+  listsContaining,
   collectAudience,
   audienceSummary,
   listAudience,
