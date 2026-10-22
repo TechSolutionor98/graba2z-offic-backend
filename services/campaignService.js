@@ -430,6 +430,7 @@ export const runCampaign = async (campaignId) => {
             "List-Unsubscribe": `<${unsubscribeUrl(recipient.email, id)}>`,
             "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
           },
+          log: { source: "Campaign", campaign: id },
         });
 
         const accepted = Array.isArray(result?.accepted)

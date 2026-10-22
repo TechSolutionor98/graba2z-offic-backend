@@ -1863,9 +1863,15 @@ const sendEmail = async (to, subject, html, senderType = "support", extra = {}) 
       html: publicizeEmailImages(html),
       ...extra,
     }
+    // `log` is ours, for the send log -- nodemailer would reject it.
+    delete mailOptions.log
     console.log("[sendEmail] Sending email with options:", { from, to, subject: mailOptions.subject })
     const result = await transporter.sendMail(mailOptions)
     console.log(`[sendEmail] Email sent successfully from ${from}:`, result.messageId)
+    recordEmail({
+      to, subject, from, sender: senderType, status: "sent",
+      messageId: result.messageId || "", ...(extra.log || {}),
+    })
     // accepted/rejected/response come straight from the SMTP conversation. They
     // are the difference between "we handed it over" and "it arrived", and
     // without them a failed delivery looks identical to a successful one.
@@ -1881,8 +1887,29 @@ const sendEmail = async (to, subject, html, senderType = "support", extra = {}) 
     console.error("[sendEmail] Failed to send email:", error)
     console.error("[sendEmail] Error code:", error.code)
     console.error("[sendEmail] Error response:", error.response)
+    // Recorded before rethrowing: a send that failed and one that was never
+    // attempted look identical in a report that only logs successes.
+    recordEmail({
+      to, subject, from: process.env[`${(senderType || "support").toUpperCase()}_EMAIL_USER`] || "",
+      sender: senderType, status: "failed",
+      error: String(error?.message || error).slice(0, 300),
+      ...(extra.log || {}),
+    })
     throw new Error(`Email sending failed: ${error.message}`)
   }
+}
+
+/**
+ * Write one row to the send log.
+ *
+ * Deliberately not awaited and deliberately unable to throw: an email that was
+ * delivered must not be reported as failed because the log write did not land,
+ * and a reporting feature must never be able to stop the shop sending mail.
+ */
+function recordEmail(entry) {
+  import("../models/emailLogModel.js")
+    .then(({ default: EmailLog }) => EmailLog.create(entry))
+    .catch((err) => console.error("[sendEmail] could not write the send log:", err.message))
 }
 
 // Send verification email

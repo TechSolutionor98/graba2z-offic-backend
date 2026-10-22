@@ -1,5 +1,6 @@
 import express from "express";
 import EmailTemplate from "../models/emailTemplateModel.js";
+import EmailLog from "../models/emailLogModel.js";
 import asyncHandler from "express-async-handler";
 import { protect, admin } from "../middleware/authMiddleware.js";
 import { sendEmail } from "../utils/emailService.js";
@@ -13,6 +14,37 @@ const router = express.Router();
 // anonymous POST, PUT, PATCH and DELETE, so anyone who knew the URL could add,
 // rewrite or delete the emails this shop sends its customers.
 const adminOnly = [protect, admin];
+
+/**
+ * What has actually been sent, newest first.
+ *
+ * Declared before "/:id" so the word "logs" is not read as a template id.
+ */
+router.get("/logs", ...adminOnly, asyncHandler(async (req, res) => {
+  const { search = "", status = "all", page = 1, limit = 50 } = req.query;
+
+  const query = {};
+  if (status !== "all") query.status = status;
+  if (String(search).trim()) {
+    // Escaped: an address with a dot or a plus in it is a search term, not a
+    // pattern, and an unescaped one would match far more than intended.
+    const safe = String(search).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const rx = new RegExp(safe, "i");
+    query.$or = [{ to: rx }, { subject: rx }, { templateName: rx }];
+  }
+
+  const perPage = Math.min(200, Math.max(1, Number(limit) || 50));
+  const skip = (Math.max(1, Number(page) || 1) - 1) * perPage;
+
+  const [rows, total, sent, failed] = await Promise.all([
+    EmailLog.find(query).sort({ createdAt: -1 }).skip(skip).limit(perPage).lean(),
+    EmailLog.countDocuments(query),
+    EmailLog.countDocuments({ status: "sent" }),
+    EmailLog.countDocuments({ status: "failed" }),
+  ]);
+
+  res.json({ rows, total, sent, failed, page: Number(page) || 1, pages: Math.ceil(total / perPage) || 1 });
+}));
 
 // Get all templates
 router.get("/", asyncHandler(async (req, res) => {
@@ -173,7 +205,10 @@ router.post("/test-send", ...adminOnly, asyncHandler(async (req, res) => {
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 
-  const result = await sendEmail(address, `[Test] ${subject || "Email template"}`, html, "support", { text });
+  const result = await sendEmail(address, `[Test] ${subject || "Email template"}`, html, "support", {
+    text,
+    log: { source: "Template test", templateName: String(req.body?.name || subject || "").slice(0, 120) },
+  });
 
   // The SMTP server names who it accepted. Saying "sent" when the recipient was
   // rejected is how a test that proves nothing still reports success.

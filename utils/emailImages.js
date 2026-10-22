@@ -23,7 +23,11 @@ const MACHINE_ONLY = new RegExp(
     "|10\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}" +
     "|192\\.168\\.\\d{1,3}\\.\\d{1,3}" +
     "|172\\.(?:1[6-9]|2\\d|3[01])\\.\\d{1,3}\\.\\d{1,3})" +
-    "(?::\\d+)?",
+    "(?::\\d+)?" +
+    // The host must end here. Without this, "localhost" also matches inside
+    // "localhost.example.com" -- a real public domain -- and the rewrite would
+    // break a perfectly good image URL.
+    "(?=[/?#\"'\\s]|$)",
   "gi"
 );
 

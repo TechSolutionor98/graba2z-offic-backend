@@ -90,6 +90,58 @@ router.post(
 );
 
 // ---------------------------------------------------------------------------
+// The signed-in customer's own preference
+// ---------------------------------------------------------------------------
+
+/**
+ * A customer managing their own marketing email.
+ *
+ * `protect` only, not `adminOnly`: this is for the person themselves. The
+ * address is taken from the session rather than the request body, so being
+ * signed in lets somebody change their own preference and nobody else's -- a
+ * body-supplied address would be an open unsubscribe form for the whole
+ * customer list.
+ */
+router.get("/me/subscription", protect, asyncHandler(async (req, res) => {
+  const email = normalizeEmail(req.user?.email);
+  const row = await EmailSuppression.findOne({ email }).select("createdAt reason").lean();
+  res.json({
+    email,
+    subscribed: !row,
+    since: row?.createdAt || null,
+    reason: row?.reason || null,
+  });
+}));
+
+router.post("/me/unsubscribe", protect, asyncHandler(async (req, res) => {
+  const email = normalizeEmail(req.user?.email);
+  if (!isValidEmail(email)) {
+    res.status(400);
+    throw new Error("Your account has no usable email address.");
+  }
+
+  await EmailSuppression.updateOne(
+    { email },
+    { $setOnInsert: { email, reason: "unsubscribed", note: "Asked through the account page" } },
+    { upsert: true }
+  );
+  // Anything already queued for this person stops now, not at the next rebuild.
+  await CampaignRecipient.updateMany(
+    { email, status: "pending" },
+    { $set: { status: "skipped", error: "Unsubscribed" } }
+  );
+
+  res.json({ email, subscribed: false, message: "You will not receive marketing email from us again." });
+}));
+
+/** Opting back in -- the same person, undoing their own decision. */
+router.post("/me/resubscribe", protect, asyncHandler(async (req, res) => {
+  const email = normalizeEmail(req.user?.email);
+  await EmailSuppression.deleteOne({ email });
+  res.json({ email, subscribed: true, message: "You will receive our offers again." });
+}));
+
+// ---------------------------------------------------------------------------
 // Audience
 // ---------------------------------------------------------------------------
 
@@ -294,7 +346,9 @@ router.post("/:id/test", ...adminOnly, asyncHandler(async (req, res) => {
   body = ensureUnsubscribe(body, recipient, campaign);
 
   const subject = `[TEST] ${personalize(campaign.subject || campaign.template?.subject || "", recipient, campaign)}`;
-  const result = await sendEmail(to, subject, body, campaign.sender || "support");
+  const result = await sendEmail(to, subject, body, campaign.sender || "support", {
+    log: { source: "Campaign test", templateName: campaign.name, campaign: campaign._id },
+  });
 
   const accepted = Array.isArray(result?.accepted) && result.accepted.some((a) => normalizeEmail(a) === to);
   if (!accepted) {
