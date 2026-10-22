@@ -39,13 +39,21 @@ router.get("/subscribers", async (req, res) => {
 // POST /api/newsletter/bulk-send
 router.post("/bulk-send", async (req, res) => {
   try {
-    const { userIds, templateId } = req.body;
+    const { userIds, templateId, subject } = req.body;
     if (!userIds || !Array.isArray(userIds) || userIds.length === 0 || !templateId) {
       return res.status(400).json({ message: "User IDs and template ID are required." });
     }
     const users = await NewsletterSubscriber.find({ _id: { $in: userIds } });
     const template = await EmailTemplate.findById(templateId);
     if (!template) return res.status(404).json({ message: "Template not found" });
+
+    // Templates built in the editor no longer carry a subject -- whoever sends
+    // one chooses it. Older templates still have theirs, so it stands in rather
+    // than those sends suddenly going out with an empty subject line.
+    const line = String(subject || "").trim() || String(template.subject || "").trim();
+    if (!line) {
+      return res.status(400).json({ message: "Enter a subject line before sending." });
+    }
     // Send emails in parallel (could be throttled for large lists)
     await Promise.all(users.map(user => {
       let html = template.html
@@ -53,7 +61,7 @@ router.post("/bulk-send", async (req, res) => {
         .replace(/{{preferences}}/g, (user.preferences || []).join(", "));
       return sendEmail(
         user.email,
-        template.subject,
+        line,
         html,
         "support"
       );

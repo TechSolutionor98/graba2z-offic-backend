@@ -1,5 +1,7 @@
 import nodemailer from "nodemailer"
 
+import { publicizeEmailImages } from "./emailImages.js"
+
 // Helper to ensure image URLs are absolute for email clients
 const toAbsoluteUrl = (src) => {
   if (!src) return "https://via.placeholder.com/56?text=No+Image"
@@ -104,18 +106,83 @@ const formatPaymentMethod = (actualPaymentMethod, paymentMethod) => {
   }
 }
 
+/**
+ * The mailboxes a campaign can be sent from.
+ *
+ * Credentials live in the environment, never here: this file is in source
+ * control and a mailbox password in it is a password published to everyone who
+ * can read the repository.
+ *
+ * `prefix` names the environment variables -- SALES_EMAIL_HOST and the rest --
+ * so adding a mailbox is one entry here plus five lines in .env, with nothing
+ * else to change.
+ */
+export const SENDER_MAILBOXES = [
+  { key: "support", prefix: "SUPPORT", label: "Graba2z Support" },
+  { key: "order", prefix: "ORDER", label: "Graba2z Orders" },
+  { key: "sales", prefix: "SALES", label: "Graba2z Sales" },
+  { key: "info", prefix: "INFO", label: "Graba2z Info" },
+  { key: "marketing", prefix: "MARKETING", label: "Graba2z Marketing" },
+]
+
+const envFor = (prefix) => ({
+  host: process.env[`${prefix}_EMAIL_HOST`],
+  port: Number(process.env[`${prefix}_EMAIL_PORT`]),
+  secure: process.env[`${prefix}_EMAIL_SECURE`] === "true",
+  user: process.env[`${prefix}_EMAIL_USER`],
+  pass: process.env[`${prefix}_EMAIL_PASS`],
+})
+
+/** True when this mailbox has enough configuration to send anything. */
+export const mailboxConfigured = (key) => {
+  const entry = SENDER_MAILBOXES.find((m) => m.key === key)
+  if (!entry) return false
+  const { host, user, pass } = envFor(entry.prefix)
+  return Boolean(host && user && pass)
+}
+
+/** The mailboxes an admin may actually pick, with their addresses. */
+export const availableMailboxes = () =>
+  SENDER_MAILBOXES.filter((m) => mailboxConfigured(m.key)).map((m) => ({
+    key: m.key,
+    label: m.label,
+    address: process.env[`${m.prefix}_EMAIL_USER`],
+  }))
+
+// Built once each and reused: a transporter opens a connection pool, and making
+// a new one per message is what exhausts a mailbox's connection limit.
+const transporters = new Map()
+
+const transporterFor = (prefix) => {
+  if (!transporters.has(prefix)) {
+    const { host, port, secure, user, pass } = envFor(prefix)
+    transporters.set(prefix, nodemailer.createTransport({ host, port, secure, auth: { user, pass } }))
+  }
+  return transporters.get(prefix)
+}
+
+// The two original transporters stay as they were, so nothing that already
+// sends through them changes behaviour.
+transporters.set("ORDER", orderTransporter)
+transporters.set("SUPPORT", supportTransporter)
+
 // Helper to select transporter and from address
 const getMailConfig = (type) => {
-  if (type === "order") {
-    return {
-      transporter: orderTransporter,
-      from: `Graba2z Orders <${process.env.ORDER_EMAIL_USER}>`,
-    }
-  } else {
+  const entry = SENDER_MAILBOXES.find((m) => m.key === type)
+
+  // Anything unrecognised falls back to support, which is what this did before
+  // the other mailboxes existed. A campaign naming a mailbox that has since
+  // been removed from .env still sends, rather than failing silently.
+  if (!entry || !mailboxConfigured(entry.key)) {
     return {
       transporter: supportTransporter,
       from: `Graba2z Support <${process.env.SUPPORT_EMAIL_USER}>`,
     }
+  }
+
+  return {
+    transporter: transporterFor(entry.prefix),
+    from: `${entry.label} <${process.env[`${entry.prefix}_EMAIL_USER`]}>`,
   }
 }
 
@@ -1775,7 +1842,9 @@ const getAdminOrderNotificationTemplate = (data) => {
 }
 
 // Generic send email function with sender type
-const sendEmail = async (to, subject, html, senderType = "support") => {
+// `extra` passes anything else nodemailer understands -- a text alternative,
+// a Reply-To -- without every caller having to know about them.
+const sendEmail = async (to, subject, html, senderType = "support", extra = {}) => {
   try {
     console.log(`[sendEmail] Starting - To: ${to}, Subject: ${subject}, Sender: ${senderType}`)
     const { transporter, from } = getMailConfig(senderType)
@@ -1789,12 +1858,25 @@ const sendEmail = async (to, subject, html, senderType = "support") => {
       from,
       to,
       subject,
-      html,
+      // Last chance to catch an address that only resolves on this machine.
+      // See utils/emailImages.js.
+      html: publicizeEmailImages(html),
+      ...extra,
     }
     console.log("[sendEmail] Sending email with options:", { from, to, subject: mailOptions.subject })
     const result = await transporter.sendMail(mailOptions)
     console.log(`[sendEmail] Email sent successfully from ${from}:`, result.messageId)
-    return { success: true, messageId: result.messageId }
+    // accepted/rejected/response come straight from the SMTP conversation. They
+    // are the difference between "we handed it over" and "it arrived", and
+    // without them a failed delivery looks identical to a successful one.
+    return {
+      success: true,
+      messageId: result.messageId,
+      accepted: result.accepted || [],
+      rejected: result.rejected || [],
+      response: result.response || "",
+      from,
+    }
   } catch (error) {
     console.error("[sendEmail] Failed to send email:", error)
     console.error("[sendEmail] Error code:", error.code)

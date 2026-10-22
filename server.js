@@ -44,6 +44,7 @@ import loyaltyRoutes from "./routes/loyaltyRoutes.js"
 import referralRoutes from "./routes/referralRoutes.js"
 import notificationRoutes from "./routes/notificationRoutes.js"
 import whatsappRoutes from "./routes/whatsappRoutes.js"
+import mediaRoutes from "./routes/mediaRoutes.js"
 import { startPushScheduler } from "./utils/push.js"
 import popupSettingsRoutes from "./routes/popupSettingsRoutes.js"
 import bannerRoutes from "./routes/bannerRoutes.js"
@@ -70,6 +71,8 @@ import requestCallbackRoutes from "./routes/requestCallbackRoutes.js"
 import paymentRoutes from "./routes/paymentRoutes.js"
 import adminRoutes from "./routes/adminRoutes.js"
 import emailTemplateRoutes from "./routes/emailTemplateRoutes.js"
+import campaignRoutes from "./routes/campaignRoutes.js"
+import { recoverInterrupted } from "./services/campaignService.js"
 import newsletterRoutes from "./routes/newsletterRoutes.js"
 import tamaraAdminRoutes from "./routes/tamaraAdminRoutes.js"
 import { captureRawBody, webhookRateLimit, authenticateWebhook } from "./middleware/webhookMiddleware.js"
@@ -266,6 +269,7 @@ app.use("/api/loyalty", loyaltyRoutes)
 app.use("/api/referrals", referralRoutes)
 app.use("/api/notifications", notificationRoutes)
 app.use("/api/whatsapp", whatsappRoutes)
+app.use("/api/media", mediaRoutes)
 app.use("/api/popup-settings", popupSettingsRoutes)
 app.use("/api/banners", bannerRoutes)
 app.use("/api/banner-cards", bannerCardRoutes)
@@ -295,6 +299,7 @@ app.use("/api/admin", adminRoutes)
 app.use("/api/super-admin", superAdminRoutes)
 app.use("/api/reports", reportsRoutes)
 app.use("/api/email-templates", emailTemplateRoutes)
+app.use("/api/campaigns", campaignRoutes)
 app.use("/api/newsletter", newsletterRoutes)
 
 // Optimized homepage endpoint (combines multiple API calls)
@@ -355,4 +360,8 @@ const PORT = config.PORT
 
 app.listen(PORT, () => {
   console.log(`Server running in ${config.NODE_ENV} mode on port ${PORT}`)
+  // A campaign interrupted by a restart leaves rows mid-flight. They go back in
+  // the queue and the campaign is marked paused, so it is resumed deliberately
+  // rather than silently starting again the moment the server comes back up.
+  recoverInterrupted()
 })
