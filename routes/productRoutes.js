@@ -806,7 +806,7 @@ const buildPublicStockFilterCondition = (stockStatuses = []) => {
 // @access  Private/Admin
 router.get("/admin", protect, admin, async (req, res) => {
   try {
-    const { search, category, subcategory, subCategory2, subCategory3, subCategory4, parentCategory, brand, isActive, onHold, limit = 20, page = 1 } = req.query
+    const { search, category, subcategory, subCategory2, subCategory3, subCategory4, parentCategory, brand, isActive, onHold, limit = 20, page = 1, light } = req.query
     const query = {}
     const andConditions = []
     const orConditions = []
@@ -838,7 +838,15 @@ router.get("/admin", protect, admin, async (req, res) => {
 
     if (typeof search === "string" && search.trim() !== "") {
       // Admin search stays broad: the back office does look products up by spec text.
-      const searchCondition = await buildSearchConditions(search, Brand, { includeDescription: true })
+      //
+      // `light=1` turns that off. Searching description text means an unindexed
+      // regex over every product's full spec blurb, which is right when somebody
+      // is hunting through the catalogue and far too slow for a type-ahead that
+      // fires on every pause in typing. The email picker only ever needs a name
+      // or a SKU, so it asks for the cheap query.
+      const searchCondition = await buildSearchConditions(search, Brand, {
+        includeDescription: String(light) !== "1",
+      })
       if (searchCondition) andConditions.push(searchCondition)
     }
 
