@@ -1,5 +1,6 @@
 import express from "express";
 import NewsletterSubscriber from "../models/newsletterSubscriberModel.js";
+import EmailSuppression from "../models/emailSuppressionModel.js";
 import EmailTemplate from "../models/emailTemplateModel.js";
 import { sendNewsletterConfirmation, sendEmail } from "../utils/emailService.js";
 
@@ -18,8 +19,19 @@ router.post("/subscribe", async (req, res) => {
       { $set: { preferences } },
       { upsert: true, new: true }
     );
-    // Send confirmation email
-    await sendNewsletterConfirmation(email, preferences);
+
+    // Signing up here is the person asking for our email, so it clears any
+    // earlier opt-out. Without this, somebody who unsubscribed once and later
+    // typed their address into the subscribe box would be added to the list
+    // and then silently never sent anything -- the suppression would quietly
+    // outrank the thing they just asked for.
+    await EmailSuppression.deleteOne({ email: String(email).trim().toLowerCase() });
+    // Not awaited into the response: the person IS subscribed by this point, and
+    // a mail server having a bad moment must not tell them it failed. They
+    // would try again, or give up believing it did not work.
+    sendNewsletterConfirmation(email, preferences).catch((e) =>
+      console.error("[newsletter] subscribed, but the confirmation email failed:", e.message)
+    );
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ message: err.message || "Failed to subscribe." });
