@@ -25,7 +25,6 @@ import EmailCampaign from "../models/emailCampaignModel.js";
 import CampaignRecipient from "../models/campaignRecipientModel.js";
 import EmailSuppression from "../models/emailSuppressionModel.js";
 import { sendEmail } from "../utils/emailService.js";
-import { getSiteOrigin } from "../utils/publicSiteUrl.js";
 
 export const SOURCE_LABELS = {
   users: "Users",
@@ -97,9 +96,22 @@ export const verifyUnsubscribeToken = (token) => {
   }
 };
 
+/**
+ * Where the unsubscribe link in an email points.
+ *
+ * It must be the API host. This route is served by this server, not by the
+ * storefront: a link built against the shop's own address lands in the React
+ * app, which matches no route for it, pushes the locale prefix onto the path
+ * and renders an empty page -- so the person clicks Unsubscribe, sees nothing
+ * happen, and is never actually unsubscribed.
+ *
+ * That is exactly what happened when the environment variables below were
+ * unset and this fell back to the storefront, so there is no storefront
+ * fallback any more.
+ */
 export const unsubscribeUrl = (email, campaignId) => {
-  const base = process.env.SERVER_PUBLIC_URL || process.env.API_URL || "";
-  const origin = String(base).trim().replace(/\/+$/, "") || getSiteOrigin();
+  const configured = String(process.env.SERVER_PUBLIC_URL || process.env.API_URL || "").trim();
+  const origin = (configured || "https://api.grabatoz.ae").replace(/\/+$/, "");
   return `${origin}/api/campaigns/unsubscribe/${unsubscribeToken(email, campaignId)}`;
 };
 

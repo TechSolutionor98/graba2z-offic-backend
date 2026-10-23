@@ -346,7 +346,10 @@ router.post("/:id/test", ...adminOnly, asyncHandler(async (req, res) => {
   let body = personalize(html, recipient, campaign);
   body = ensureUnsubscribe(body, recipient, campaign);
 
-  const subject = `[TEST] ${personalize(campaign.subject || campaign.template?.subject || "", recipient, campaign)}`;
+  // No "[TEST]" prefix: the point of a test is to see precisely what the
+  // customer will see, subject line included. The Report tab records it as a
+  // test, so the two are still told apart where it matters.
+  const subject = personalize(campaign.subject || campaign.template?.subject || "", recipient, campaign);
   const result = await sendEmail(to, subject, body, campaign.sender || "support", {
     log: { source: "Campaign test", templateName: campaign.name, campaign: campaign._id },
   });
