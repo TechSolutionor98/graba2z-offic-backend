@@ -110,6 +110,20 @@ export const verifyUnsubscribeToken = (token) => {
  * fallback any more.
  */
 export const unsubscribeUrl = (email, campaignId) => {
+  // The shop's own site: the reader lands on a page that looks like us, with
+  // the header and footer they know, and can carry on shopping from it.
+  const origin = (process.env.PUBLIC_SITE_URL || "https://www.grabatoz.ae").replace(/\/+$/, "");
+  return `${origin}/unsubscribe/${unsubscribeToken(email, campaignId)}`;
+};
+
+/**
+ * The address for the List-Unsubscribe header.
+ *
+ * This one has to stay on the API. Gmail and Outlook POST to it themselves,
+ * with no browser and no Javascript, so it cannot be a page in the shop's
+ * single-page app -- there would be nothing there to answer them.
+ */
+export const oneClickUnsubscribeUrl = (email, campaignId) => {
   const configured = String(process.env.SERVER_PUBLIC_URL || process.env.API_URL || "").trim();
   const origin = (configured || "https://api.grabatoz.ae").replace(/\/+$/, "");
   return `${origin}/api/campaigns/unsubscribe/${unsubscribeToken(email, campaignId)}`;
@@ -484,7 +498,7 @@ export const runCampaign = async (campaignId) => {
           // Gmail and Outlook both want a one-click opt-out from bulk senders,
           // and both treat its absence as a spam signal.
           headers: {
-            "List-Unsubscribe": `<${unsubscribeUrl(recipient.email, id)}>`,
+            "List-Unsubscribe": `<${oneClickUnsubscribeUrl(recipient.email, id)}>`,
             "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
           },
           log: { source: "Campaign", campaign: id },
@@ -571,6 +585,7 @@ export default {
   unsubscribeToken,
   verifyUnsubscribeToken,
   unsubscribeUrl,
+  oneClickUnsubscribeUrl,
   normalizeEmail,
   isValidEmail,
   recoverInterrupted,
