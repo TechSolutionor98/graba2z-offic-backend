@@ -140,6 +140,16 @@ const doUnsubscribe = async (token, reasonText = "") => {
 /** True for a person in a browser, false for a mail client's one-click POST. */
 const wantsHtml = (req) => String(req.get("accept") || "").includes("text/html");
 
+/**
+ * True only when the caller explicitly asked for JSON.
+ *
+ * Used for the GET lookups, where the default has to be the page: a browser
+ * always says text/html, but something unusual might send nothing at all, and
+ * a person who gets raw JSON where they expected a page has hit a dead end.
+ * Only the shop's own page asks for JSON, and it asks plainly.
+ */
+const wantsJson = (req) => String(req.get("accept") || "").includes("application/json");
+
 const badLink = (res) =>
   res
     .status(400)
@@ -150,11 +160,24 @@ const badLink = (res) =>
       )
     );
 
-// The link in an email: shows the form, changes nothing.
+/**
+ * What a token refers to. Changes nothing.
+ *
+ * The page on the shop's site asks this so it can show whose address it is.
+ * It answers JSON for that page and HTML for anyone who opens the address
+ * directly -- which is what mail clients with their own browsers do.
+ */
 router.get(
   "/unsubscribe/:token",
   asyncHandler(async (req, res) => {
     const parsed = verifyUnsubscribeToken(req.params.token);
+
+    if (wantsJson(req)) {
+      if (!parsed) return res.status(400).json({ ok: false, message: "That link is not valid." });
+      const row = await EmailSuppression.findOne({ email: parsed.email }).select("_id").lean();
+      return res.json({ ok: true, email: parsed.email, subscribed: !row });
+    }
+
     if (!parsed) return badLink(res);
     res.send(unsubscribeForm(req.params.token, parsed.email));
   })
@@ -200,6 +223,13 @@ router.get(
   "/resubscribe/:token",
   asyncHandler(async (req, res) => {
     const parsed = verifyUnsubscribeToken(req.params.token);
+
+    if (wantsJson(req)) {
+      if (!parsed) return res.status(400).json({ ok: false, message: "That link is not valid." });
+      const row = await EmailSuppression.findOne({ email: parsed.email }).select("_id").lean();
+      return res.json({ ok: true, email: parsed.email, subscribed: !row });
+    }
+
     if (!parsed) return badLink(res);
 
     res.send(
