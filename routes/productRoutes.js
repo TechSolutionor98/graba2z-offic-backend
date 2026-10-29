@@ -1470,8 +1470,11 @@ router.get(
           return { _stockRank: 1, _sortName: 1, createdAt: -1, _id: -1 }
         case "relevance":
           // No query to score against, so relevance degrades to newest.
+          //
+          // Relevance leads stock here, unlike every other sort: a shopper who typed a
+          // product's name wants that product, not the nearest thing still on the shelf.
           return relevanceExpr
-            ? { _stockRank: 1, _searchRelevance: -1, createdAt: -1, _id: -1 }
+            ? { _searchRelevance: -1, _stockRank: 1, createdAt: -1, _id: -1 }
             : { _stockRank: 1, createdAt: -1, _id: -1 }
         case "newest":
         default:
@@ -1518,11 +1521,26 @@ router.get(
     const searchCondition = search ? await buildSearchConditions(search, Brand) : null
     let result = await fetchPage(buildQuery(searchCondition))
 
-    // Nothing matched a name, code, tag, brand or category. Rather than show an empty
-    // page, widen the search into descriptions -- those hits score in the lowest
+    // No product carries every word. That is the normal outcome when a shopper pastes a
+    // whole product title in: the catalogue's wording for that very product differs by a
+    // word or two. Ask again for the products carrying most of the query, ranked by how
+    // much of it they carry, so the product being looked for leads its own near misses.
+    if (search && result.totalCount === 0) {
+      const partialCondition = await buildSearchConditions(search, Brand, { allowPartial: true })
+      if (partialCondition) {
+        const partialResult = await fetchPage(buildQuery(partialCondition))
+        if (partialResult.totalCount > 0) result = partialResult
+      }
+    }
+
+    // Still nothing against a name, code, tag, brand or category. Rather than show an
+    // empty page, widen the search into descriptions -- those hits score in the lowest
     // relevance tier, so they can never bury a real match.
     if (search && result.totalCount === 0) {
-      const wideCondition = await buildSearchConditions(search, Brand, { includeDescription: true })
+      const wideCondition = await buildSearchConditions(search, Brand, {
+        includeDescription: true,
+        allowPartial: true,
+      })
       if (wideCondition) {
         const wideResult = await fetchPage(buildQuery(wideCondition))
         if (wideResult.totalCount > 0) result = wideResult

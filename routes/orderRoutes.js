@@ -314,6 +314,9 @@ router.post(
         }
 
         let dbPrice = 0
+        // What the buyer actually chose, so the stock check below looks at that rather
+        // than at the parent product, whose status says nothing about one colour.
+        let chosenVariation = null
         // Check DOS variation
         if (
           item.selectedDosIndex !== null &&
@@ -323,6 +326,7 @@ router.post(
         ) {
           const dosVar = product.dosVariations[item.selectedDosIndex]
           dbPrice = dosVar.offerPrice > 0 ? dosVar.offerPrice : dosVar.price
+          chosenVariation = { label: dosVar.dosType || "selected option", countInStock: dosVar.countInStock }
         }
         // Check Color variation
         else if (
@@ -333,10 +337,34 @@ router.post(
         ) {
           const colorVar = product.colorVariations[item.selectedColorIndex]
           dbPrice = colorVar.offerPrice > 0 ? colorVar.offerPrice : colorVar.price
+          chosenVariation = { label: colorVar.color || "selected colour", countInStock: colorVar.countInStock }
         }
         // Default product price
         else {
           dbPrice = product.offerPrice > 0 ? product.offerPrice : product.price
+        }
+
+        // Stock is enforced here and not only in the interface. Hiding a button is not a
+        // rule: the bundle builder on the product page offered sold-out items, and the
+        // orders it produced were accepted because nothing on this side ever looked.
+        // "PreOrder" is a sale we do take, so only "Out of Stock" is refused.
+        //
+        // A variation only speaks for itself once someone has actually given it a
+        // count. Some products carry a blank variation row with no type, no price and
+        // no stock figure; reading that as zero would refuse a product sitting in the
+        // warehouse with twenty on the shelf, so an unset count defers to the product.
+        const variationStock = chosenVariation?.countInStock
+        const variationStockIsSet =
+          variationStock !== null && variationStock !== undefined && variationStock !== ""
+
+        if (variationStockIsSet) {
+          if (!(Number(variationStock) > 0)) {
+            res.status(400)
+            throw new Error(`${product.name} (${chosenVariation.label}) is out of stock`)
+          }
+        } else if (product.stockStatus === "Out of Stock") {
+          res.status(400)
+          throw new Error(`${product.name} is out of stock`)
         }
 
         const quantity = Number(item.quantity) || 1
