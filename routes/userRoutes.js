@@ -1,6 +1,8 @@
 import express from "express"
 import asyncHandler from "express-async-handler"
+import bcrypt from "bcryptjs"
 import User from "../models/userModel.js"
+import PendingRegistration from "../models/pendingRegistrationModel.js"
 import generateToken from "../utils/generateToken.js"
 import { protect } from "../middleware/authMiddleware.js"
 import { sendVerificationEmail, sendAccountDeletionEmail, sendGuestAccountCreatedEmail } from "../utils/emailService.js"
@@ -21,6 +23,19 @@ const normalizeRegistrationPlatform = (value) => {
   return "unknown"
 }
 
+// Addresses are compared and stored in lower case everywhere. Without this a
+// capital letter in the local part makes "Khurram@gmail.com" a different account
+// from "khurram@gmail.com", which is how duplicate rows got into the users
+// collection in the first place.
+const normalizeEmail = (value) => String(value || "").trim().toLowerCase()
+
+// A six-digit code and the ten minutes it is good for, matching
+// userModel's generateEmailVerificationCode so both paths behave the same.
+const newVerificationCode = () => ({
+  code: Math.floor(100000 + Math.random() * 900000).toString(),
+  expires: new Date(Date.now() + 10 * 60 * 1000),
+})
+
 // @desc    Register a new user
 // @route   POST /api/users/register
 // @access  Public
@@ -29,11 +44,26 @@ router.post(
   asyncHandler(async (req, res) => {
     const { name, email, password, registrationSource, registrationPlatform, referralCode } = req.body
 
-    const userExists = await User.findOne({ email })
+    const normalizedEmail = normalizeEmail(email)
+    if (!normalizedEmail || !password || !String(name || "").trim()) {
+      res.status(400)
+      throw new Error("Name, email and password are all required")
+    }
 
-    if (userExists) {
+    // Only a *verified* account owns its address. An older unverified row is a
+    // signup somebody abandoned, and it must not stand in the way of them trying
+    // again -- that is the whole reason this used to say "User already exists" to
+    // people who had never successfully registered at all.
+    const existing = await User.findOne({ email: normalizedEmail })
+    if (existing && existing.isEmailVerified) {
       res.status(400)
       throw new Error("User already exists")
+    }
+    if (existing && !existing.isEmailVerified) {
+      // Clear the dead row out of the way so the attempt below owns the address.
+      // Safe because an unverified account has never been able to sign in, so it
+      // cannot have orders, points or anything else hanging off it.
+      await User.deleteOne({ _id: existing._id, isEmailVerified: { $ne: true } })
     }
 
     const resolvedSource = normalizeRegistrationSource(
@@ -43,54 +73,52 @@ router.post(
       registrationPlatform || req.headers["x-client-platform"] || req.headers["x-device-platform"],
     )
 
-    const user = await User.create({
-      name,
-      email,
-      password,
-      isEmailVerified: false,
-      registrationSource: resolvedSource,
-      registrationPlatform: resolvedSource === "app" ? resolvedPlatform : null,
-      appRegisteredAt: resolvedSource === "app" ? new Date() : null,
-    })
+    const { code, expires } = newVerificationCode()
 
-    if (user) {
-      // Link this signup to whoever invited them and hand over the welcome discount.
-      // Never throws -- a referral problem must not stop somebody creating an account --
-      // so the result is only used to tell the client whether the link took.
-      const referralResult = await attachReferralOnSignup({
-        refereeUser: user,
-        code: referralCode || req.headers["x-referral-code"],
-        source: resolvedSource,
+    // Nothing is written to the users collection here. The account is held as a
+    // pending registration and only becomes a User once the code comes back, so a
+    // signup that is never completed leaves the address free for another try.
+    const pending = await PendingRegistration.findOneAndUpdate(
+      { email: normalizedEmail },
+      {
+        $set: {
+          email: normalizedEmail,
+          name: String(name).trim(),
+          passwordHash: await bcrypt.hash(password, await bcrypt.genSalt(10)),
+          verificationCode: code,
+          verificationExpires: expires,
+          registrationSource: resolvedSource,
+          registrationPlatform: resolvedSource === "app" ? resolvedPlatform : null,
+          referralCode: String(referralCode || req.headers["x-referral-code"] || "").trim(),
+        },
+        $inc: { sendCount: 1 },
+      },
+      { new: true, upsert: true, setDefaultsOnInsert: true },
+    )
+
+    try {
+      await sendVerificationEmail(pending.email, pending.name, code)
+      res.status(201).json({
+        message: "Registration started. Please check your email for the verification code.",
+        email: pending.email,
+        registrationSource: pending.registrationSource,
+        registrationPlatform: pending.registrationPlatform,
+        // The invite is not redeemed until the account exists, so all we can
+        // honestly report here is that we are holding one.
+        referralPending: Boolean(pending.referralCode),
+        requiresVerification: true,
       })
-
-      // Generate verification code
-      const verificationCode = user.generateEmailVerificationCode()
-      await user.save()
-
-      // Send verification email
-      try {
-        await sendVerificationEmail(email, name, verificationCode)
-        res.status(201).json({
-          message: "Registration successful! Please check your email for verification code.",
-          email: user.email,
-          registrationSource: user.registrationSource,
-          registrationPlatform: user.registrationPlatform,
-          referralApplied: referralResult.attached,
-        })
-      } catch (emailError) {
-        console.error("Failed to send verification email:", emailError)
-        res.status(201).json({
-          message:
-            "Registration successful! However, we couldn't send the verification email. Please try to resend it.",
-          email: user.email,
-          registrationSource: user.registrationSource,
-          registrationPlatform: user.registrationPlatform,
-          referralApplied: referralResult.attached,
-        })
-      }
-    } else {
-      res.status(400)
-      throw new Error("Invalid user data")
+    } catch (emailError) {
+      console.error("Failed to send verification email:", emailError)
+      res.status(201).json({
+        message:
+          "Registration started, but we couldn't send the verification email. Please use Resend code.",
+        email: pending.email,
+        registrationSource: pending.registrationSource,
+        registrationPlatform: pending.registrationPlatform,
+        referralPending: Boolean(pending.referralCode),
+        requiresVerification: true,
+      })
     }
   }),
 )
@@ -102,8 +130,71 @@ router.post(
   "/verify-email",
   asyncHandler(async (req, res) => {
     const { email, code } = req.body
+    const normalizedEmail = normalizeEmail(email)
 
-    const user = await User.findOne({ email })
+    // The usual path: a signup waiting to become an account. The User is created
+    // here and nowhere earlier, so an address is only ever occupied by somebody
+    // who proved they can read mail at it.
+    const pending = await PendingRegistration.findOne({ email: normalizedEmail })
+    if (pending) {
+      if (!pending.codeIsValid(code)) {
+        res.status(400)
+        throw new Error("Invalid or expired verification code")
+      }
+
+      // Guard against the window between starting this signup and finishing it:
+      // the same address could have been registered and verified by another
+      // attempt in the meantime.
+      const alreadyReal = await User.findOne({ email: normalizedEmail })
+      if (alreadyReal) {
+        await PendingRegistration.deleteOne({ _id: pending._id })
+        res.status(400)
+        throw new Error("This email is already registered. Please sign in instead.")
+      }
+
+      // Created with a throwaway password, then handed the real hash by a direct
+      // update. `save()` would run the model's pre-save hook and bcrypt the hash
+      // a second time, which would lock the customer out of the account they just
+      // made; `updateOne` does not run it.
+      const user = await User.create({
+        name: pending.name,
+        email: pending.email,
+        password: crypto.randomBytes(24).toString("hex"),
+        isEmailVerified: true,
+        registrationSource: pending.registrationSource,
+        registrationPlatform: pending.registrationPlatform,
+        appRegisteredAt: pending.registrationSource === "app" ? new Date() : null,
+      })
+      await User.updateOne({ _id: user._id }, { $set: { password: pending.passwordHash } })
+
+      // Redeem the invite now that there is an account to attach it to. Never
+      // throws -- a referral problem must not cost somebody their registration.
+      const referralResult = await attachReferralOnSignup({
+        refereeUser: user,
+        code: pending.referralCode,
+        source: pending.registrationSource,
+      })
+
+      await PendingRegistration.deleteOne({ _id: pending._id })
+
+      return res.status(201).json({
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        isAdmin: user.isAdmin,
+        isEmailVerified: true,
+        mustChangePassword: false,
+        registrationSource: user.registrationSource,
+        registrationPlatform: user.registrationPlatform,
+        referralApplied: referralResult.attached,
+        token: generateToken(user._id),
+      })
+    }
+
+    // Fallback for accounts that already existed before signups were held as
+    // pending: invited customers, guests converted to users, and anyone still
+    // sitting unverified in the users collection.
+    const user = await User.findOne({ email: normalizedEmail })
 
     if (!user) {
       res.status(404)
@@ -148,8 +239,34 @@ router.post(
   "/resend-verification",
   asyncHandler(async (req, res) => {
     const { email } = req.body
+    const normalizedEmail = normalizeEmail(email)
 
-    const user = await User.findOne({ email })
+    // A signup still waiting to be proved -- the usual case.
+    const pending = await PendingRegistration.findOne({ email: normalizedEmail })
+    if (pending) {
+      // One address cannot be used to post mail at somebody else indefinitely.
+      if (pending.sendCount >= 8) {
+        res.status(429)
+        throw new Error("Too many codes requested for this email. Please try again later.")
+      }
+
+      const { code, expires } = newVerificationCode()
+      pending.verificationCode = code
+      pending.verificationExpires = expires
+      pending.sendCount += 1
+      await pending.save()
+
+      try {
+        await sendVerificationEmail(pending.email, pending.name, code)
+        return res.json({ message: "Verification code sent successfully!" })
+      } catch (emailError) {
+        console.error("Failed to send verification email:", emailError)
+        res.status(500)
+        throw new Error("Failed to send verification email")
+      }
+    }
+
+    const user = await User.findOne({ email: normalizedEmail })
 
     if (!user) {
       res.status(404)
@@ -254,13 +371,20 @@ router.post(
   "/login",
   asyncHandler(async (req, res) => {
     const { email, password } = req.body
+    const normalizedEmail = normalizeEmail(email)
 
-    const user = await User.findOne({ email })
+    const user = await User.findOne({ email: normalizedEmail })
 
     if (user && (await user.matchPassword(password))) {
       if (!user.isEmailVerified) {
-        res.status(401)
-        throw new Error("Please verify your email before logging in")
+        // Answered directly rather than thrown, so the response can carry the
+        // flag the sign-in form needs to offer a "Verify here" link. A thrown
+        // error reaches the client as a bare message and nothing else.
+        return res.status(401).json({
+          message: "Please verify your email before logging in",
+          requiresVerification: true,
+          email: user.email,
+        })
       }
 
       res.json({
@@ -277,6 +401,22 @@ router.post(
         token: generateToken(user._id),
       })
     } else {
+      // No account, but a signup for this address is still waiting on its code.
+      // Saying "Invalid email or password" would be true and useless: the password
+      // is probably right, there is simply nothing to sign in to yet. Only told to
+      // someone who also got the password right, so this cannot be used to find
+      // out which addresses have signups pending.
+      if (!user) {
+        const pending = await PendingRegistration.findOne({ email: normalizedEmail })
+        if (pending && (await bcrypt.compare(String(password || ""), pending.passwordHash))) {
+          return res.status(401).json({
+            message: "Please verify your email to finish creating your account",
+            requiresVerification: true,
+            email: pending.email,
+          })
+        }
+      }
+
       res.status(401)
       throw new Error("Invalid email or password")
     }
