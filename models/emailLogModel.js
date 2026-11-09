@@ -24,6 +24,18 @@ const emailLogSchema = new mongoose.Schema(
     messageId: { type: String, default: "" },
     error: { type: String, default: "" },
 
+    // What the receiving server actually said.
+    //
+    // These come straight from the SMTP conversation. `sendEmail` used to hand them
+    // back to its caller and nowhere else, so they were gone the moment the caller
+    // ignored them -- which every caller does. Every row in this log therefore read
+    // identically ("sent", a message id, nothing else) whether the far end took the
+    // message gladly or grudgingly, and a delivery problem could not be told apart
+    // from a healthy send. They are the far end's own words, so they are kept.
+    accepted: { type: [String], default: [] },
+    rejected: { type: [String], default: [] },
+    response: { type: String, default: "" },
+
     // What produced it, when that is known. Free text rather than a reference:
     // a template deleted later must not erase the record of what was sent.
     source: { type: String, default: "" },

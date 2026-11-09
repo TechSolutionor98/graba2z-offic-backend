@@ -1913,7 +1913,14 @@ const sendEmail = async (to, subject, html, senderType = "support", extra = {}) 
     console.log(`[sendEmail] Email sent successfully from ${from}:`, result.messageId)
     recordEmail({
       to, subject, from, sender: senderType, status: "sent",
-      messageId: result.messageId || "", ...(extra.log || {}),
+      messageId: result.messageId || "",
+      // Recorded, not just returned. The caller usually discards the result, and
+      // when a message goes missing days later the log is the only place left to
+      // look for what the receiving server said about it.
+      accepted: result.accepted || [],
+      rejected: result.rejected || [],
+      response: result.response || "",
+      ...(extra.log || {}),
     })
     // accepted/rejected/response come straight from the SMTP conversation. They
     // are the difference between "we handed it over" and "it arrived", and
