@@ -2,6 +2,41 @@ import nodemailer from "nodemailer"
 
 import { publicizeEmailImages } from "./emailImages.js"
 
+// The storefront every link in every email points at.
+//
+// This MUST be the same domain the mail is sent from (support@grabatoz.ae), because
+// Gmail treats a From domain that disagrees with the link domain as a phishing
+// signal and drops the message silently -- accepted at SMTP, never delivered.
+// These templates used to link to graba2z.ae, a separate domain on different
+// nameservers, which is exactly that mismatch.
+export const SITE_URL = process.env.FRONTEND_URL || "https://www.grabatoz.ae"
+
+/**
+ * A readable plain-text version of an HTML email.
+ *
+ * Deliberately simple: strip what must not be read aloud (style, script, head),
+ * turn block ends into line breaks so the text is not one paragraph, drop the
+ * remaining tags, and decode the handful of entities that actually appear in
+ * these templates. It only has to be legible -- the HTML part is what people see.
+ */
+const htmlToPlainText = (html) =>
+  String(html || "")
+    .replace(/<(style|script|head)[\s\S]*?<\/\1>/gi, " ")
+    .replace(/<\s*br\s*\/?>/gi, "\n")
+    .replace(/<\/\s*(p|div|tr|h[1-6]|li|table)\s*>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&copy;/gi, "(c)")
+    .replace(/[ \t]+/g, " ")
+    .replace(/ *\n */g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim()
+
 // Helper to ensure image URLs are absolute for email clients
 const toAbsoluteUrl = (src) => {
   if (!src) return "https://via.placeholder.com/56?text=No+Image"
@@ -14,7 +49,7 @@ const toAbsoluteUrl = (src) => {
     process.env.SERVER_PUBLIC_URL ||
     process.env.API_BASE_URL ||
     process.env.FRONTEND_URL ||
-    "https://www.graba2z.ae"
+    SITE_URL
   if (s.startsWith("/")) return `${base}${s}`
   // otherwise treat as uploads path
   return `${base}/uploads/${s}`
@@ -528,7 +563,7 @@ const getEmailTemplate = (type, data) => {
         <body>
           <div class="container">
             <div class="header">
-              <a href="https://www.graba2z.ae/" target="_blank">
+              <a href="${SITE_URL}/" target="_blank">
                 <img src="https://res.cloudinary.com/dyfhsu5v6/image/upload/v1753105567/admin-logo_ruxcjj.png" alt="Graba2z Logo" />
               </a>
             </div>
@@ -821,7 +856,7 @@ const getEmailTemplate = (type, data) => {
         <body>
           <div class="container">
             <div class="header">
-              <a href="https://www.graba2z.ae/" target="_blank">
+              <a href="${SITE_URL}/" target="_blank">
                 <img src="https://res.cloudinary.com/dyfhsu5v6/image/upload/v1753105567/admin-logo_ruxcjj.png" alt="Graba2z Logo" />
               </a>
             </div>
@@ -836,7 +871,7 @@ const getEmailTemplate = (type, data) => {
                 </div>
               </div>
               <div style="text-align:center;margin-top:16px;">
-                <a href="https://www.graba2z.ae/track-order" 
+                <a href="${SITE_URL}/track-order" 
                    style="display:inline-block;background:#84cc16;color:#ffffff;text-decoration:none;padding:14px 32px;font-size:14px;font-weight:600;border-radius:28px;letter-spacing:0.5px;font-family:'Segoe UI',Tahoma,Arial,sans-serif;">
                   TRACK YOUR ORDER
                 </a>
@@ -1133,7 +1168,7 @@ const getEmailTemplate = (type, data) => {
         <body>
           <div class="container">
             <div class="header">
-              <a href="https://www.graba2z.ae/" target="_blank">
+              <a href="${SITE_URL}/" target="_blank">
                 <img src="https://res.cloudinary.com/dyfhsu5v6/image/upload/v1753105567/admin-logo_ruxcjj.png" alt="Graba2z Logo" />
               </a>
             </div>
@@ -1159,7 +1194,7 @@ const getEmailTemplate = (type, data) => {
               </div>
               ` : ''}
               <div style="text-align:center;margin-top:16px;">
-                <a href="https://www.graba2z.ae/track-order" 
+                <a href="${SITE_URL}/track-order" 
                    style="display:inline-block;background:#84cc16;color:#ffffff;text-decoration:none;padding:14px 32px;font-size:14px;font-weight:600;border-radius:28px;letter-spacing:0.5px;font-family:'Segoe UI',Tahoma,Arial,sans-serif;">
                   TRACK YOUR ORDER
                 </a>
@@ -1308,7 +1343,7 @@ const getEmailTemplate = (type, data) => {
         <body>
           <div class="container">
             <div class="header">
-              <a href="https://www.graba2z.ae/" target="_blank">
+              <a href="${SITE_URL}/" target="_blank">
                 <img src="https://res.cloudinary.com/dyfhsu5v6/image/upload/v1753105567/admin-logo_ruxcjj.png" alt="Graba2z Logo" />
               </a>
               <div class="warning-icon">⚠️</div>
@@ -1458,7 +1493,7 @@ const getEmailTemplate = (type, data) => {
         <body>
           <div class="container">
             <div class="header">
-              <a href="https://www.graba2z.ae/" target="_blank">
+              <a href="${SITE_URL}/" target="_blank">
                 <img src="https://res.cloudinary.com/dyfhsu5v6/image/upload/v1753105567/admin-logo_ruxcjj.png" alt="Graba2z Logo" />
               </a>
             </div>
@@ -1648,7 +1683,7 @@ const getEmailTemplate = (type, data) => {
         <body>
           <div class="container">
             <div class="header">
-              <a href="https://www.graba2z.ae/" target="_blank">
+              <a href="${SITE_URL}/" target="_blank">
                 <img src="https://res.cloudinary.com/dyfhsu5v6/image/upload/v1753105567/admin-logo_ruxcjj.png" alt="Graba2z Logo" />
               </a>
             </div>
@@ -1666,7 +1701,7 @@ const getEmailTemplate = (type, data) => {
               <div class="note-box">
                 <strong>Important:</strong> We recommend changing your password after your first login for security purposes.
               </div>
-              <a href="https://www.graba2z.ae/login" class="login-btn">Login to Your Account</a>
+              <a href="${SITE_URL}/login" class="login-btn">Login to Your Account</a>
               <p style="margin-top: 2em; color: #888; font-size: 1em;">Continue shopping and enjoy exclusive deals on Graba2z!</p>
             </div>
             <div class="footer">
@@ -1703,7 +1738,7 @@ const getEmailTemplate = (type, data) => {
         <body>
           <div class="email-container">
             <div class="header">
-              <img src="https://graba2z.ae/logo.png" alt="Graba2z" class="logo" />
+              <img src="${SITE_URL}/logo.png" alt="Graba2z" class="logo" />
             </div>
             <div class="content">
               <p>Thank you for choosing Graba2z!</p>
@@ -1861,6 +1896,14 @@ const sendEmail = async (to, subject, html, senderType = "support", extra = {}) 
       // Last chance to catch an address that only resolves on this machine.
       // See utils/emailImages.js.
       html: publicizeEmailImages(html),
+      // A plain-text twin of every message.
+      //
+      // An HTML-only email is a long-standing spam signal: real senders send both
+      // parts, bulk senders usually send one. Nodemailer turns `text` + `html` into
+      // a proper multipart/alternative, so clients that cannot or will not render
+      // HTML still get the verification code. A caller that passes its own `text`
+      // in `extra` overrides this, since `...extra` is spread after.
+      text: htmlToPlainText(html),
       ...extra,
     }
     // `log` is ours, for the send log -- nodemailer would reject it.

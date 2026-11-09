@@ -2,7 +2,7 @@ import express from "express"
 import BulkPurchase from "../models/bulkPurchaseModel.js"
 import User from "../models/userModel.js"
 import { protect, admin } from "../middleware/authMiddleware.js"
-import { sendEmail } from "../utils/emailService.js"
+import { sendEmail, SITE_URL } from "../utils/emailService.js"
 
 const router = express.Router()
 
@@ -33,7 +33,7 @@ router.post("/send-otp", async (req, res) => {
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; background: #fff; border-radius: 8px; box-shadow: 0 2px 8px #eee; padding: 32px;">
         <div style="text-align: center; margin-bottom: 24px;">
-          <img src="https://www.graba2z.ae/logo.png" alt="Graba2z Logo" style="max-width: 200px; height: auto;">
+          <img src="${SITE_URL}/logo.png" alt="Graba2z Logo" style="max-width: 200px; height: auto;">
         </div>
         <h2 style="color: #2c3e50; text-align: center;">Bulk Purchase Inquiry Verification</h2>
         <p>Thank you for your interest in bulk purchasing from Graba2z.</p>
@@ -119,7 +119,7 @@ router.post("/", async (req, res) => {
     const confirmationHtml = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; background: #fff; border-radius: 8px; box-shadow: 0 2px 8px #eee; padding: 32px;">
         <div style="text-align: center; margin-bottom: 24px;">
-          <img src="https://www.graba2z.ae/logo.png" alt="Graba2z Logo" style="max-width: 200px; height: auto;">
+          <img src="${SITE_URL}/logo.png" alt="Graba2z Logo" style="max-width: 200px; height: auto;">
         </div>
         <h2 style="color: #2c3e50; text-align: center;">Bulk Purchase Inquiry Received</h2>
         <p>Dear ${name},</p>
