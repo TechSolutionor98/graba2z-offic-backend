@@ -29,6 +29,7 @@ import {
   buildRelevanceExpression,
 } from "../utils/productSearch.js"
 import { movementTotalsFor } from "../utils/stockLedger.js"
+import { notifyBackInStockSubscribers } from "../services/backInStockService.js"
 
 const router = express.Router()
 const __filename = fileURLToPath(import.meta.url)
@@ -1862,6 +1863,15 @@ router.put(
       // Invalidate storefront product cache after bulk status update
       await invalidateCache("products")
 
+      // Notify back-in-stock subscribers if set to In Stock
+      if (updateData.stockStatus === "In Stock" && Array.isArray(productIds)) {
+        for (const pid of productIds) {
+          notifyBackInStockSubscribers(pid).catch((err) =>
+            console.error("[BackInStock] Bulk notify error:", err),
+          )
+        }
+      }
+
       // Determine status message
       let statusMessage = ""
       if (updateData.stockStatus) {
@@ -2637,6 +2647,16 @@ router.put(
       // Submit to IndexNow
       if (updatedProduct.isActive && !updatedProduct.isDeleted) {
         submitProduct(updatedProduct, "update", req.user?._id).catch(err => console.error("IndexNow error:", err))
+      }
+
+      // Check if product or its variations are in stock and notify subscribers
+      if (
+        updatedProduct.stockStatus === "In Stock" ||
+        (Number(updatedProduct.countInStock) > 0 && updatedProduct.stockStatus !== "Out of Stock")
+      ) {
+        notifyBackInStockSubscribers(updatedProduct._id).catch((err) =>
+          console.error("[BackInStock] Notification error on product update:", err),
+        )
       }
 
       res.json(populatedProduct)

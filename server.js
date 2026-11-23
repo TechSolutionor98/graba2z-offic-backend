@@ -68,6 +68,7 @@ import settingsRoutes from "./routes/settingsRoutes.js"
 import themeRoutes from "./routes/themeRoutes.js"
 import wishlistRoutes from "./routes/wishlistRoutes.js"
 import requestCallbackRoutes from "./routes/requestCallbackRoutes.js"
+import backInStockRoutes from "./routes/backInStockRoutes.js"
 import paymentRoutes from "./routes/paymentRoutes.js"
 import adminRoutes from "./routes/adminRoutes.js"
 import emailTemplateRoutes from "./routes/emailTemplateRoutes.js"
@@ -292,6 +293,7 @@ app.use("/api/settings", settingsRoutes)
 app.use("/api/theme", themeRoutes)
 app.use("/api/wishlist", wishlistRoutes)
 app.use("/api/request-callback", requestCallbackRoutes)
+app.use("/api/back-in-stock", backInStockRoutes)
 app.use("/api/bulk-purchase", bulkPurchaseRoutes)
 app.use("/api/payment", paymentRoutes)
 app.use("/api/payment-charges", paymentMethodChargeRoutes)

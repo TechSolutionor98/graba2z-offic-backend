@@ -668,6 +668,7 @@ router.get(
       { key: "emailTemplates", label: "Email Templates", description: "Manage email templates" },
       { key: "newsletter", label: "Newsletter", description: "Manage newsletter subscribers" },
       { key: "requestCallbacks", label: "Request Callbacks", description: "View callback requests" },
+      { key: "notifyMe", label: "Restock Alerts", description: "Manage back-in-stock alert requests" },
       { key: "bulkPurchase", label: "Bulk Purchase", description: "Manage bulk purchase requests" },
       { key: "buyerProtection", label: "Buyer Protection", description: "Manage buyer protection" },
       { key: "stockAdjustment", label: "Stock Adjustment", description: "Manage stock and price adjustments" },

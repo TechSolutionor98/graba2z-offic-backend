@@ -48,6 +48,7 @@ const userSchema = mongoose.Schema(
       emailTemplates: { type: Boolean, default: false },
       newsletter: { type: Boolean, default: false },
       requestCallbacks: { type: Boolean, default: false },
+      notifyMe: { type: Boolean, default: false },
       bulkPurchase: { type: Boolean, default: false },
       buyerProtection: { type: Boolean, default: false },
       stockAdjustment: { type: Boolean, default: false },

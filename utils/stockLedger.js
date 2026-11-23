@@ -2,6 +2,7 @@ import mongoose from "mongoose"
 
 import Product from "../models/productModel.js"
 import StockMovement, { MOVEMENT_REASONS } from "../models/stockMovementModel.js"
+import { notifyBackInStockSubscribers } from "../services/backInStockService.js"
 
 /**
  * The only way stock changes.
@@ -78,7 +79,7 @@ export async function postStockMovement({
       return null
     }
 
-    return await StockMovement.create({
+    const movement = await StockMovement.create({
       product: productId,
       type,
       quantity: units,
@@ -88,6 +89,15 @@ export async function postStockMovement({
       postedByName: postedByName || postedBy?.name || "",
       stockAfter: Number(updated.countInStock) || 0,
     })
+
+    // If stock was added and is now positive, notify any waiting subscribers
+    if (type === "in" && Number(updated.countInStock) > 0) {
+      notifyBackInStockSubscribers(productId).catch((err) =>
+        console.error("[STOCK] Restock notification trigger failed:", err),
+      )
+    }
+
+    return movement
   } catch (error) {
     // Deliberately swallowed. See the contract above.
     console.error("[STOCK] Could not post a stock movement:", error?.message || error)
