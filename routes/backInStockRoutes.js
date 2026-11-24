@@ -74,6 +74,15 @@ router.post(
       })
     }
 
+    const resolvedProductImage =
+      req.body.image ||
+      (selectedColor && product.colors?.find((c) => c.color === selectedColor)?.image) ||
+      (selectedDos && product.dos?.find((d) => d.dosType === selectedDos)?.image) ||
+      product.image ||
+      (Array.isArray(product.galleryImages) && product.galleryImages.find(Boolean)) ||
+      (Array.isArray(product.images) && (product.images[0]?.url || product.images[0])) ||
+      ""
+
     // Create new subscription
     subscription = await BackInStock.create({
       product: productId,
@@ -91,7 +100,7 @@ router.post(
         productName: product.name,
         productNameAr: product.nameAr || "",
         productPrice: product.offerPrice > 0 ? product.offerPrice : product.price,
-        productImage: product.image || "",
+        productImage: resolvedProductImage || "",
         slug: product.slug || "",
         sku: product.sku || "",
       },

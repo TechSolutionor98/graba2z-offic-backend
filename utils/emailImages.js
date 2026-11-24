@@ -38,12 +38,16 @@ const MACHINE_ONLY = new RegExp(
  */
 export const publicizeEmailImages = (html) => {
   if (!html || typeof html !== "string") return html;
-  if (!MACHINE_ONLY.test(html)) {
+
+  // Rewrite frontend domain mistakenly pointing to /uploads/
+  let sanitized = html.replace(/https?:\/\/(?:www\.)?grabatoz\.ae\/uploads\//gi, `${PUBLIC_MEDIA}/uploads/`);
+
+  if (!MACHINE_ONLY.test(sanitized)) {
     MACHINE_ONLY.lastIndex = 0;
-    return html;
+    return sanitized;
   }
   MACHINE_ONLY.lastIndex = 0;
-  return html.replace(MACHINE_ONLY, PUBLIC_MEDIA);
+  return sanitized.replace(MACHINE_ONLY, PUBLIC_MEDIA);
 };
 
 export default publicizeEmailImages;

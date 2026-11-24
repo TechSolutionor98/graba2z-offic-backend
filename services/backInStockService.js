@@ -22,16 +22,39 @@ const formatPrice = (price) => {
  * Helper to ensure image URLs are absolute for email clients
  */
 const toAbsoluteImageUrl = (src) => {
-  if (!src) return "https://res.cloudinary.com/dyfhsu5v6/image/upload/v1753105567/admin-logo_ruxcjj.png"
-  const s = String(src).trim()
-  if (s.startsWith("http://") || s.startsWith("https://")) {
-    const publicMedia = (process.env.PUBLIC_MEDIA_URL || process.env.API_BASE_URL || "https://api.grabatoz.ae").replace(/\/+$/, "")
-    return s.replace(/^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?/i, publicMedia)
+  const fallback = "https://res.cloudinary.com/dyfhsu5v6/image/upload/v1753105567/admin-logo_ruxcjj.png"
+  if (!src) return fallback
+  let s = String(src).trim().replace(/\\/g, "/")
+  if (!s) return fallback
+
+  const publicMedia = (process.env.PUBLIC_MEDIA_URL || process.env.API_BASE_URL || "https://api.grabatoz.ae").replace(/\/+$/, "")
+
+  // Cloudinary URLs are already public and absolute
+  if (s.includes("cloudinary.com") || s.includes("res.cloudinary")) {
+    return s.startsWith("//") ? `https:${s}` : s
   }
-  if (s.startsWith("//")) return `https:${s}`
-  const base = (process.env.PUBLIC_MEDIA_URL || process.env.API_BASE_URL || process.env.PUBLIC_BASE_URL || "https://api.grabatoz.ae").replace(/\/+$/, "")
-  if (s.startsWith("/")) return `${base}${s}`
-  return `${base}/uploads/${s}`
+
+  // Rewrite localhost or frontend domain mistakenly pointing to /uploads/
+  s = s
+    .replace(/^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?/i, publicMedia)
+    .replace(/^https?:\/\/(?:www\.)?grabatoz\.ae\/uploads\//i, `${publicMedia}/uploads/`)
+
+  if (s.startsWith("http://") || s.startsWith("https://")) {
+    return s
+  }
+  if (s.startsWith("//")) {
+    return `https:${s}`
+  }
+
+  // Normalize relative paths avoiding double /uploads/uploads
+  if (s.startsWith("/uploads/")) {
+    return `${publicMedia}${s}`
+  }
+  if (s.startsWith("uploads/")) {
+    return `${publicMedia}/${s}`
+  }
+  const cleanPath = s.startsWith("/") ? s : `/${s}`
+  return `${publicMedia}/uploads${cleanPath}`
 }
 
 /**
@@ -42,7 +65,16 @@ export const sendBackInStockEmail = async ({ subscriber, product }) => {
     const productName = product?.name || subscriber?.metadata?.productName || "Product"
     const productSlug = product?.slug || subscriber?.metadata?.slug || product?._id
     const productUrl = `${SITE_URL}/product/${encodeURIComponent(productSlug)}`
-    const rawImage = product?.image || subscriber?.metadata?.productImage
+    const rawImage =
+      (subscriber?.selectedColor && Array.isArray(product?.colors) && product.colors.find(c => c?.color === subscriber.selectedColor)?.image) ||
+      (subscriber?.selectedDos && Array.isArray(product?.dos) && product.dos.find(d => d?.dosType === subscriber.selectedDos)?.image) ||
+      product?.image ||
+      (Array.isArray(product?.galleryImages) && product.galleryImages.find(Boolean)) ||
+      (Array.isArray(product?.images) && (product.images[0]?.url || product.images[0])) ||
+      product?.mainImage ||
+      product?.thumbnail ||
+      subscriber?.metadata?.productImage ||
+      ""
     const productImage = toAbsoluteImageUrl(rawImage)
     const price = product?.offerPrice > 0 ? product.offerPrice : product?.price || subscriber?.metadata?.productPrice || 0
     const variantText = subscriber.variant || ""
