@@ -148,9 +148,16 @@ const orderSchema = mongoose.Schema(
     // figure back later therefore needs the rate of the day, not today's: rates move,
     // and an invoice reprinted next year must still say what the customer was quoted.
     // 1 means the order was placed in AED and nothing needs converting.
+    //
+    // Deliberately left with no default. Mongoose fills a schema default in when it
+    // hydrates a document, not only when it creates one, so `default: 1` made every
+    // order written before this field existed arrive claiming a recorded parity rate.
+    // That is indistinguishable from a genuine AED order, so the client stopped
+    // falling back to a reference rate and printed AED figures under a BHD symbol --
+    // the very bug this field was added to fix. Absent must stay absent, so "no rate
+    // was recorded" and "the rate was 1" remain two different answers.
     exchangeRate: {
       type: Number,
-      default: 1,
     },
     deliveryType: {
       type: String,
