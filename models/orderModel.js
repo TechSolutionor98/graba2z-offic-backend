@@ -140,6 +140,18 @@ const orderSchema = mongoose.Schema(
       type: String,
       default: "AED",
     },
+    // How many units of `currency` one AED bought when this order was placed.
+    //
+    // Every amount on an order is stored in AED -- the server prices each line from
+    // the catalogue rather than trusting what the browser sent -- while `currency`
+    // records only which currency the customer was shopping in. Showing them that
+    // figure back later therefore needs the rate of the day, not today's: rates move,
+    // and an invoice reprinted next year must still say what the customer was quoted.
+    // 1 means the order was placed in AED and nothing needs converting.
+    exchangeRate: {
+      type: Number,
+      default: 1,
+    },
     deliveryType: {
       type: String,
       required: true,

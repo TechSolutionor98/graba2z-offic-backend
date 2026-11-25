@@ -74,7 +74,9 @@ const normalizePaymentMethodId = (value) => {
 // and its currency recorded. Falls back to the currency when the client did not
 // send a country code.
 const resolveOrderCountry = async ({ countryCode, currency, currencySymbol }) => {
-  const fields = "code name currencyCode currencySymbol"
+  // The rate fields are selected too, because `effectiveRate` is a virtual over
+  // them: left out of the projection it quietly computes 1.0 for every country.
+  const fields = "code name currencyCode currencySymbol useManualRate manualExchangeRate liveExchangeRate"
 
   try {
     const explicit = String(countryCode || "").trim().toUpperCase()
@@ -90,6 +92,18 @@ const resolveOrderCountry = async ({ countryCode, currency, currencySymbol }) =>
     console.error("Failed to resolve order country:", error.message)
     return null
   }
+}
+
+// `effectiveRate` is a schema virtual, and these documents are read with .lean(),
+// which does not run virtuals -- so the same rule is applied here. A manual rate
+// wins when one is set, otherwise the last live rate, otherwise parity.
+const countryExchangeRate = (country) => {
+  if (!country) return 1
+  if (country.useManualRate && Number(country.manualExchangeRate) > 0) {
+    return Number(country.manualExchangeRate)
+  }
+  const live = Number(country.liveExchangeRate)
+  return live > 0 ? live : 1
 }
 
 const PAYMENT_METHOD_LABELS = {
@@ -768,6 +782,9 @@ router.post(
       // placed outside the UAE is never silently recorded as AED.
       currency: currency || orderCountry?.currencyCode || "AED",
       currencySymbol: currencySymbol || currency || orderCountry?.currencySymbol || orderCountry?.currencyCode || "AED",
+      // Stamped now so the figure the customer saw can be reproduced exactly later,
+      // whatever the rate does afterwards. An AED order keeps 1.
+      exchangeRate: countryExchangeRate(orderCountry),
       itemsPrice: calculatedItemsPrice,
       shippingPrice: normalizedShippingPrice,
       // Recorded so the invoice splits every line at the rate this order was priced at,
