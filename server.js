@@ -16,6 +16,7 @@ import publicCache from "./middleware/publicCacheMiddleware.js"
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
+import healthRoutes from "./routes/healthRoutes.js"
 import googleMerchantRoutes from "./routes/googleMerchantRoutes.js"
 import acerProductsRoutes from "./routes/acerProductsRoutes.js"
 import sitemapRoutes from './routes/sitemapRoutes.js'
@@ -232,6 +233,11 @@ app.use(
     },
   }),
 )
+
+// Uptime monitoring. Mounted here, ahead of the body parser and every cache
+// layer, so that what it reports is this process answering right now and not a
+// cached copy of a healthier moment. A GET with no body needs no parsing.
+app.use("/health", healthRoutes)
 
 // Body parser middleware
 app.use(express.json({ limit: "50mb" }))
