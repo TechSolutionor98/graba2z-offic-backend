@@ -224,7 +224,7 @@ router.get(
 
     const count = await BackInStock.countDocuments(query)
     const subscriptions = await BackInStock.find(query)
-      .populate("product", "name slug sku image price offerPrice stockStatus countInStock")
+      .populate("product", "name slug sku image images galleryImages colors mainImage thumbnail price offerPrice stockStatus countInStock")
       .sort({ createdAt: -1 })
       .skip(limit * (page - 1))
       .limit(limit)

@@ -77,6 +77,7 @@ const orderSchema = mongoose.Schema(
         // quotations), so the invoice does not fall back to the product's catalogue
         // price and invent a discount that was never given.
         basePrice: { type: Number },
+        sku: { type: String, default: "" },
         product: {
           type: mongoose.Schema.Types.ObjectId,
           required: false, // Optional for protection items
